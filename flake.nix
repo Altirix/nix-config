@@ -9,15 +9,29 @@
     };
   };
 
-  outputs = { self, nixpkgs, disko, ... }@inputs: {
-    nixosConfigurations.homelab-server = nixpkgs.lib.nixosSystem {
-      system = "x86_64-linux";
-      specialArgs = { inherit inputs; };
-      modules = [
-        disko.nixosModules.disko
-        ./hosts/homelab-server/disko.nix
-        ./hosts/homelab-server/configuration.nix
-      ];
+  outputs = { self, nixpkgs, disko, ... }@inputs:
+    let
+      # Every host gets these, always - add/remove once here, applies everywhere.
+      commonModules = import ./modules/common { inherit disko; };
+
+      # Builds one host. `name` must match its folder under hosts/.
+      mkHost = name: extraModules:
+        nixpkgs.lib.nixosSystem {
+          system = "x86_64-linux";
+          specialArgs = { inherit inputs; };
+          modules = commonModules ++ [
+            ./hosts/${name}/disko.nix
+            ./hosts/${name}/hardware-configuration.nix
+            ./hosts/${name}/configuration.nix
+            ./hosts/${name}/networking.nix
+          ] ++ extraModules;
+        };
+    in
+    {
+      nixosConfigurations = {
+        nxa = mkHost "nxa" [ ];
+        nxb = mkHost "nxb" [ ];
+        nxc = mkHost "nxc" [ ];
+      };
     };
-  };
 }
