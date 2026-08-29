@@ -12,7 +12,7 @@
   outputs = { self, nixpkgs, disko, ... }@inputs:
     let
       # Every host gets these, always - add/remove once here, applies everywhere.
-      commonModules = import ./modules/common { inherit disko; };
+      commonModules = import ./modules/common.nix { inherit disko; };
 
       # Builds one host. `name` must match its folder under hosts/.
       mkHost = name: extraModules:
