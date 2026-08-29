@@ -15,23 +15,23 @@
       commonModules = import ./modules/common.nix { inherit disko; };
 
       # Builds one host. `name` must match its folder under hosts/.
-      mkHost = name: extraModules:
+      mkHost = category: name: extraModules:
         nixpkgs.lib.nixosSystem {
           system = "x86_64-linux";
           specialArgs = { inherit inputs; };
           modules = commonModules ++ [
-            ./hosts/${name}/disko.nix
-            ./hosts/${name}/hardware-configuration.nix
-            ./hosts/${name}/configuration.nix
-            ./hosts/${name}/networking.nix
+            ./hosts/${category}/${name}/disko.nix
+            ./hosts/${category}/${name}/hardware-configuration.nix
+            ./hosts/${category}/${name}/configuration.nix
+            ./hosts/${category}/${name}/networking.nix
           ] ++ extraModules;
         };
     in
     {
       nixosConfigurations = {
-        nxa = mkHost "nxa" [ ];
-        nxb = mkHost "nxb" [ ];
-        nxc = mkHost "nxc" [ ];
+        nxa = mkHost "compute" "nxa" [ ];
+        nxb = mkHost "compute" "nxb" [ ];
+        nxc = mkHost "compute" "nxc" [ ];
       };
     };
 }
