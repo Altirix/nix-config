@@ -1,7 +1,8 @@
-{ disko }:
+{ inputs, ... }:
 [
-  disko.nixosModules.disko
+  inputs.disko.nixosModules.disko
+  inputs.sops-nix.nixosModules.sops
   ./common/base.nix
-  ./common/services.nix
   ./common/users.nix
+  ./common/debug.nix
 ]

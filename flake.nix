@@ -3,6 +3,7 @@
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-25.11";
+    sops-nix.url = "github:Mic92/sops-nix";
     disko = {
       url = "github:nix-community/disko";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -11,27 +12,34 @@
 
   outputs = { self, nixpkgs, disko, ... }@inputs:
     let
-      # Every host gets these, always - add/remove once here, applies everywhere.
-      commonModules = import ./modules/common.nix { inherit disko; };
+      # Every host gets these
+      commonModules = import ./modules/common.nix { inherit inputs; };
+      # specialized hosts get these. 
+      tagModules = {
+        compute = import ./modules/compute.nix { };
+      };
 
       # Builds one host. `name` must match its folder under hosts/.
-      mkHost = category: name: extraModules:
+      mkHost = { path, tags, extraModules ? [ ] }:
         nixpkgs.lib.nixosSystem {
           system = "x86_64-linux";
           specialArgs = { inherit inputs; };
-          modules = commonModules ++ [
-            ./hosts/${category}/${name}/disko.nix
-            ./hosts/${category}/${name}/hardware-configuration.nix
-            ./hosts/${category}/${name}/configuration.nix
-            ./hosts/${category}/${name}/networking.nix
-          ] ++ extraModules;
+          modules = commonModules
+            ++ (nixpkgs.lib.concatMap (tag: tagModules.${tag}) tags)
+            ++ [
+              ./hosts/${path}/disko.nix
+              ./hosts/${path}/hardware-configuration.nix
+              ./hosts/${path}/configuration.nix
+              ./hosts/${path}/networking.nix
+            ]
+            ++ extraModules;
         };
     in
     {
       nixosConfigurations = {
-        nxa = mkHost "compute" "nxa" [ ];
-        nxb = mkHost "compute" "nxb" [ ];
-        nxc = mkHost "compute" "nxc" [ ];
+        nxa = mkHost { path = "compute/nxa"; tags = [ "compute" ]; };
+        nxb = mkHost { path = "compute/nxb"; tags = [ "compute" ]; };
+        nxc = mkHost { path = "compute/nxc"; tags = [ "compute" ]; };
       };
     };
 }
