@@ -5,13 +5,22 @@
     enable = true;
     ui.enable = true;
     package = pkgs.incus;
+    preseed = {
+      config."core.https_address" = ":8443";
+      profiles = [
+        {
+          name = "default";
+          devices.eth0 = {
+            name = "eth0";
+            nictype = "bridged";
+            parent = "incus-br0";
+            type = "nic";
+          };
+        }
+      ];
+    };
   };
 
-  services.qemuGuest.enable = true;
-
-  networking.nftables.enable = true;
-  networking.bridges.incus-br0.interfaces = [ ];
-  networking.interfaces.incus-br0.useDHCP = true;
-
+  networking.firewall.allowedTCPPorts = [ 8443 ]; 
   users.users.admin.extraGroups = [ "incus-admin" ];
 }
