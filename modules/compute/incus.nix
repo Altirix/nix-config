@@ -7,6 +7,13 @@
     package = pkgs.incus;
     preseed = {
       config."core.https_address" = ":8443";
+      certificates = [
+        {
+          name = "my-browser";
+          type = "client";
+          certificate = builtins.readFile ./config/incus-ui.crt;
+        }
+      ];
       profiles = [
         {
           name = "default";
