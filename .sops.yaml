@@ -1,0 +1,56 @@
+keys:
+
+# User Keys
+
+  - &admin age1hzd4wek48s4mpptw00l30uhgpmcm4atuhjnqtxttftnhp8xflgnqxzdhmz # Main PC
+
+# Host Keys
+
+  - &host_nxa age1dsmxl8av3ahecptr2uph6d275dav9jjfuv3unmjf4fhv6y8qqy2sx27uzy # Test VM
+
+# Groups
+
+compute: &compute
+  - *host_nxa
+
+creation_rules:
+  # Per Host Secrets
+  - path_regex: ^hosts[\\/]compute[\\/]nxa[\\/]secrets\.yaml$
+    key_groups:
+      - age:
+        - *admin
+        - *host_nxa
+
+
+  # Shared Secrets
+  - path_regex: ^secrets[\\/]common\.yaml$
+    key_groups:
+      - age:
+        - *admin
+        - *host_nxa
+
+  - path_regex: ^secrets[\\/]compute\.yaml$
+    key_groups:
+      - age:
+        - *admin
+        - *host_nxa
+
+  - path_regex: ^secrets[\\/]edge\.yaml$
+    key_groups:
+      - age:
+        - *admin
+
+  - path_regex: ^secrets[\\/]standalone\.yaml$
+    key_groups:
+      - age:
+        - *admin
+
+  - path_regex: ^secrets[\\/]storage\.yaml$
+    key_groups:
+      - age:
+        - *admin
+
+  - path_regex: ^secrets[\\/]virtual\.yaml$
+    key_groups:
+      - age:
+        - *admin
