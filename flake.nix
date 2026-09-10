@@ -12,20 +12,21 @@
 
   outputs = { self, nixpkgs, disko, ... }@inputs:
     let
-      # Every host gets these
-      commonModules = import ./modules/common.nix { inherit inputs; };
-      # specialized hosts get these. 
+      commonModules = [ ./modules/common.nix ];
+
+      # Map tag names directly to lists of file paths
       tagModules = {
-        compute = import ./modules/compute.nix { };
+        compute = [ ./modules/compute.nix ];
       };
 
-      # Builds one host. `name` must match its folder under hosts/.
-      mkHost = { path, tags, extraModules ? [ ] }:
+      # Builds one host. `path` determines the directory under hosts/
+      mkHost = { path, tags ? [ ], extraModules ? [ ] }:
         let 
           hostName = baseNameOf path; 
         in
         nixpkgs.lib.nixosSystem {
           system = "x86_64-linux";
+          # specialArgs passes `inputs` to modules automatically
           specialArgs = { inherit inputs; };
           modules = commonModules
             ++ (nixpkgs.lib.concatMap (tag: tagModules.${tag}) tags)
