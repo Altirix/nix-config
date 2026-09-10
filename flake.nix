@@ -21,6 +21,9 @@
 
       # Builds one host. `name` must match its folder under hosts/.
       mkHost = { path, tags, extraModules ? [ ] }:
+        let 
+          hostName = baseNameOf path; 
+        in
         nixpkgs.lib.nixosSystem {
           system = "x86_64-linux";
           specialArgs = { inherit inputs; };
@@ -31,6 +34,7 @@
               ./hosts/${path}/hardware-configuration.nix
               ./hosts/${path}/configuration.nix
               ./hosts/${path}/networking.nix
+              { networking.hostName = hostName; }
             ]
             ++ extraModules;
         };
