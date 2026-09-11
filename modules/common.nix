@@ -9,7 +9,10 @@
     ./common/debug.nix
   ];
 
-  sops.secrets.common = {
+  sops.secrets = {
+  "common-hello" = {
     sopsFile = ../secrets/common.yaml;
+    key= "hello";
   };
+};
 }

@@ -6,7 +6,10 @@
     ./compute/zfs.nix
   ];
 
-  sops.secrets.compute = {
-    sopsFile = ../secrets/compute.yaml;
+  sops.secrets = {
+    "compute-hello" = {
+      sopsFile = ../secrets/compute.yaml;
+      key = "hello";
+    };
   };
 }

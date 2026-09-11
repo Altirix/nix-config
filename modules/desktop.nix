@@ -3,7 +3,10 @@
     ./desktop/home.nix
   ];
 
-  sops.secrets.desktop = {
-    sopsFile = ../secrets/desktop.yaml;
+  sops.secrets = {
+    "desktop-hello" = {
+      sopsFile = ../secrets/desktop.yaml;
+      key = "hello";
+    };
   };
 }

@@ -1,5 +1,8 @@
 {
-  sops.secrets.edge = {
-    sopsFile = ../secrets/edge.yaml;
+  sops.secrets = {
+    "edge-hello" = {
+      sopsFile = ../secrets/edge.yaml;
+      key = "hello";
+    };
   };
 }
