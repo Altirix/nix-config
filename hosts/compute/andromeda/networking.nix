@@ -2,7 +2,7 @@
 
 {
   networking.interfaces.lo.ipv4.addresses = [
-    { address = "10.99.0.1"; prefixLength = 32; }
+    { address = "10.255.0.10"; prefixLength = 32; }
   ];
 
   networking.nftables.enable = true;
@@ -38,7 +38,7 @@
   };
   systemd.network.networks."mgmt-vlan" = {
     matchConfig.Name = "mgmt-vlan";
-    address = [ "10.90.0.100/24" ];
+    address = [ "10.90.0.10/24" ];
     networkConfig.DHCP = "no";
   };
 

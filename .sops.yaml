@@ -6,20 +6,20 @@ keys:
 
 # Host Keys
 
-  - &host_nxa age1dsmxl8av3ahecptr2uph6d275dav9jjfuv3unmjf4fhv6y8qqy2sx27uzy # Test VM
+  - &host_andromeda age18wc67zrkjh7n4xe7c2j5pe60yyhqgwrx5jvwnw3jkq74c84r9drsth2stg # Incus Node 1
 
 # Groups
 
 compute: &compute
-  - *host_nxa
+  - *host_andromeda
 
 creation_rules:
   # Per Host Secrets
-  - path_regex: ^hosts[\\/]compute[\\/]nxa[\\/]secrets\.yaml$
+  - path_regex: ^hosts[\\/]compute[\\/]andromeda[\\/]secrets\.yaml$
     key_groups:
       - age:
         - *admin
-        - *host_nxa
+        - *host_andromeda
 
 
   # Shared Secrets
@@ -27,13 +27,13 @@ creation_rules:
     key_groups:
       - age:
         - *admin
-        - *host_nxa
+        - *host_andromeda
 
   - path_regex: ^secrets[\\/]compute\.yaml$
     key_groups:
       - age:
         - *admin
-        - *host_nxa
+        - *host_andromeda
 
   - path_regex: ^secrets[\\/]edge\.yaml$
     key_groups:
