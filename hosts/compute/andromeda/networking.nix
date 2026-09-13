@@ -22,7 +22,7 @@
   };
   systemd.network.networks."incus-br0" = {
     matchConfig.Name = "incus-br0";
-    address = [ "192.168.88.50/24" ];
+    address = [ "192.168.88.11/24" ];
     routes = [ { Gateway = "192.168.88.1"; } ];
     dns = [ "192.168.88.1" ];
     networkConfig.DHCP = "no";
