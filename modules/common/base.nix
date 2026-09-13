@@ -3,7 +3,7 @@
 {
   # --- Boot ---
   boot.loader.systemd-boot.enable = lib.mkDefault true;
-  boot.loader.efi.canTouchEfiVariables = true;
+  boot.loader.efi.canTouchEfiVariables = lib.mkDefault true;
 
   # --- Locale / time ---
   time.timeZone = "Europe/London";

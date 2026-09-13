@@ -7,7 +7,6 @@
 
   system.stateVersion = "25.11";
 
-  boot.loader.efi.canTouchEfiVariables = true;
   boot.supportedFilesystems = [ "zfs" ];
   boot.zfs.forceImportRoot = false;
 
