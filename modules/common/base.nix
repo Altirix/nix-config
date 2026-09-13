@@ -1,8 +1,8 @@
-{ config, pkgs, ... }:
+{ config, lib,pkgs, ... }:
 
 {
   # --- Boot ---
-  boot.loader.systemd-boot.enable = true;
+  boot.loader.systemd-boot.enable = lib.mkDefault true;
   boot.loader.efi.canTouchEfiVariables = true;
 
   # --- Locale / time ---
