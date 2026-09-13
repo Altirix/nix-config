@@ -34,16 +34,13 @@
         content = {
           type = "gpt";
           partitions = {
-            # Second ESP is NOT mounted at /boot by disko
-            # sync via systemd unit, since only one FS can
-            # be mounted at a mountpoint.
             ESP2 = {
               size = "1G";
               type = "EF00";
               content = {
                 type = "filesystem";
                 format = "vfat";
-                mountpoint = "/boot-fallback";
+                mountpoint = "/boot-2";
                 mountOptions = [ "umask=0077" ];
               };
             };

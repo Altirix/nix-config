@@ -7,8 +7,5 @@
 
   system.stateVersion = "25.11";
 
-  boot.supportedFilesystems = [ "zfs" ];
-  boot.zfs.forceImportRoot = false;
-
   sops.defaultSopsFile = ./secrets.yaml;
 }

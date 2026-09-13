@@ -1,15 +1,6 @@
 { config, lib, ... }:
 
 {
-  assertions = [
-    {
-      assertion = config.disko.devices.disk ? disk1 && config.disko.devices.disk ? disk2;
-      message = ''
-        grub-mirrored-boot.nix requires both `disk1` and `disk2` to be
-        defined in this host's disko.nix. 
-        '';
-    }
-  ];
 
   boot.loader.systemd-boot.enable = false;
   boot.loader.efi.canTouchEfiVariables = false;
@@ -20,16 +11,16 @@
     efiInstallAsRemovable = true; 
     device = "nodev";
 
-    mirroredBoots = [
+    mirroredBoots = [ # this is really just "additionalBoots" the above "device" becomes "/boot" like below. without grub.device, it will atempt to install as i386
+      #{
+      #  devices = [ "nodev" ];
+      #  path = "/boot";
+      #  efiSysMountPoint = "/boot";
+      #}
       {
-        devices = [ config.disko.devices.disk.disk1.device ];
-        path = "/boot1";
-        efiSysMountPoint = "/boot1";
-      }
-      {
-        devices = [ config.disko.devices.disk.disk2.device ];
-        path = "/boot2";
-        efiSysMountPoint = "/boot2";
+        devices = [ "nodev" ];
+        path = "/boot-2";
+        efiSysMountPoint = "/boot-2";
       }
     ];
   };
