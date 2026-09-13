@@ -23,6 +23,7 @@
       mkHost = { path, tags ? [ ], extraModules ? [ ] }:
         let 
           hostName = baseNameOf path; 
+          hostId = builtins.substring 0 8 (builtins.hashString "sha256" hostName);
         in
         nixpkgs.lib.nixosSystem {
           system = "x86_64-linux";
@@ -36,13 +37,17 @@
               ./hosts/${path}/configuration.nix
               ./hosts/${path}/networking.nix
               { networking.hostName = hostName; }
+              { networking.hostId = hostId; }
             ]
             ++ extraModules;
         };
     in
     {
       nixosConfigurations = {
-        nxa = mkHost { path = "compute/nxa"; tags = [ "compute" ]; };
+        andromeda = mkHost { 
+          path = "compute/andromeda"; 
+          tags = [ "compute" ]; 
+          extraModules = [ ./modules/extra/grub-mirror-boot.nix ];};
         nxb = mkHost { path = "compute/nxb"; tags = [ "compute" ]; };
         nxc = mkHost { path = "compute/nxc"; tags = [ "compute" ]; };
       };
