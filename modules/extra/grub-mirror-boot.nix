@@ -9,6 +9,8 @@
     enable = true;
     efiSupport = true;
     efiInstallAsRemovable = true; 
+    zfsSupport = true;
+    copyKernels = true;
     device = "nodev";
 
     mirroredBoots = [ # this is really just "additionalBoots" the above "device" becomes "/boot" like below. without grub.device, it will atempt to install as i386
