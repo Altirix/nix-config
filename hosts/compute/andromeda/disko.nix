@@ -223,11 +223,11 @@
         type = "zpool";
         mode = "mirror";
         options = {
-          ashift = "12";
+          ashift = "9"; # physical sector size is 512B
           autotrim = "on";
         };
         rootFsOptions = {
-          compression = "zstd";
+          compression = "lz4";
           "com.sun:auto-snapshot" = "false";
           mountpoint = "none";
         };
@@ -256,11 +256,11 @@
         type = "zpool";
         mode = "mirror";
         options = {
-          ashift = "12";
+          ashift = "12"; # physical sector size is 4KB
           autotrim = "on";
         };
         rootFsOptions = {
-          compression = "zstd";
+          compression = "lz4";
           "com.sun:auto-snapshot" = "false";
         };
         mountpoint = "/mnt/sata-zfs-mirror2";
@@ -271,11 +271,11 @@
         type = "zpool";
         mode = ""; # stripe
         options = {
-          ashift = "12";
+          ashift = "12"; # physical sector size is 4KB
           autotrim = "on";
         };
         rootFsOptions = {
-          compression = "zstd";
+          compression = "lz4";
           "com.sun:auto-snapshot" = "false";
         };
         mountpoint = "/mnt/nvme-zfs-stripe3";
@@ -306,7 +306,7 @@
           autotrim = "on";
         };
         rootFsOptions = {
-          compression = "zstd";
+          compression = "lz4";
           "com.sun:auto-snapshot" = "false";
         };
         mountpoint = "/mnt/usb-zfs-mirror2-slog";
