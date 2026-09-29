@@ -223,7 +223,7 @@
         type = "zpool";
         mode = "mirror";
         options = {
-          ashift = "9"; # physical sector size is 512B
+          ashift = "12"; # reports a physical sector size is 512B, but its lying.
           autotrim = "on";
         };
         rootFsOptions = {
@@ -302,7 +302,7 @@
           };
         };
         options = {
-          ashift = "12";
+          ashift = "12"; # JMS853 reports a physical sector size is 512B, but its also lying.
           autotrim = "on";
         };
         rootFsOptions = {

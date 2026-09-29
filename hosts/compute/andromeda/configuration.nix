@@ -9,6 +9,10 @@
 
   sops.defaultSopsFile = ./secrets.yaml;
 
+
+  boot.kernelParams = [ "amd_pstate=active" ];
+  powerManagement.cpuFreqGovernor = "powersave";
+
   # High-speed interconnects
   mesh = {
     interfaces = [ "enp12s0f0np0" "enp12s0f1np1" ];
