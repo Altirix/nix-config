@@ -7,6 +7,7 @@ keys:
 # Host Keys
 
   - &host_andromeda age18wc67zrkjh7n4xe7c2j5pe60yyhqgwrx5jvwnw3jkq74c84r9drsth2stg # Incus Node 1
+  - &host_bode age1t648rtjxt9wpsvzmrtvxlj9cfqajh2sll5u5uxqrnzxy0ffun5qqu6wfh2 # Incus Node 2
 
 # Groups
 
@@ -21,6 +22,12 @@ creation_rules:
         - *admin
         - *host_andromeda
 
+  - path_regex: ^hosts[\\/]compute[\\/]bode[\\/]secrets\.yaml$
+    key_groups:
+      - age:
+        - *admin
+        - *host_bode
+
 
   # Shared Secrets
   - path_regex: ^secrets[\\/]common\.yaml$
@@ -28,12 +35,14 @@ creation_rules:
       - age:
         - *admin
         - *host_andromeda
+        - *host_bode
 
   - path_regex: ^secrets[\\/]compute\.yaml$
     key_groups:
       - age:
         - *admin
         - *host_andromeda
+        - *host_bode
 
   - path_regex: ^secrets[\\/]edge\.yaml$
     key_groups:

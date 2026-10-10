@@ -51,7 +51,10 @@
           path = "compute/andromeda"; 
           tags = [ "compute" ]; 
           extraModules = [ ./modules/extra/grub-mirror-boot.nix ];};
-        nxb = mkHost { path = "compute/nxb"; tags = [ "compute" ]; };
+        bode = mkHost { 
+          path = "compute/bode"; 
+          tags = [ "compute" ]; 
+          extraModules = [ ./modules/extra/grub-mirror-boot.nix ];};
         nxc = mkHost { path = "compute/nxc"; tags = [ "compute" ]; };
       };
     };
