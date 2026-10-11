@@ -1,7 +1,7 @@
 {
   disko.devices = {
     disk = {
-      
+
       # SATA BOOT
 
       # 64GB - All to zfs mirror
@@ -32,7 +32,7 @@
         };
       };
 
-    # 64GB - All to zfs mirror
+      # 64GB - All to zfs mirror
       disk2 = {
         type = "disk";
         device = "/dev/disk/by-id/ata-SAMSUNG_SSD_830_Series_S0VXNYAC205402";
@@ -62,39 +62,34 @@
 
       # SATA STORAGE
 
-      # 960GB - All to zfs mirror
+      # 960GB - Ceph OSD
       disk3 = {
         type = "disk";
         device = "/dev/disk/by-id/ata-MZ7L3960HBLTAD3_S6M4NE0T800320";
         content = {
           type = "gpt";
-          partitions.zfs = {
+          partitions.ceph = {
             size = "100%";
-            content = {
-              type = "zfs";
-              pool = "sata-zfs-mirror2";
-            };
+            type = "8300"; # left unformatted, ceph-volume claims it
           };
         };
       };
-      # 960GB - All to zfs mirror
+
+      # 960GB - Ceph OSD
       disk4 = {
         type = "disk";
         device = "/dev/disk/by-id/ata-MZ7L3960HBLTAD3_S6M4NE0T800473";
         content = {
           type = "gpt";
-          partitions.zfs = {
+          partitions.ceph = {
             size = "100%";
-            content = {
-              type = "zfs";
-              pool = "sata-zfs-mirror2";
-            };
+            type = "8300";
           };
         };
       };
 
       # OPTANE SLOG
-      
+
       # 16GB slog for the USB drives
       disk5 = {
         type = "disk";
@@ -111,71 +106,63 @@
         };
       };
 
-      # NVME STORAGE 
-      
-      # 4TB - 3TB Ceph OSD, 1TB zfs-stripe
+      # NVME STORAGE
+
+      # 4TB - ZFS Raid10 VDev 1
       disk6 = {
         type = "disk";
         device = "/dev/disk/by-id/nvme-INTEL_SSDPEDKE040T7_PHLE729000B84P0KGN";
         content = {
           type = "gpt";
           partitions = {
-            ceph1 = {
-              size = "3000G";
-              type = "8300"; # left unformatted, ceph-volume claims it
-            };
-            zfs-stripe = {
-              size = "100%";
+            zfs-v1 = {
+              size = "3550G";
               content = {
                 type = "zfs";
-                pool = "nvme-zfs-stripe3";
+                pool = "nvme-zfs-raid10";
               };
             };
           };
         };
       };
 
-      # 7.68TB - 2x 3TB Ceph OSD, 1.68TB zfs-stripe
+      # 7.68TB - ZFS Raid10 VDev 1 and VDev 2
       disk7 = {
         type = "disk";
         device = "/dev/disk/by-id/nvme-INTEL_SSDPF2KX076TZO_BTAC146101BZ7P6CGN";
         content = {
           type = "gpt";
           partitions = {
-            ceph1 = {
-              size = "3000G";
-              type = "8300";
-            };
-            ceph2 = {
-              size = "3000G";
-              type = "8300";
-            };
-            zfs-stripe = {
-              size = "100%";
+            zfs-v1 = {
+              size = "3550G";
               content = {
                 type = "zfs";
-                pool = "nvme-zfs-stripe3";
+                pool = "nvme-zfs-raid10";
+              };
+            };
+            zfs-v2 = {
+              size = "3550G";
+              content = {
+                type = "zfs";
+                pool = "nvme-zfs-raid10";
               };
             };
           };
         };
       };
-      # 4TB - 3TB Ceph OSD, 1TB zfs-stripe
+
+      # 4TB - ZFS Raid10 VDev 2
       disk8 = {
         type = "disk";
         device = "/dev/disk/by-id/nvme-Predator_SSD_GM7000_4TB_PSAG64431202058";
         content = {
           type = "gpt";
           partitions = {
-            ceph1 = {
-              size = "3000G";
-              type = "8300";
-            };
-            zfs-stripe = {
-              size = "100%";
+            zfs-v2 = {
+              size = "3550G";
               content = {
                 type = "zfs";
-                pool = "nvme-zfs-stripe3";
+                pool = "nvme-zfs-raid10";
               };
             };
           };
@@ -183,8 +170,8 @@
       };
 
       # USB NVMEs
-      
-      #512GB - All to zfs mirror
+
+      # 512GB - All to zfs mirror
       disk9 = {
         type = "disk";
         device = "/dev/disk/by-id/usb-JMicron_Generic_DD56419003943-0:0";
@@ -200,7 +187,7 @@
         };
       };
 
-      #512GB - All to zfs mirror
+      # 512GB - All to zfs mirror
       disk10 = {
         type = "disk";
         device = "/dev/disk/by-id/usb-JMicron_Generic_DD56419003948-0:0";
@@ -228,6 +215,9 @@
         };
         rootFsOptions = {
           compression = "lz4";
+          atime = "off";
+          xattr = "sa";
+          acltype = "posixacl";
           "com.sun:auto-snapshot" = "false";
           mountpoint = "none";
         };
@@ -241,8 +231,10 @@
           "nix" = {
             type = "zfs_fs";
             mountpoint = "/nix";
-            options.mountpoint = "legacy";
-            options.atime = "off";
+            options = {
+              mountpoint = "legacy";
+              compression = "zstd";
+            };
           };
           "var" = {
             type = "zfs_fs";
@@ -251,35 +243,39 @@
           };
         };
       };
-      # Durable for one disk lost. 2x PM897 960GB
-      "sata-zfs-mirror2" = {
-        type = "zpool";
-        mode = "mirror";
-        options = {
-          ashift = "12"; # physical sector size is 4KB
-          autotrim = "on";
-        };
-        rootFsOptions = {
-          compression = "lz4";
-          "com.sun:auto-snapshot" = "false";
-        };
-        mountpoint = "/mnt/sata-zfs-mirror2";
-      };
 
-      # No redundancy pool of 1.68TB P5510 + 1TB P4600 + 1TB IG5236
-      "nvme-zfs-stripe3" = {
+      # P5510 splits into two vdevs, P4600 + GM7000 are in either one of the vdevs
+      "nvme-zfs-raid10" = {
         type = "zpool";
-        mode = ""; # stripe
+        mode.topology = {
+          type = "topology";
+          vdev = [
+            { mode = "mirror"; members = [ "disk6-zfs-v1" "disk7-zfs-v1" ]; }
+            { mode = "mirror"; members = [ "disk8-zfs-v2" "disk7-zfs-v2" ]; }
+          ];
+        };
         options = {
-          ashift = "12"; # physical sector size is 4KB
+          ashift = "12";
           autotrim = "on";
         };
         rootFsOptions = {
           compression = "lz4";
-          "com.sun:auto-snapshot" = "false";
+          atime = "off";
+          xattr = "sa";
+          acltype = "posixacl";
+          dnodesize = "auto";
+          mountpoint = "none";
         };
-        mountpoint = "/mnt/nvme-zfs-stripe3";
-        mountOptions = [ "nofail" ]; # dont block boot
+        datasets = {
+          vm = {
+            type = "zfs_fs";
+            mountpoint = "/mnt/vm";
+            options = {
+              mountpoint = "legacy";
+              recordsize = "16K";
+            };
+          };
+        };
       };
 
       # Durable for one disk lost. Slog is single vdev. 2x 512GB PM991 + 16GB M10 Optane
@@ -302,15 +298,29 @@
           };
         };
         options = {
-          ashift = "12"; # JMS853 reports a physical sector size is 512B, but its also lying.
+          ashift = "12"; # JMS583 reports a physical sector size is 512B, but its also lying.
           autotrim = "on";
         };
         rootFsOptions = {
-          compression = "lz4";
+          compression = "zstd";
+          atime = "off";
+          xattr = "sa";
+          acltype = "posixacl";
           "com.sun:auto-snapshot" = "false";
+          mountpoint = "none";
         };
-        mountpoint = "/mnt/usb-zfs-mirror2-slog";
-        mountOptions = [ "nofail" ]; # dont block boot
+        datasets = {
+          bulk = {
+            type = "zfs_fs";
+            mountpoint = "/mnt/bulk";
+            mountOptions = [ "nofail" ];
+            options = {
+              mountpoint = "legacy";
+              recordsize = "1M";
+              logbias = "throughput";
+            };
+          };
+        };
       };
     };
   };
