@@ -5,7 +5,7 @@
       # SATA BOOT
 
       # 64GB - All to zfs mirror
-      disk1 = {
+      boot1 = {
         type = "disk";
         device = "/dev/disk/by-id/ata-SAMSUNG_SSD_830_Series_S0VXNYAC205325";
         content = {
@@ -33,7 +33,7 @@
       };
 
       # 64GB - All to zfs mirror
-      disk2 = {
+      boot2 = {
         type = "disk";
         device = "/dev/disk/by-id/ata-SAMSUNG_SSD_830_Series_S0VXNYAC205402";
         content = {
@@ -63,7 +63,7 @@
       # SATA STORAGE
 
       # 960GB - Ceph OSD
-      disk3 = {
+      sata1 = {
         type = "disk";
         device = "/dev/disk/by-id/ata-MZ7L3960HBLTAD3_S6M4NE0T800320";
         content = {
@@ -76,7 +76,7 @@
       };
 
       # 960GB - Ceph OSD
-      disk4 = {
+      sata2 = {
         type = "disk";
         device = "/dev/disk/by-id/ata-MZ7L3960HBLTAD3_S6M4NE0T800473";
         content = {
@@ -91,7 +91,7 @@
       # OPTANE SLOG
 
       # 16GB slog for the USB drives
-      disk5 = {
+      slog1 = {
         type = "disk";
         device = "/dev/disk/by-id/nvme-INTEL_MEMPEK1J016GAD_PHBT837207F0016N";
         content = {
@@ -109,7 +109,7 @@
       # NVME STORAGE
 
       # 4TB - ZFS Raid10 VDev 1
-      disk6 = {
+      nvme1 = {
         type = "disk";
         device = "/dev/disk/by-id/nvme-INTEL_SSDPEDKE040T7_PHLE729000B84P0KGN";
         content = {
@@ -127,7 +127,7 @@
       };
 
       # 7.68TB - ZFS Raid10 VDev 1 and VDev 2
-      disk7 = {
+      nvme2 = {
         type = "disk";
         device = "/dev/disk/by-id/nvme-INTEL_SSDPF2KX076TZO_BTAC146101BZ7P6CGN";
         content = {
@@ -152,7 +152,7 @@
       };
 
       # 4TB - ZFS Raid10 VDev 2
-      disk8 = {
+      nvme3 = {
         type = "disk";
         device = "/dev/disk/by-id/nvme-Predator_SSD_GM7000_4TB_PSAG64431202058";
         content = {
@@ -172,7 +172,7 @@
       # USB NVMEs
 
       # 512GB - All to zfs mirror
-      disk9 = {
+      usb1 = {
         type = "disk";
         device = "/dev/disk/by-id/usb-JMicron_Generic_DD56419003943-0:0";
         content = {
@@ -188,7 +188,7 @@
       };
 
       # 512GB - All to zfs mirror
-      disk10 = {
+      usb2 = {
         type = "disk";
         device = "/dev/disk/by-id/usb-JMicron_Generic_DD56419003948-0:0";
         content = {
@@ -250,8 +250,8 @@
         mode.topology = {
           type = "topology";
           vdev = [
-            { mode = "mirror"; members = [ "disk6-zfs-v1" "disk7-zfs-v1" ]; }
-            { mode = "mirror"; members = [ "disk8-zfs-v2" "disk7-zfs-v2" ]; }
+            { mode = "mirror"; members = [ "nvme1-zfs-v1" "nvme2-zfs-v1" ]; }
+            { mode = "mirror"; members = [ "nvme3-zfs-v2" "nvme2-zfs-v2" ]; }
           ];
         };
         options = {
@@ -287,12 +287,12 @@
             vdev = [
               {
                 mode = "mirror";
-                members = [ "disk9" "disk10" ];
+                members = [ "usb1" "usb2" ];
               }
             ];
             log = [
               {
-                members = [ "disk5" ];
+                members = [ "slog1" ];
               }
             ];
           };

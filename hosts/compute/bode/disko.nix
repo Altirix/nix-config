@@ -5,7 +5,7 @@
       # SATA BOOT
 
       # 64GB - All to zfs mirror
-      disk1 = {
+      boot1 = {
         type = "disk";
         device = "/dev/disk/by-id/ata-SAMSUNG_SSD_830_Series_S0VXNYAC205069";
         content = {
@@ -33,7 +33,7 @@
       };
 
       # 64GB - All to zfs mirror
-      disk2 = {
+      boot2 = {
         type = "disk";
         device = "/dev/disk/by-id/ata-SAMSUNG_SSD_830_Series_S0VXNYAC205093";
         content = {
@@ -63,7 +63,7 @@
       # SATA STORAGE
 
       # 960GB - Ceph OSD
-      disk3 = {
+      sata1 = {
         type = "disk";
         device = "/dev/disk/by-id/ata-MK000960GWUGH_192622B49820";
         content = {
@@ -76,7 +76,7 @@
       };
 
       # 960GB - Ceph OSD
-      disk4 = {
+      sata2 = {
         type = "disk";
         device = "/dev/disk/by-id/ata-MK000960GWUGH_192622B49C10";
         content = {
@@ -91,7 +91,7 @@
       # OPTANE SLOG
 
       # 16GB slog for the USB drives
-      disk5 = {
+      slog1 = {
         type = "disk";
         device = "/dev/disk/by-id/nvme-INTEL_MEMPEK1J016GAD_PHBT83710WLT016N";
         content = {
@@ -109,7 +109,7 @@
       # NVME STORAGE
 
       # 3.2TB - ZFS mirror member (one of two 3.2TB drives on the Oracle Intel P4608, no TRIM in firmware, so the unpartitioned space stays as overprovisioning)
-      disk6 = {
+      nvme1 = {
         type = "disk";
         device = "/dev/disk/by-id/nvme-7335943:ICDPC5ED2ORA6.4T_PHLE812600EP6P4BGN-1";
         content = {
@@ -125,7 +125,7 @@
       };
 
       # 3.2TB - ZFS mirror member (second drive on the P4608, same overprovisioning)
-      disk7 = {
+      nvme2 = {
         type = "disk";
         device = "/dev/disk/by-id/nvme-7335943:ICDPC5ED2ORA6.4T_PHLE812600EP6P4BGN-2";
         content = {
@@ -143,7 +143,7 @@
       # USB NVMEs
 
       # 512GB - All to zfs mirror
-      disk8 = {
+      usb1 = {
         type = "disk";
         device = "/dev/disk/by-id/usb-JMicron_Generic_DD56419003944-0:0";
         content = {
@@ -159,7 +159,7 @@
       };
 
       # 512GB - All to zfs mirror
-      disk9 = {
+      usb2 = {
         type = "disk";
         device = "/dev/disk/by-id/usb-JMicron_Generic_DD56419003945-0:0";
         content = {
@@ -252,12 +252,12 @@
             vdev = [
               {
                 mode = "mirror";
-                members = [ "disk8" "disk9" ];
+                members = [ "usb1" "usb2" ];
               }
             ];
             log = [
               {
-                members = [ "disk5" ];
+                members = [ "slog1" ];
               }
             ];
           };
