@@ -51,15 +51,27 @@
         andromeda = mkHost { 
           path = "compute/andromeda"; 
           tags = [ "compute" ]; 
-          extraModules = [ ./modules/extra/grub-mirror-boot.nix ];};
+          extraModules = [
+            ./modules/extra/grub-mirror-boot.nix
+            ./modules/extra/connectx4.nix
+          ];
+        };
         bode = mkHost { 
           path = "compute/bode"; 
           tags = [ "compute" ]; 
-          extraModules = [ ./modules/extra/grub-mirror-boot.nix ];};
+          extraModules = [
+            ./modules/extra/grub-mirror-boot.nix
+            ./modules/extra/connectx4.nix
+          ];
+        };
         centaurus = mkHost { 
           path = "compute/centaurus"; 
           tags = [ "compute" ]; 
-          extraModules = [ ./modules/extra/grub-mirror-boot.nix ];};
+          extraModules = [
+            ./modules/extra/grub-mirror-boot.nix
+            ./modules/extra/connectx4.nix
+          ];
+        };
       };
     };
 }
