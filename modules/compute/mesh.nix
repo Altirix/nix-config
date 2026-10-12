@@ -2,6 +2,15 @@
 
 let
   cfg = config.mesh;
+
+  prefix = "10.255.0";
+
+  # Every mesh node and its id, the single source of truth for addressing.
+  nodes = {
+    andromeda = 1;
+    bode = 2;
+    centaurus = 3;
+  };
 in
 {
   options.mesh = {
@@ -12,12 +21,26 @@ in
 
     nodeId = lib.mkOption {
       type = lib.types.ints.between 1 254;
+      readOnly = true;
+      default = nodes.${config.networking.hostName};
     };
 
     routerIp = lib.mkOption {
       type = lib.types.str;
       readOnly = true;
-      default = "10.255.0.${toString cfg.nodeId}";
+      default = cfg.addresses.${config.networking.hostName};
+    };
+
+    network = lib.mkOption {
+      type = lib.types.str;
+      readOnly = true;
+      default = "${prefix}.0/24";
+    };
+
+    addresses = lib.mkOption {
+      type = lib.types.attrsOf lib.types.str;
+      readOnly = true;
+      default = lib.mapAttrs (_: id: "${prefix}.${toString id}") nodes;
     };
   };
 

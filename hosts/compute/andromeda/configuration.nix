@@ -17,6 +17,5 @@
   # High-speed interconnects
   mesh = {
     interfaces = [ "enp12s0f0np0" "enp12s0f1np1" ];
-    nodeId = 1;
   };
 }
