@@ -115,7 +115,7 @@
         content = {
           type = "gpt";
           partitions = {
-            zfs-v1 = {
+            v1-zfs = {
               size = "3550G";
               content = {
                 type = "zfs";
@@ -133,14 +133,14 @@
         content = {
           type = "gpt";
           partitions = {
-            zfs-v1 = {
+            v1-zfs = {
               size = "3550G";
               content = {
                 type = "zfs";
                 pool = "nvme-zfs-raid10";
               };
             };
-            zfs-v2 = {
+            v2-zfs = {
               size = "3550G";
               content = {
                 type = "zfs";
@@ -158,7 +158,7 @@
         content = {
           type = "gpt";
           partitions = {
-            zfs-v2 = {
+            v2-zfs = {
               size = "3550G";
               content = {
                 type = "zfs";
@@ -250,8 +250,8 @@
         mode.topology = {
           type = "topology";
           vdev = [
-            { mode = "mirror"; members = [ "nvme1-zfs-v1" "nvme2-zfs-v1" ]; }
-            { mode = "mirror"; members = [ "nvme3-zfs-v2" "nvme2-zfs-v2" ]; }
+            { mode = "mirror"; members = [ "nvme1-v1" "nvme2-v1" ]; }
+            { mode = "mirror"; members = [ "nvme3-v2" "nvme2-v2" ]; }
           ];
         };
         options = {
