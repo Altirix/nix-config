@@ -3,30 +3,18 @@
 let
   mesh = config.mesh;
 
-  routerIp = "10.255.0.${toString mesh.nodeId}";
-
   netId =
     lib.fixedWidthString 4 "0" (toString mesh.nodeId);
 in
 {
-  # Unnumbered links: reuse the loopback /32 on every mesh interface so
-  # hellos carry an IPv4 address and FRR has a next hop to install.
-  systemd.network.networks = lib.listToAttrs (lib.imap0 (i: _: {
-    name = "mesh-${toString i}";
-    value.address = [ "${routerIp}/32" ];
-  }) mesh.interfaces);
-
   # Needed for traffic to go through a third node when a direct link is down.
   boot.kernel.sysctl = {
     "net.ipv4.conf.all.forwarding" = 1;
     "net.ipv4.conf.default.forwarding" = 1;
   };
 
-  networking.firewall = {
-    trustedInterfaces = mesh.interfaces;
-    # Fallback paths are asymmetric, strict rpfilter would drop them.
-    checkReversePath = "loose";
-  };
+  # Fallback paths are asymmetric, strict rpfilter would drop them.
+  networking.firewall.checkReversePath = "loose";
 
   services.frr = {
     config = ''
