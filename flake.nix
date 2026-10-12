@@ -30,8 +30,9 @@
         in
         nixpkgs.lib.nixosSystem {
           system = "x86_64-linux";
-          # specialArgs passes `inputs` to modules automatically
-          specialArgs = { inherit inputs; };
+          # specialArgs passes `inputs` to modules automatically,
+          # `nodes` lets a host read the config of the other hosts
+          specialArgs = { inherit inputs; nodes = self.nixosConfigurations; };
           modules = commonModules
             ++ (nixpkgs.lib.concatMap (tag: tagModules.${tag}) tags)
             ++ [
@@ -50,15 +51,27 @@
         andromeda = mkHost { 
           path = "compute/andromeda"; 
           tags = [ "compute" ]; 
-          extraModules = [ ./modules/extra/grub-mirror-boot.nix ];};
+          extraModules = [
+            ./modules/extra/grub-mirror-boot.nix
+            ./modules/extra/connectx4.nix
+          ];
+        };
         bode = mkHost { 
           path = "compute/bode"; 
           tags = [ "compute" ]; 
-          extraModules = [ ./modules/extra/grub-mirror-boot.nix ];};
+          extraModules = [
+            ./modules/extra/grub-mirror-boot.nix
+            ./modules/extra/connectx4.nix
+          ];
+        };
         centaurus = mkHost { 
           path = "compute/centaurus"; 
           tags = [ "compute" ]; 
-          extraModules = [ ./modules/extra/grub-mirror-boot.nix ];};
+          extraModules = [
+            ./modules/extra/grub-mirror-boot.nix
+            ./modules/extra/connectx4.nix
+          ];
+        };
       };
     };
 }

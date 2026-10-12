@@ -1,16 +1,12 @@
-{ config, lib, ... }:
+{ config, lib, nodes, ... }:
 
 let
   cfg = config.mesh;
 
   prefix = "10.255.0";
 
-  # Every mesh node and its id, the single source of truth for addressing.
-  nodes = {
-    andromeda = 1;
-    bode = 2;
-    centaurus = 3;
-  };
+  # Every host in the flake that imports this module.
+  meshNodes = lib.filterAttrs (_: node: node.config ? mesh) nodes;
 in
 {
   options.mesh = {
@@ -21,14 +17,12 @@ in
 
     nodeId = lib.mkOption {
       type = lib.types.ints.between 1 254;
-      readOnly = true;
-      default = nodes.${config.networking.hostName};
     };
 
     routerIp = lib.mkOption {
       type = lib.types.str;
       readOnly = true;
-      default = cfg.addresses.${config.networking.hostName};
+      default = "${prefix}.${toString cfg.nodeId}";
     };
 
     network = lib.mkOption {
@@ -40,11 +34,16 @@ in
     addresses = lib.mkOption {
       type = lib.types.attrsOf lib.types.str;
       readOnly = true;
-      default = lib.mapAttrs (_: id: "${prefix}.${toString id}") nodes;
+      default = lib.mapAttrs (_: node: node.config.mesh.routerIp) meshNodes;
     };
   };
 
   config = {
+    assertions = [{
+      assertion = lib.allUnique (lib.attrValues cfg.addresses);
+      message = "mesh: nodeId must be unique across hosts";
+    }];
+
     networking.firewall.trustedInterfaces = cfg.interfaces;
 
     systemd.network.networks =
