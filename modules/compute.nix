@@ -2,6 +2,7 @@
   imports = [
     ./compute/ceph.nix
     ./compute/frr.nix
+    ./compute/mesh.nix
     ./compute/incus.nix
     ./compute/zfs.nix
   ];

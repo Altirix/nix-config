@@ -7,6 +7,15 @@ let
     lib.fixedWidthString 4 "0" (toString mesh.nodeId);
 in
 {
+  # Needed for traffic to go through a third node when a direct link is down.
+  boot.kernel.sysctl = {
+    "net.ipv4.conf.all.forwarding" = 1;
+    "net.ipv4.conf.default.forwarding" = 1;
+  };
+
+  # Fallback paths are asymmetric, strict rpfilter would drop them.
+  networking.firewall.checkReversePath = "loose";
+
   services.frr = {
     config = ''
       hostname ${config.networking.hostName}

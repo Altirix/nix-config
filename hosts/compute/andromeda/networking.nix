@@ -1,17 +1,6 @@
 { config, lib, pkgs, ... }:
 
 {
-  options.mesh = {
-    interfaces = lib.mkOption {
-      type = lib.types.listOf lib.types.str;
-      default = [];
-    };
-
-    nodeId = lib.mkOption {
-      type = lib.types.ints.between 1 254;
-    };
-  };
-
   config = {
     networking.nftables.enable = true;
 
@@ -31,35 +20,19 @@
       };
     };
 
-    systemd.network.networks =
-      {
-        "incus-br0" = {
-          matchConfig.Name = "incus-br0";
-          address = [ "192.168.88.11/24" ];
-          routes = [{ Gateway = "192.168.88.1"; }];
-          dns = [ "192.168.88.1" ];
-          networkConfig.DHCP = "no";
-        };
+    systemd.network.networks = {
+      "incus-br0" = {
+        matchConfig.Name = "incus-br0";
+        address = [ "192.168.88.11/24" ];
+        routes = [{ Gateway = "192.168.88.1"; }];
+        dns = [ "192.168.88.1" ];
+        networkConfig.DHCP = "no";
+      };
 
-        "lan" = {
-          matchConfig.Name = "enp7s0";
-          networkConfig.Bridge = "incus-br0";
-        };
-
-        "lo" = {
-          matchConfig.Name = "lo";
-          address = [
-            "10.255.0.${toString config.mesh.nodeId}/32"
-          ];
-        };
-      }
-      // lib.listToAttrs (lib.imap0 (i: ifname: {
-        name = "mesh-${toString i}";
-        value = {
-          matchConfig.Name = ifname;
-          networkConfig.DHCP = "no";
-          linkConfig.MTUBytes = 9000;
-        };
-      }) config.mesh.interfaces);
+      "lan" = {
+        matchConfig.Name = "enp7s0";
+        networkConfig.Bridge = "incus-br0";
+      };
+    };
   };
 }

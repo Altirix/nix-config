@@ -1,13 +1,20 @@
-{ config, pkgs, ... }:
+{ config, lib, ... }:
 
+let
+  mesh = config.mesh;
+in
 {
-  services.ceph.mon = {
-      enable = true;
-      extraConfig = {
-        "mon initial members" = "nxa, nxb, nxc";
-        "mon host" = "10.99.0.1, 10.99.0.2, 10.99.0.3";
+  services.ceph.global = {
+    monInitialMembers = lib.concatStringsSep ", " (lib.attrNames mesh.addresses);
+    monHost = lib.concatStringsSep ", " (lib.attrValues mesh.addresses);
+    publicNetwork = mesh.network;
+    clusterNetwork = mesh.network;
   };
-};
+
+  services.ceph.mon = {
+    enable = true;
+    daemons = [ config.networking.hostName ];
+  };
 
   services.ceph.osd = {
     enable = true;
