@@ -46,12 +46,6 @@
           networkConfig.Bridge = "incus-br0";
         };
 
-        "mgmt" = {
-          # dont set IP on this nic, RTL8117 is a piece of shit and setting the ip from os can cause the "BMC" to drop off the network.
-          matchConfig.Name = "enp8s0f1";
-          linkConfig.Unmanaged = "yes";
-        };
-
         "lo" = {
           matchConfig.Name = "lo";
           address = [
