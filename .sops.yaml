@@ -8,13 +8,24 @@ keys:
 
   - &host_andromeda age18wc67zrkjh7n4xe7c2j5pe60yyhqgwrx5jvwnw3jkq74c84r9drsth2stg # Incus Node 1
   - &host_bode age1t648rtjxt9wpsvzmrtvxlj9cfqajh2sll5u5uxqrnzxy0ffun5qqu6wfh2 # Incus Node 2
+  - &host_centaurus age1qfnlgqukf2cvkrl6yzfufwn4nlhrrrt0rvtah6rp9r880r9sq3ksm7llup # Incus Node 3
 
 # Groups
+groups:
+  common: &common
+    - *admin
+    - *host_andromeda
+    - *host_bode
+    - *host_centaurus
 
-compute: &compute
-  - *host_andromeda
+  compute: &compute
+    - *admin
+    - *host_andromeda
+    - *host_bode
+    - *host_centaurus
 
 creation_rules:
+
   # Per Host Secrets
   - path_regex: ^hosts[\\/]compute[\\/]andromeda[\\/]secrets\.yaml$
     key_groups:
@@ -28,21 +39,20 @@ creation_rules:
         - *admin
         - *host_bode
 
+  - path_regex: ^hosts[\\/]compute[\\/]centaurus[\\/]secrets\.yaml$
+    key_groups:
+      - age:
+        - *admin
+        - *host_centaurus
 
   # Shared Secrets
   - path_regex: ^secrets[\\/]common\.yaml$
     key_groups:
-      - age:
-        - *admin
-        - *host_andromeda
-        - *host_bode
+      - age: *common
 
   - path_regex: ^secrets[\\/]compute\.yaml$
     key_groups:
-      - age:
-        - *admin
-        - *host_andromeda
-        - *host_bode
+      - age: *compute
 
   - path_regex: ^secrets[\\/]edge\.yaml$
     key_groups:

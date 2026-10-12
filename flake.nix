@@ -55,7 +55,10 @@
           path = "compute/bode"; 
           tags = [ "compute" ]; 
           extraModules = [ ./modules/extra/grub-mirror-boot.nix ];};
-        nxc = mkHost { path = "compute/nxc"; tags = [ "compute" ]; };
+        centaurus = mkHost { 
+          path = "compute/centaurus"; 
+          tags = [ "compute" ]; 
+          extraModules = [ ./modules/extra/grub-mirror-boot.nix ];};
       };
     };
 }
