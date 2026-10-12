@@ -42,7 +42,7 @@
         };
 
         "lan" = {
-          matchConfig.Name = "enp7s0";
+          matchConfig.Name = "enp8s0";
           networkConfig.Bridge = "incus-br0";
         };
 
