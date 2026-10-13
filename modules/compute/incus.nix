@@ -34,7 +34,6 @@
           config = {
             "restricted" = "true";
             "restricted.devices.nic" = "managed";
-            "restricted.networks.access" = "labs";
             "restricted.backups" = "allow";
             "restricted.snapshots" = "allow";
             "restricted.cluster.target" = "allow";
