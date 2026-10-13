@@ -13,9 +13,12 @@ if ! incus cluster list > /dev/null 2>&1; then
   # The seed tries peers first too, so a reinstalled seed rejoins instead of forking a second cluster.
   token=""
   for peer in $PEERS; do
-    INCUS_CONF=$conf incus remote add peer "https://$peer:8443" --accept-certificate --auth-type tls < /dev/null > /dev/null 2>&1 || continue
+    if ! INCUS_CONF=$conf incus remote add peer "https://$peer:8443" --accept-certificate --auth-type tls < /dev/null > /dev/null; then
+      echo "$peer: join cert not trusted or unreachable" >&2
+      continue
+    fi
     INCUS_CONF=$conf incus cluster revoke-token "peer:$SERVER_NAME" > /dev/null 2>&1 || true
-    if token=$(INCUS_CONF=$conf incus cluster add "peer:$SERVER_NAME" --quiet 2> /dev/null); then
+    if token=$(INCUS_CONF=$conf incus cluster add "peer:$SERVER_NAME" --quiet); then
       break
     fi
     token=""
