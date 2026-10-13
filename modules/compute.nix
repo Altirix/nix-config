@@ -1,3 +1,5 @@
+{ pkgs, ... }:
+
 {
   imports = [
     ./compute/ceph.nix
@@ -17,4 +19,30 @@
     };
     labs.vlan = 100;
   };
+
+  environment.systemPackages = with pkgs; [
+    # Hardware
+    pciutils
+    usbutils
+    nvme-cli
+    hdparm
+    lm_sensors
+    numactl
+
+    # Network
+    ethtool
+    iperf3
+    tcpdump
+    mtr
+    mstflint # ConnectX firmware
+
+    # Storage / performance
+    fio
+    iotop
+    sysstat
+    lsof
+
+    # Scripting
+    jq
+  ];
 }

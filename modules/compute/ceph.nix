@@ -78,6 +78,8 @@ in
     };
   };
 
+  environment.systemPackages = [ ceph ];
+
   # Holds [mon.] and [client.admin], seeds the mon auth database and serves as the admin keyring.
   sops.secrets."ceph-keyring" = {
     sopsFile = ../../secrets/compute.yaml;
