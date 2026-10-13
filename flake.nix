@@ -53,7 +53,6 @@
           tags = [ "compute" ]; 
           extraModules = [
             ./modules/extra/grub-mirror-boot.nix
-            ./modules/extra/connectx4.nix
           ];
         };
         bode = mkHost { 
@@ -61,7 +60,6 @@
           tags = [ "compute" ]; 
           extraModules = [
             ./modules/extra/grub-mirror-boot.nix
-            ./modules/extra/connectx4.nix
           ];
         };
         centaurus = mkHost { 
@@ -69,7 +67,6 @@
           tags = [ "compute" ]; 
           extraModules = [
             ./modules/extra/grub-mirror-boot.nix
-            ./modules/extra/connectx4.nix
           ];
         };
       };
