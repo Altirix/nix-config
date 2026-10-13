@@ -36,6 +36,19 @@ in
       readOnly = true;
       default = lib.mapAttrs (_: node: node.config.mesh.routerIp) meshNodes;
     };
+
+    # VXLAN between loopbacks, instances bridge onto this and never see the underlay.
+    labsMeshUplink = lib.mkOption {
+      type = lib.types.str;
+      readOnly = true;
+      default = "labs-mesh-vx"; # IFNAMSIZ caps names at 15 chars
+    };
+
+    labsMeshMtu = lib.mkOption {
+      type = lib.types.int;
+      readOnly = true;
+      default = 9000 - 50; # VXLAN over IPv4 overhead
+    };
   };
 
   config = {
@@ -46,11 +59,36 @@ in
 
     networking.firewall.trustedInterfaces = cfg.interfaces;
 
+    systemd.network.netdevs.${cfg.labsMeshUplink} = {
+      netdevConfig = {
+        Kind = "vxlan";
+        Name = cfg.labsMeshUplink;
+        MTUBytes = cfg.labsMeshMtu;
+      };
+      vxlanConfig = {
+        VNI = 1;
+        Local = cfg.routerIp;
+        DestinationPort = 4789;
+        Independent = true;
+        MacLearning = true;
+      };
+    };
+
     systemd.network.networks =
       {
         "lo" = {
           matchConfig.Name = "lo";
           address = [ "${cfg.routerIp}/32" ];
+        };
+
+        # Head-end replication: floods go out once per peer, never back into the overlay.
+        ${cfg.labsMeshUplink} = {
+          matchConfig.Name = cfg.labsMeshUplink;
+          networkConfig.LinkLocalAddressing = "no";
+          bridgeFDBs = map (peer: {
+            MACAddress = "00:00:00:00:00:00";
+            Destination = peer;
+          }) (lib.filter (ip: ip != cfg.routerIp) (lib.attrValues cfg.addresses));
         };
       }
       # Unnumbered links: reuse the loopback /32 on every mesh interface so
