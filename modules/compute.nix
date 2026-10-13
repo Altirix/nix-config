@@ -17,11 +17,4 @@
     };
     labs.vlan = 100;
   };
-
-  sops.secrets = {
-    "compute-hello" = {
-      sopsFile = ../secrets/compute.yaml;
-      key = "hello";
-    };
-  };
 }
