@@ -29,17 +29,6 @@ in
       vlan = lib.mkOption { type = lib.types.ints.between 1 4094; };
     };
 
-    # Untagged address, takes the default route while set.
-    fallback = lib.mkOption {
-      default = null;
-      type = lib.types.nullOr (lib.types.submodule {
-        options = {
-          address = lib.mkOption { type = lib.types.str; };
-          gateway = lib.mkOption { type = lib.types.str; };
-        };
-      });
-    };
-
     # Instances bridge onto this, so they never see mgmt or untagged traffic.
     labsUplink = lib.mkOption {
       type = lib.types.str;
@@ -50,7 +39,7 @@ in
     adminInterfaces = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       readOnly = true;
-      default = [ "mgmt" ] ++ lib.optional (cfg.fallback != null) cfg.interface;
+      default = [ "mgmt" ];
     };
   };
 
@@ -80,16 +69,12 @@ in
           LinkLocalAddressing = "no";
         };
         vlan = [ "mgmt" cfg.labsUplink ];
-      } // lib.optionalAttrs (cfg.fallback != null) {
-        address = [ cfg.fallback.address ];
-        routes = [{ Gateway = cfg.fallback.gateway; }];
-        dns = [ cfg.fallback.gateway ];
       };
 
       "mgmt" = {
         matchConfig.Name = "mgmt";
         address = [ cfg.mgmt.address ];
-        routes = lib.optional (cfg.fallback == null) { Gateway = cfg.mgmt.gateway; };
+        routes = [{ Gateway = cfg.mgmt.gateway; }];
         dns = cfg.mgmt.dns;
         domains = [ cfg.mgmt.domain ];
         networkConfig.DHCP = "no";
