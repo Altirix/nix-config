@@ -1,4 +1,4 @@
-{ config, pkgs, ... }:
+{ config, lib, pkgs, ... }:
 
 {
   virtualisation.incus = {
@@ -14,13 +14,40 @@
           certificate = builtins.readFile ./config/incus-ui.crt;
         }
       ];
+
+      networks = [
+        {
+          name = "labs";
+          type = "bridge";
+          config = {
+            "bridge.external_interfaces" = config.lan.labsUplink;
+            "ipv4.address" = "none";
+            "ipv6.address" = "none";
+          };
+        }
+      ];
+
+      # Instances can only attach to labs.
+      projects = [
+        {
+          name = "default";
+          config = {
+            "restricted" = "true";
+            "restricted.devices.nic" = "managed";
+            "restricted.networks.access" = "labs";
+            "restricted.backups" = "allow";
+            "restricted.snapshots" = "allow";
+            "restricted.cluster.target" = "allow";
+          };
+        }
+      ];
+
       profiles = [
         {
           name = "default";
           devices.eth0 = {
             name = "eth0";
-            nictype = "bridged";
-            parent = "incus-br0";
+            network = "labs";
             type = "nic";
           };
         }
@@ -28,6 +55,8 @@
     };
   };
 
-  networking.firewall.allowedTCPPorts = [ 8443 ]; 
+  networking.firewall.interfaces = lib.genAttrs config.lan.adminInterfaces (_: {
+    allowedTCPPorts = [ 8443 ];
+  });
   users.users.admin.extraGroups = [ "incus-admin" ];
 }
