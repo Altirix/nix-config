@@ -46,13 +46,14 @@ in
         }
       ];
 
-      # Incus creates the <pool>/incus datasets and the rbd pool itself on first preseed.
+      # Incus takes over the disko vm/bulk datasets (must have no child datasets), children inherit their recordsize.
+      # volblocksize does not inherit, so zvols still need volume.zfs.blocksize.
       storage_pools = [
         {
           name = "nvme";
           driver = "zfs";
           config = {
-            source = "${zpool "nvme-"}/incus";
+            source = "${zpool "nvme-"}/vm";
             "volume.zfs.blocksize" = "16KiB";
           };
         }
@@ -60,7 +61,7 @@ in
           name = "bulk";
           driver = "zfs";
           config = {
-            source = "${zpool "usb-"}/incus";
+            source = "${zpool "usb-"}/bulk";
             "volume.zfs.blocksize" = "1MiB"; # capped to 128KiB for block volumes
           };
         }
