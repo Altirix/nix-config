@@ -31,7 +31,7 @@
         map (name: { inherit group name; }) (lib.filter (isHost group) (dirs ./hosts/${group})))
         (dirs ./hosts);
 
-      # Every host gets modules/common.nix, the host directory imports the rest.
+      # Every host gets modules/default.nix, the host directory imports its type (compute.nix, virtual.nix ...).
       mkHost = { group, name }:
         let
           dir = ./hosts/${group}/${name};
@@ -40,7 +40,7 @@
           # `nodes` lets a host read the config of the other hosts
           specialArgs = { inherit inputs; nodes = self.nixosConfigurations; };
           modules = [
-            ./modules/common.nix
+            ./modules
             dir
             {
               networking.hostName = name;
