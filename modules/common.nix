@@ -7,6 +7,7 @@
     ./common/base.nix
     ./common/users.nix
     ./common/debug.nix
+    ./system/secrets.nix
     ./disks/disko.nix
     ./disks/zfs.nix
     ./system/boot.nix

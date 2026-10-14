@@ -1,0 +1,9 @@
+chain input {
+  type filter hook input priority filter - 10; policy accept;
+  iifname @interfaces@ drop
+}
+chain forward {
+  type filter hook forward priority filter - 10; policy accept;
+  iifname @interfaces@ drop
+  oifname @interfaces@ drop
+}
