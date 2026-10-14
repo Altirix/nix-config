@@ -56,4 +56,10 @@
       };
     };
   };
+
+  # Incus takes over these datasets.
+  homelab.incus.members.storagePools = {
+    nvme.source = "nvme-zfs-raid10/vm";
+    bulk.source = "usb-zfs-mirror2-slog/bulk";
+  };
 }
