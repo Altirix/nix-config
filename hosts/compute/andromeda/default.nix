@@ -3,8 +3,7 @@
 {
   imports = [
     ../../../modules/compute.nix
-    ../../../modules/extra/grub-mirror-boot.nix
-    ./disko.nix
+    ./storage.nix
     ./hardware-configuration.nix
     ./networking.nix
   ];
