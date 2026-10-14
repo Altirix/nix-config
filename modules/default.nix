@@ -7,7 +7,7 @@
   imports = [
     inputs.disko.nixosModules.disko
     inputs.sops-nix.nixosModules.sops
-    ./system/debug.nix
+    ./system/ssh.nix
     ./system/secrets.nix
     ./disks/disko.nix
     ./system/boot.nix
@@ -53,7 +53,6 @@
   users.users.admin = {
     isNormalUser = true;
     extraGroups = [ "wheel" ];
-    openssh.authorizedKeys.keys = [ ];
   };
 
   security.sudo.wheelNeedsPassword = false;

@@ -14,6 +14,4 @@
   ];
 
   system.stateVersion = "26.05";
-
-  homelab.debug.enable = true; # root password login until an admin key is set
 }

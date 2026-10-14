@@ -22,7 +22,7 @@ modules/
   virtual.nix              incus VMs
   edge.nix                 public-facing hosts
   desktop.nix              not wired up yet
-  system/                  debug, secrets, boot (grub across mirrored ESPs)
+  system/                  ssh (admin keys in keys/admin/*.pub), secrets, boot (grub across mirrored ESPs)
   disks/                   disko.nix (homelab.storage -> disko.devices), zfs.nix
   networking/              lan (VLAN trunk), mesh, frr
   services/                ceph/, incus/
@@ -61,11 +61,14 @@ sops updatekeys secrets/common.yaml secrets/compute.yaml
 sops hosts/<group>/<name>/secrets.yaml
 ```
 
+Login is key-only as `admin`, every `modules/system/keys/admin/*.pub` is authorized on every
+host and no host builds without one. There is no root or console password.
+
 Install and deploy:
 
 ```sh
 nix run github:nix-community/nixos-anywhere -- --flake .#<name> root@<ip>
-nixos-rebuild switch --flake .#<name> --target-host root@<name>
+nixos-rebuild switch --flake .#<name> --target-host admin@<name> --sudo
 ```
 
 ## Storage
