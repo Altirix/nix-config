@@ -7,8 +7,9 @@
     ./compute/mesh.nix
     ./compute/incus.nix
     ./compute/lan.nix
-    ./compute/zfs.nix
   ];
+
+  homelab.zfs.arcMax = 16 * 1024 * 1024 * 1024;
 
   lan = {
     mgmt = {
