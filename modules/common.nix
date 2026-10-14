@@ -7,6 +7,9 @@
     ./common/base.nix
     ./common/users.nix
     ./common/debug.nix
+    ./disks/disko.nix
+    ./disks/zfs.nix
+    ./system/boot.nix
   ];
 
   sops.secrets = {
