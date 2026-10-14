@@ -11,7 +11,6 @@ in
     ./networking/frr.nix
     ./networking/mesh.nix
     ./services/incus
-    ./networking/lan.nix
   ];
 
   homelab = {
