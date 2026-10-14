@@ -6,6 +6,9 @@
 
   virtualisation.incus.agent.enable = lib.mkDefault true;
 
+  # Only on the labs bridge.
+  networking.firewall.allowedTCPPorts = [ 22 ];
+
   # `incus console` attaches to the serial port.
   boot.kernelParams = [ "console=tty1" "console=ttyS0" ];
 

@@ -16,7 +16,7 @@ Modules expose `homelab.*` options and only hardcode what never needs adjusting.
 | LAN | Generic VLAN trunk (`homelab.lan.vlans.<ifname>`); VLAN ids and addressing set per host, the compute profile only marks mgmt as admin and declares labs-uplink |
 | Mesh/FRR | Mesh `prefix`, `mtu`, opt-in VXLAN overlay; FRR has its own `enable`, `area`, `tag` and timers (null keeps FRR defaults) |
 | ZFS | `arcMax` (unset by default), `scrubInterval`; enables itself when disko has zpools |
-| Users/debug | Admin user and keys in `modules/default.nix`; root password login is opt-in (`homelab.debug.enable`) |
+| Users/SSH | Admin user in `modules/default.nix`, key-only SSH from `modules/system/keys/admin/*.pub` (`system/ssh.nix`); the root password login (`homelab.debug`) is gone |
 | Host types | `modules/{compute,storage,virtual,edge}.nix` import the blocks they need and hold the shared values, hosts import one; `compute.nix` is only the three hypervisors (mesh/FRR/ceph/incus values, ARC cap) |
 | Config files | `frr.conf` and the incus nftables table are `config/` files filled with `builtins.replaceStrings`; FRR timers are required options |
 | Onboarding | `hosts/_template/` (an incus VM: ext4 root, DHCP), README rewritten |
@@ -30,7 +30,6 @@ order in `lan.network` and one blank line in `frr.conf`. The admin keys change t
 | Item | Why | Effort |
 |---|---|---|
 | Commit `flake.lock` | Inputs float on every eval, builds aren't reproducible | `nix flake lock` |
-| Set an admin SSH key, then turn off `homelab.debug` on each host | Root password + password SSH on every host | small |
 | `devShells.default` (sops, age, ssh-to-age, nixos-anywhere, nixfmt) | One command to get tooling | small |
 | `checks` evaluating every host + diskoScript drvPath snapshot | Catch partition label drift in CI | small |
 | `apps.deploy` / `apps.install` wrappers | Fewer hand-typed commands | small |
