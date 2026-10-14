@@ -1,7 +1,7 @@
 { config, lib, pkgs, ... }:
 
 let
-  mesh = config.mesh;
+  mesh = config.homelab.mesh;
   host = config.networking.hostName;
   ceph = pkgs.ceph;
 

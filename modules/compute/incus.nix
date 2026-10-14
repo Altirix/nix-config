@@ -1,7 +1,7 @@
 { config, lib, pkgs, nodes, ... }:
 
 let
-  mesh = config.mesh;
+  mesh = config.homelab.mesh;
   host = config.networking.hostName;
   json = pkgs.formats.json { };
 
@@ -12,7 +12,7 @@ let
     (lib.attrNames config.disko.devices.zpool);
 
   # Lowest nodeId creates the cluster, everyone else joins it.
-  seed = lib.head (lib.sort (a: b: nodes.${a}.config.mesh.nodeId < nodes.${b}.config.mesh.nodeId)
+  seed = lib.head (lib.sort (a: b: nodes.${a}.config.homelab.mesh.nodeId < nodes.${b}.config.homelab.mesh.nodeId)
     (lib.attrNames mesh.addresses));
   address = "${mesh.routerIp}:8443";
 
@@ -32,17 +32,17 @@ let
         "ipv4.address" = "none";
         "ipv6.address" = "none";
       };
-      member."bridge.external_interfaces" = config.lan.labsUplink;
+      member."bridge.external_interfaces" = "labs-uplink";
     }
     {
       name = "labs-mesh";
       type = "bridge";
       config = {
-        "bridge.mtu" = toString mesh.labsMeshMtu;
+        "bridge.mtu" = toString mesh.overlay.mtu;
         "ipv4.address" = "none";
         "ipv6.address" = "none";
       };
-      member."bridge.external_interfaces" = mesh.labsMeshUplink;
+      member."bridge.external_interfaces" = mesh.overlay.interface;
     }
   ];
 
@@ -200,7 +200,7 @@ in
   networking.nftables.tables.instance-isolation = {
     family = "inet";
     content = let
-      ifs = ''{ "labs", "${config.lan.labsUplink}", "labs-mesh", "${config.mesh.labsMeshUplink}" }'';
+      ifs = ''{ "labs", "labs-uplink", "labs-mesh", "${mesh.overlay.interface}" }'';
     in ''
       chain input {
         type filter hook input priority filter - 10; policy accept;
@@ -214,7 +214,7 @@ in
     '';
   };
 
-  networking.firewall.interfaces = lib.genAttrs config.lan.adminInterfaces (_: {
+  networking.firewall.interfaces = lib.genAttrs config.homelab.lan.adminInterfaces (_: {
     allowedTCPPorts = [ 8443 ];
   });
   users.users.admin.extraGroups = [ "incus-admin" ];
