@@ -13,62 +13,45 @@
     };
   };
 
-  outputs = { self, nixpkgs, disko, ... }@inputs:
+  outputs = { self, nixpkgs, ... }@inputs:
     let
-      commonModules = [ ./modules/common.nix ];
+      lib = nixpkgs.lib;
 
-      # Map tag names directly to lists of file paths
-      tagModules = {
-        compute = [ ./modules/compute.nix ];
-      };
+      dirs = path: lib.attrNames (lib.filterAttrs
+        (name: type: type == "directory" && !lib.hasPrefix "_" name)
+        (builtins.readDir path));
 
-      # Builds one host. `path` determines the directory under hosts/
-      mkHost = { path, tags ? [ ], extraModules ? [ ] }:
-        let 
-          hostName = baseNameOf path; 
-          hostId = builtins.substring 0 8 (builtins.hashString "sha256" hostName);
+      # Every hosts/<group>/<name>/default.nix is a host, the group is only for layout.
+      # Hosts with an empty default.nix are placeholders and skipped.
+      isHost = group: name:
+        let entry = ./hosts/${group}/${name}/default.nix;
+        in builtins.pathExists entry && builtins.readFile entry != "";
+
+      hosts = lib.concatMap (group:
+        map (name: { inherit group name; }) (lib.filter (isHost group) (dirs ./hosts/${group})))
+        (dirs ./hosts);
+
+      # Every host gets modules/common.nix, the host directory imports the rest.
+      mkHost = { group, name }:
+        let
+          dir = ./hosts/${group}/${name};
         in
-        nixpkgs.lib.nixosSystem {
-          system = "x86_64-linux";
-          # specialArgs passes `inputs` to modules automatically,
+        lib.nixosSystem {
           # `nodes` lets a host read the config of the other hosts
           specialArgs = { inherit inputs; nodes = self.nixosConfigurations; };
-          modules = commonModules
-            ++ (nixpkgs.lib.concatMap (tag: tagModules.${tag}) tags)
-            ++ [
-              ./hosts/${path}/disko.nix
-              ./hosts/${path}/hardware-configuration.nix
-              ./hosts/${path}/configuration.nix
-              ./hosts/${path}/networking.nix
-              { networking.hostName = hostName; }
-              { networking.hostId = hostId; }
-            ]
-            ++ extraModules;
+          modules = [
+            ./modules/common.nix
+            dir
+            {
+              networking.hostName = name;
+              # ZFS won't import pools written under another hostId, pin it in the host before renaming one.
+              networking.hostId = lib.mkDefault (builtins.substring 0 8 (builtins.hashString "sha256" name));
+              sops.defaultSopsFile = lib.mkIf (builtins.pathExists (dir + "/secrets.yaml")) (dir + "/secrets.yaml");
+            }
+          ];
         };
     in
     {
-      nixosConfigurations = {
-        andromeda = mkHost { 
-          path = "compute/andromeda"; 
-          tags = [ "compute" ]; 
-          extraModules = [
-            ./modules/extra/grub-mirror-boot.nix
-          ];
-        };
-        bode = mkHost { 
-          path = "compute/bode"; 
-          tags = [ "compute" ]; 
-          extraModules = [
-            ./modules/extra/grub-mirror-boot.nix
-          ];
-        };
-        centaurus = mkHost { 
-          path = "compute/centaurus"; 
-          tags = [ "compute" ]; 
-          extraModules = [
-            ./modules/extra/grub-mirror-boot.nix
-          ];
-        };
-      };
+      nixosConfigurations = lib.listToAttrs (map (host: lib.nameValuePair host.name (mkHost host)) hosts);
     };
 }
