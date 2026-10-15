@@ -1,0 +1,5 @@
+# Peers reach the internet behind this host's address.
+chain postrouting {
+  type nat hook postrouting priority srcnat; policy accept;
+  iifname "@interface@" oifname != "@interface@" masquerade
+}

@@ -1,0 +1,7 @@
+# TCP through the tunnel has to fit its MTU. Path MTU discovery breaks wherever ICMP is dropped,
+# so new connections are told the smaller segment size up front, in both directions.
+chain forward {
+  type filter hook forward priority mangle; policy accept;
+  iifname "@interface@" tcp flags syn tcp option maxseg size > @mss@ tcp option maxseg size set @mss@
+  oifname "@interface@" tcp flags syn tcp option maxseg size > @mss@ tcp option maxseg size set @mss@
+}

@@ -1,0 +1,2 @@
+# Peers reach each other through this host.
+iifname "@interface@" oifname "@interface@" accept

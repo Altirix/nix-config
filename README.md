@@ -25,8 +25,8 @@ modules/
   system/                  ssh (admin keys in keys/admin/*.pub), secrets, boot (grub across mirrored ESPs)
   disks/                   disko.nix (homelab.storage -> disko.devices), zfs.nix
   networking/              lan (VLAN trunk), mesh, frr
-  services/                ceph/, incus/
-  */config/                real config files (frr.conf, nftables table) with @name@ placeholders
+  services/                ceph/, incus/, wireguard/ (+ egress NAT, port forwards)
+  */config/                real config files (frr.conf, nftables tables) with @name@ placeholders
   */scripts/               bootstrap scripts, wrapped with writeShellApplication (shellcheck at build)
 hosts/
   _template/               a VM, copy this for a new host
