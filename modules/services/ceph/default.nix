@@ -127,9 +127,10 @@ in
     };
 
     # Only the OSD partitions hold LVM, never activate VGs inside guest rbd/zvol disks.
-    environment.etc."lvm/lvm.conf".text = lib.mkIf (osds != [ ]) ''
-      devices/global_filter = [ ${lib.concatMapStrings (device: ''"a|^${device}$|", '') cfg.osdDevices}"r|.*|" ]
-    '';
+    environment.etc."lvm/lvm.conf".text = lib.mkIf (osds != [ ]) (builtins.replaceStrings
+      [ "@accept@" ]
+      [ (lib.concatMapStrings (device: ''"a|^${device}$|", '') cfg.osdDevices) ]
+      (builtins.readFile ./config/lvm.conf));
 
     systemd.tmpfiles.settings."10-ceph"."/var/log/ceph".d = {
       user = "ceph";
