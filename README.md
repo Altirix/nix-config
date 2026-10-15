@@ -20,7 +20,7 @@ modules/
   compute/                 incus certificates
   storage.nix              HDD storage nodes
   virtual.nix              incus VMs
-  edge.nix                 public-facing hosts
+  edge.nix                 public-facing hosts: wireguard, egress NAT, port forwards, static sites, ssh
   desktop.nix              not wired up yet
   system/                  ssh (admin keys in keys/admin/*.pub), secrets, boot (grub across mirrored ESPs)
   disks/                   disko.nix (homelab.storage -> disko.devices), zfs.nix
