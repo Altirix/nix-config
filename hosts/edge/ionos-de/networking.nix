@@ -33,7 +33,8 @@
 
     # Public port -> anything the router routes, e.g. a lab VM. Also reachable from peers on the public IP.
     forwards = [
-      # { proto = "tcp"; port = 25565; to = "10.100.0.20"; }
+      # Minecraft, hosts/virtual/minecraft.
+      { proto = "tcp"; port = 25565; to = "10.100.0.20"; }
       # { proto = "udp"; port = "27015-27030"; to = "10.100.0.21"; }
       # { proto = "tcp"; port = 2222; to = "10.100.0.22"; toPort = 22; }
     ];

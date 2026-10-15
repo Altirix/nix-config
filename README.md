@@ -25,7 +25,7 @@ modules/
   system/                  ssh (admin keys in keys/admin/*.pub), secrets, boot (grub across mirrored ESPs)
   disks/                   disko.nix (homelab.storage -> disko.devices), zfs.nix
   networking/              lan (VLAN trunk), mesh, frr
-  services/                ceph/, incus/, wireguard/ (+ egress NAT, port forwards), web/ (nginx: static or proxied sites, optional ACME)
+  services/                ceph/, incus/, wireguard/ (+ egress NAT, port forwards), web/ (nginx: static or proxied sites, optional ACME), minecraft/
   */config/                real config files (frr.conf, nftables tables) with @name@ placeholders
   */scripts/               bootstrap scripts, wrapped with writeShellApplication (shellcheck at build)
 hosts/
@@ -39,6 +39,7 @@ hosts/
   edge/ionos-de/
     networking.nix         wireguard interface + peers, port forwards
     services.nix           web sites
+  virtual/minecraft/       incus VM running homelab.minecraft, forwarded on ionos-de
 ```
 
 The group directory (`compute/`, `edge/`) is only for layout, and a host with an empty
