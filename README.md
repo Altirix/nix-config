@@ -81,7 +81,7 @@ it unbootable.**
 |---|---|
 | `nvme1` | `disk-nvme1-zfs` |
 | `nvme2-v1` | `disk-nvme2-v1-zfs` (disk split between vdevs) |
-| boot slot N | `disk-<disk>-ESPN`, `disk-<disk>-zfsN` |
+| boot slot N | `disk-<disk>-ESPN`, `disk-<disk>-zfsN` (`disk-<disk>-biosN` with `boot.bios`) |
 | ceph disk | `disk-<disk>-ceph` |
 
 An HDD pool with SSD metadata, L2ARC and a hot spare. `size` applies to every member of a

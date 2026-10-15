@@ -163,7 +163,12 @@ let
   }) cfg.boot.disks;
 
   partitionsFor = disk:
-    lib.listToAttrs (lib.concatMap (slot: lib.optionals (slot.disk == disk) [
+    lib.listToAttrs (lib.concatMap (slot: lib.optionals (slot.disk == disk) (lib.optional cfg.boot.bios
+      (lib.nameValuePair "bios${slot.index}" {
+        size = "1M";
+        type = "EF02";
+      })
+    ++ [
       (lib.nameValuePair "ESP${slot.index}" {
         size = cfg.boot.espSize;
         type = "EF00";
@@ -191,7 +196,7 @@ let
             mountpoint = "/";
           };
         })
-    ]) bootSlots)
+    ])) bootSlots)
     # Left unformatted, ceph-volume claims it.
     // lib.optionalAttrs (lib.elem disk cfg.ceph.disks) {
       ceph = {
@@ -221,6 +226,16 @@ in
       filesystem = mkOption {
         type = types.enum [ "ext4" "zfs" ];
         default = "ext4";
+      };
+      # Adds a BIOS boot partition next to each ESP, grub then boots on BIOS and UEFI.
+      bios = mkOption {
+        type = types.bool;
+        default = false;
+      };
+      devices = mkOption {
+        type = types.listOf types.str;
+        readOnly = true;
+        default = map (disk: config.disko.devices.disk.${disk}.device) cfg.boot.disks;
       };
       # The rest only applies to a zfs root.
       pool = mkOption {
