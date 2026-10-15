@@ -10,6 +10,8 @@ keys:
   - &host_bode age1t648rtjxt9wpsvzmrtvxlj9cfqajh2sll5u5uxqrnzxy0ffun5qqu6wfh2 # Incus Node 2
   - &host_centaurus age1qfnlgqukf2cvkrl6yzfufwn4nlhrrrt0rvtah6rp9r880r9sq3ksm7llup # Incus Node 3
 
+  - &host_ionos_de age1ckwdnfk73f5xdlcasvhhray6e4katzfhr5zzxhcpgfh8httuls5ssum87p # IONOS DE Node 1
+
 # Groups
 groups:
   common: &common
@@ -17,12 +19,17 @@ groups:
     - *host_andromeda
     - *host_bode
     - *host_centaurus
+    - *host_ionos_de
 
   compute: &compute
     - *admin
     - *host_andromeda
     - *host_bode
     - *host_centaurus
+
+  edge: &edge
+    - *admin
+    - *host_ionos_de
 
 creation_rules:
 
@@ -45,6 +52,12 @@ creation_rules:
         - *admin
         - *host_centaurus
 
+  - path_regex: ^hosts[\\/]edge[\\/]ionos-de[\\/]secrets\.yaml$
+    key_groups:
+      - age:
+        - *admin
+        - *host_ionos_de
+
   # Shared Secrets
   - path_regex: ^secrets[\\/]common\.yaml$
     key_groups:
@@ -56,8 +69,7 @@ creation_rules:
 
   - path_regex: ^secrets[\\/]edge\.yaml$
     key_groups:
-      - age:
-        - *admin
+      - age: *edge
 
   - path_regex: ^secrets[\\/]standalone\.yaml$
     key_groups:

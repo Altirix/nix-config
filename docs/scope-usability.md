@@ -35,5 +35,5 @@ order in `lan.network` and one blank line in `frr.conf`. The admin keys change t
 | `apps.deploy` / `apps.install` wrappers | Fewer hand-typed commands | small |
 | Generate `.sops.yaml` host rules from `hosts/` | Adding a host touches three places in `.sops.yaml` | medium |
 | `modules/desktop*` | Not imported; references missing `secrets/desktop.yaml` and a home-manager file without the home-manager input | decide: fix or delete |
-| Edge host (`ionos-de`) | Empty placeholder, skipped until `default.nix` has content; fill from `_template`, importing `modules/edge.nix` | when needed |
+| Edge host (`ionos-de`) | Written with the old box's peers, NAT and sites; install with nixos-anywhere, copy `/var/www` over until the blog moves to the lab (`upstream`) | small |
 | `homelab.hardware.amd` | amd_pstate/governor/realtek blacklist repeated in 3 hosts | small, optional |

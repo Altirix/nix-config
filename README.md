@@ -36,6 +36,9 @@ hosts/
     networking.nix         trunk interface, VLAN ids/addresses, mesh links/nodeId
     hardware-configuration.nix
     secrets.yaml
+  edge/ionos-de/
+    networking.nix         wireguard interface + peers, port forwards
+    services.nix           web sites
 ```
 
 The group directory (`compute/`, `edge/`) is only for layout, and a host with an empty
