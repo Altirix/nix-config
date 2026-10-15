@@ -20,13 +20,13 @@ modules/
   compute/                 incus certificates
   storage.nix              HDD storage nodes
   virtual.nix              incus VMs
-  edge.nix                 public-facing hosts
+  edge.nix                 public-facing hosts: wireguard, egress NAT, port forwards, static sites, ssh
   desktop.nix              not wired up yet
   system/                  ssh (admin keys in keys/admin/*.pub), secrets, boot (grub across mirrored ESPs)
   disks/                   disko.nix (homelab.storage -> disko.devices), zfs.nix
   networking/              lan (VLAN trunk), mesh, frr
-  services/                ceph/, incus/
-  */config/                real config files (frr.conf, nftables table) with @name@ placeholders
+  services/                ceph/, incus/, wireguard/ (+ egress NAT, port forwards), web/ (nginx: static or proxied sites, optional ACME)
+  */config/                real config files (frr.conf, nftables tables) with @name@ placeholders
   */scripts/               bootstrap scripts, wrapped with writeShellApplication (shellcheck at build)
 hosts/
   _template/               a VM, copy this for a new host
@@ -36,6 +36,9 @@ hosts/
     networking.nix         trunk interface, VLAN ids/addresses, mesh links/nodeId
     hardware-configuration.nix
     secrets.yaml
+  edge/ionos-de/
+    networking.nix         wireguard interface + peers, port forwards
+    services.nix           web sites
 ```
 
 The group directory (`compute/`, `edge/`) is only for layout, and a host with an empty
@@ -81,7 +84,7 @@ it unbootable.**
 |---|---|
 | `nvme1` | `disk-nvme1-zfs` |
 | `nvme2-v1` | `disk-nvme2-v1-zfs` (disk split between vdevs) |
-| boot slot N | `disk-<disk>-ESPN`, `disk-<disk>-zfsN` |
+| boot slot N | `disk-<disk>-ESPN`, `disk-<disk>-zfsN` (`disk-<disk>-biosN` with `boot.bios`) |
 | ceph disk | `disk-<disk>-ceph` |
 
 An HDD pool with SSD metadata, L2ARC and a hot spare. `size` applies to every member of a

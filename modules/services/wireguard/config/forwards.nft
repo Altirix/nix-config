@@ -1,0 +1,38 @@
+# Public ports handed to peers, from outside and from inside the tunnel.
+# proto . public port -> peer address, the port stays the same.
+map forwards {
+  type inet_proto . inet_service : ipv4_addr; flags interval;
+  @forwards@
+}
+
+# proto . public port -> peer address . peer port.
+map forwards-remapped {
+  type inet_proto . inet_service : ipv4_addr . inet_service;
+  @forwardsRemapped@
+}
+
+# Forwards whose replies need this host's address to find their way back.
+set masqueraded {
+  type inet_proto . inet_service; flags interval;
+  @masqueraded@
+}
+
+set tunnel-addresses {
+  type ipv4_addr;
+  elements = { @tunnelAddresses@ }
+}
+
+chain prerouting {
+  type nat hook prerouting priority dstnat; policy accept;
+  fib daddr type local ip daddr != @tunnel-addresses jump forwards
+}
+
+chain forwards {
+  dnat ip to meta l4proto . th dport map @forwards
+  dnat ip addr . port to meta l4proto . th dport map @forwards-remapped
+}
+
+chain postrouting {
+  type nat hook postrouting priority srcnat; policy accept;
+  oifname "@interface@" ct status dnat meta l4proto . ct original proto-dst @masqueraded masquerade
+}
