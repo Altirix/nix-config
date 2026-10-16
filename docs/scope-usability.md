@@ -9,7 +9,7 @@ Modules expose `homelab.*` options and only hardcode what never needs adjusting.
 |---|---|
 | Flake | Hosts discovered from `hosts/<group>/<name>/default.nix`; no `tags`, `extraModules` or hardcoded `system`; `hostId` is `mkDefault`; host `secrets.yaml` picked up automatically |
 | Modules | Building blocks in `modules/{system,disks,networking,services}`, gated by `enable`, no site values in their defaults; `modules/default.nix` is what every host gets |
-| Storage | `homelab.storage` builds disko from disks, boot disks (ext4 by default, zfs for mirrors), ceph disks and pools (data, log, special, dedup, cache, spare vdevs for HDD nodes); same partition labels as before |
+| Storage | `homelab.storage` builds disko from disks, boot disks (ext4 by default for VMs, btrfs for single-disk bare metal like the printers, zfs for mirrors), ceph disks, single-disk btrfs data disks and zfs pools (data, log, special, dedup, cache, spare vdevs for HDD nodes); same partition labels as before |
 | Boot | Grub mirror enables itself from the boot disk count, ESP paths come from storage |
 | Ceph | Hypervisors only; `monitors`, `publicNetwork`/`clusterNetwork`, `address`, `osdIdBase`, `keyringFile` options set by `compute.nix`; OSDs from `homelab.storage.ceph` |
 | Incus | Cluster address/members/seed, networks, pools, projects, profiles, certs are options; per-host keys in `homelab.incus.members` (no more zpool prefix matching); nftables isolation derived from the networks; rbd only with a ceph pool |

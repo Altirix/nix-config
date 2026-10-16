@@ -107,6 +107,31 @@ let
     };
   };
 
+  subvolume = types.submodule {
+    options = {
+      mountpoint = mkOption { type = types.str; };
+      mountOptions = mkOption {
+        type = types.listOf types.str;
+        default = [ ];
+      };
+    };
+  };
+
+  btrfsMountOptions = mkOption {
+    type = types.listOf types.str;
+    default = [ "compress=zstd" "noatime" ];
+    description = "Applied to every subvolume.";
+  };
+
+  mkBtrfs = fs: {
+    type = "btrfs";
+    extraArgs = [ "-f" ];
+    subvolumes = lib.mapAttrs (_: sv: {
+      inherit (sv) mountpoint;
+      mountOptions = fs.mountOptions ++ sv.mountOptions;
+    }) fs.subvolumes;
+  };
+
   mkDataset = ds: {
     type = "zfs_fs";
     inherit (ds) mountpoint;
@@ -169,7 +194,7 @@ let
         type = "EF02";
       })
     ++ [
-      (lib.nameValuePair "ESP${slot.index}" {
+      (lib.nameValuePair "ESP${slot.index}" ({
         size = cfg.boot.espSize;
         type = "EF00";
         content = {
@@ -178,7 +203,7 @@ let
           inherit (slot) mountpoint;
           mountOptions = [ "umask=0077" ];
         };
-      })
+      } // lib.optionalAttrs (cfg.boot.espStart != null) { start = cfg.boot.espStart; }))
       (if cfg.boot.filesystem == "zfs" then
         lib.nameValuePair "zfs${slot.index}" {
           size = "100%";
@@ -190,13 +215,19 @@ let
       else
         lib.nameValuePair "root${slot.index}" {
           size = "100%";
-          content = {
+          content = if cfg.boot.filesystem == "btrfs" then mkBtrfs cfg.boot.btrfs else {
             type = "filesystem";
             format = cfg.boot.filesystem;
             mountpoint = "/";
           };
         })
     ])) bootSlots)
+    // lib.optionalAttrs (cfg.btrfs ? ${disk}) {
+      btrfs = {
+        size = "100%";
+        content = mkBtrfs cfg.btrfs.${disk};
+      };
+    }
     # Left unformatted, ceph-volume claims it.
     // lib.optionalAttrs (lib.elem disk cfg.ceph.disks) {
       ceph = {
@@ -207,7 +238,7 @@ let
     // lib.listToAttrs (map (p: lib.nameValuePair p.partition p.value)
       (lib.filter (p: p.disk == disk) zfsPartitions));
 
-  usedDisks = cfg.boot.disks ++ cfg.ceph.disks ++ map (p: p.disk) zfsPartitions;
+  usedDisks = cfg.boot.disks ++ cfg.ceph.disks ++ lib.attrNames cfg.btrfs ++ map (p: p.disk) zfsPartitions;
 in
 {
   options.homelab.storage = {
@@ -224,7 +255,7 @@ in
         description = "Each gets an ESP and the root, more than one mirrors both (zfs only).";
       };
       filesystem = mkOption {
-        type = types.enum [ "ext4" "zfs" ];
+        type = types.enum [ "ext4" "btrfs" "zfs" ];
         default = "ext4";
       };
       # Adds a BIOS boot partition next to each ESP, grub then boots on BIOS and UEFI.
@@ -246,6 +277,11 @@ in
         type = types.str;
         default = "1G";
       };
+      # Leaves the sectors before the ESP free, e.g. for a loader written to raw sectors.
+      espStart = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+      };
       options = mkOption {
         type = types.attrsOf types.str;
         default = { };
@@ -263,6 +299,18 @@ in
             options.compression = "zstd";
           };
           var.mountpoint = "/var";
+        };
+      };
+      # Only for a btrfs root, subvolumes keep / snapshottable apart from /nix and /var.
+      btrfs = {
+        mountOptions = btrfsMountOptions;
+        subvolumes = mkOption {
+          type = types.attrsOf subvolume;
+          default = {
+            "@root".mountpoint = "/";
+            "@nix".mountpoint = "/nix";
+            "@var".mountpoint = "/var";
+          };
         };
       };
       espMountpoints = mkOption {
@@ -289,13 +337,24 @@ in
       type = types.attrsOf pool;
       default = { };
     };
+
+    # Disk name -> a whole-disk btrfs (partition `btrfs`), single device. Mirrors go in zfs pools.
+    btrfs = mkOption {
+      type = types.attrsOf (types.submodule {
+        options = {
+          mountOptions = btrfsMountOptions;
+          subvolumes = mkOption { type = types.attrsOf subvolume; };
+        };
+      });
+      default = { };
+    };
   };
 
   config = lib.mkIf (cfg.disks != { }) {
     assertions = [
       {
-        assertion = lib.all (disk: cfg.disks ? ${disk}) (cfg.boot.disks ++ cfg.ceph.disks);
-        message = "storage: boot and ceph disks must be listed in homelab.storage.disks";
+        assertion = lib.all (disk: cfg.disks ? ${disk}) (cfg.boot.disks ++ cfg.ceph.disks ++ lib.attrNames cfg.btrfs);
+        message = "storage: boot, ceph and btrfs disks must be listed in homelab.storage.disks";
       }
       {
         assertion = lib.all (disk: lib.elem disk usedDisks) (lib.attrNames cfg.disks);
