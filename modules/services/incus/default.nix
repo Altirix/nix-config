@@ -113,6 +113,14 @@ in
       };
     };
 
+    # Instances on these networks only reach the uplink, never each other, on this host or another.
+    # Relies on incus MACs (10:66:6a), so their NICs need security.mac_filtering.
+    isolatedNetworks = mkOption {
+      type = types.listOf types.str;
+      default = [ ];
+      example = [ "labs" ];
+    };
+
     trustedCertificates = mkOption {
       type = types.attrsOf types.path;
       default = { };
@@ -137,6 +145,10 @@ in
         assertion = lib.all (name: lib.elem name (map (e: e.name) cfg.networks)) (lib.attrNames cfg.members.networks)
           && lib.all (name: lib.elem name (map (e: e.name) cfg.storagePools)) (lib.attrNames cfg.members.storagePools);
         message = "incus: members.* names a network or storage pool that isn't defined";
+      }
+      {
+        assertion = lib.all (name: member "networks" { inherit name; } ? "bridge.external_interfaces") cfg.isolatedNetworks;
+        message = "incus: isolatedNetworks need a bridge.external_interfaces uplink in members.networks";
       }
     ];
 
@@ -184,14 +196,26 @@ in
     # Incus maps rbd volumes through the kernel client.
     boot.kernelModules = lib.mkIf (lib.any (pool: pool.driver or null == "ceph") cfg.storagePools) [ "rbd" ];
 
-    # Hosts never talk to or route for instance networks, so instances can't reach mgmt or ceph.
-    networking.nftables.tables.instance-isolation = {
-      family = "inet";
-      content = builtins.replaceStrings
-        [ "@interfaces@" ]
-        [ "{ ${lib.concatMapStringsSep ", " (i: ''"${i}"'') instanceInterfaces} }" ]
-        (builtins.readFile ./config/instance-isolation.nft);
-    };
+    networking.nftables.tables = {
+      # Hosts never talk to or route for instance networks, so instances can't reach mgmt or ceph.
+      instance-isolation = {
+        family = "inet";
+        content = builtins.replaceStrings
+          [ "@interfaces@" ]
+          [ "{ ${lib.concatMapStringsSep ", " (i: ''"${i}"'') instanceInterfaces} }" ]
+          (builtins.readFile ./config/instance-isolation.nft);
+      };
+    }
+    // lib.listToAttrs (map (name: {
+      name = "${name}-isolation";
+      value = {
+        family = "bridge";
+        content = builtins.replaceStrings
+          [ "@bridge@" "@uplink@" ]
+          [ ''"${name}"'' ''"${(member "networks" { inherit name; })."bridge.external_interfaces"}"'' ]
+          (builtins.readFile ./config/bridge-isolation.nft);
+      };
+    }) cfg.isolatedNetworks);
 
     networking.firewall.interfaces = lib.genAttrs config.homelab.lan.adminInterfaces (_: {
       allowedTCPPorts = [ 8443 ];

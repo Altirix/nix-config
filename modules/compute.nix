@@ -144,6 +144,8 @@ in
             name = "eth0";
             network = "labs";
             type = "nic";
+            # Keeps the incus MAC that labs isolation matches on.
+            "security.mac_filtering" = "true";
           };
         }
         # Opt in with `-p default -p labs-mesh` for VM to VM traffic over the mesh.
@@ -156,6 +158,9 @@ in
           };
         }
       ];
+
+      # labs reaches the gateway only, VM to VM goes over labs-mesh.
+      isolatedNetworks = [ "labs" ];
 
       trustedCertificates.my-browser = ./compute/incus-ui.crt;
       joinCertificate = ./compute/incus-join.crt;

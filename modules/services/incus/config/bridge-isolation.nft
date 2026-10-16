@@ -1,0 +1,8 @@
+chain forward {
+  type filter hook forward priority filter; policy accept;
+  # Same host: instance ports only talk to the uplink.
+  meta ibrname @bridge@ iifname != @uplink@ oifname != @uplink@ drop
+  # Other hosts: nothing with an incus MAC crosses the uplink, so instances can't reach each other through the switch.
+  meta ibrname @bridge@ iifname @uplink@ ether saddr & ff:ff:ff:00:00:00 == 10:66:6a:00:00:00 drop
+  meta obrname @bridge@ oifname @uplink@ ether daddr & ff:ff:ff:00:00:00 == 10:66:6a:00:00:00 drop
+}
