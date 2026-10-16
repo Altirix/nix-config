@@ -1,0 +1,29 @@
+--- a/drivers/gpu/drm/panthor/panthor_hw.c
++++ b/drivers/gpu/drm/panthor/panthor_hw.c
+@@ -1,10 +1,17 @@
+ // SPDX-License-Identifier: GPL-2.0 or MIT
+ /* Copyright 2025 ARM Limited. All rights reserved. */
+ 
++#include <linux/moduleparam.h>
++
+ #include "panthor_device.h"
+ #include "panthor_hw.h"
+ #include "panthor_regs.h"
+ 
++/* Shader cores to use, for SoCs that ship with a bad core still reported present. */
++static u64 shader_mask = ~0ULL;
++module_param(shader_mask, ullong, 0444);
++MODULE_PARM_DESC(shader_mask, "Mask ANDed with GPU_SHADER_PRESENT (default: all cores)");
++
+ #define GPU_PROD_ID_MAKE(arch_major, prod_major) \
+ 	(((arch_major) << 24) | (prod_major))
+ 
+@@ -80,7 +87,7 @@
+ 
+ 	ptdev->gpu_info.as_present = gpu_read(ptdev, GPU_AS_PRESENT);
+ 
+-	ptdev->gpu_info.shader_present = gpu_read64(ptdev, GPU_SHADER_PRESENT);
++	ptdev->gpu_info.shader_present = gpu_read64(ptdev, GPU_SHADER_PRESENT) & shader_mask;
+ 	ptdev->gpu_info.tiler_present = gpu_read64(ptdev, GPU_TILER_PRESENT);
+ 	ptdev->gpu_info.l2_present = gpu_read64(ptdev, GPU_L2_PRESENT);
+ 

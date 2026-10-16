@@ -1,0 +1,17 @@
+--- a/arch/arm/mach-rockchip/rk3588/rk3588.c
++++ b/arch/arm/mach-rockchip/rk3588/rk3588.c
+@@ -392,11 +392,9 @@
+ 		fdt_path_set_name(blob, "/cpus/cpu-map/cluster2", "cluster1");
+ 	}
+ 
+-	/* gpu: ip_state[1]: bit1~4 */
+-	if (ip_state[1] & FAIL_GPU) {
+-		log_debug("fail gpu\n");
+-		fdt_status_fail_by_pathf(blob, "/gpu@fb000000");
+-	}
++	/* gpu: ip_state[1]: bit1~4, left enabled, the kernel masks the bad shader core */
++	if (ip_state[1] & FAIL_GPU)
++		log_debug("bad gpu core, gpu left enabled\n");
+ 
+ 	/* rkvdec: ip_state[1]: bit6,7 */
+ 	if (ip_state[1] & FAIL_RKVDEC0) {

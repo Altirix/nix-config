@@ -12,6 +12,9 @@ keys:
 
   - &host_ionos_de age1ckwdnfk73f5xdlcasvhhray6e4katzfhr5zzxhcpgfh8httuls5ssum87p # IONOS DE Node 1
 
+  - &host_alluvium age1rcvhed74d0w4lcyvc23wcgk9yf4xpa5ng3vmkvresxc5gzwsudkqucrdm3 # Printer 1
+  - &host_basidium age18p60jx786w797ju365683h94red5a3tg993tzrxfx03uk0dl2eaq7kyxa7 # Printer 2
+
 # Groups
 groups:
   common: &common
@@ -20,6 +23,8 @@ groups:
     - *host_bode
     - *host_centaurus
     - *host_ionos_de
+    - *host_alluvium
+    - *host_basidium
 
   compute: &compute
     - *admin
@@ -30,6 +35,11 @@ groups:
   edge: &edge
     - *admin
     - *host_ionos_de
+
+  printer: &printer
+    - *admin
+    - *host_alluvium
+    - *host_basidium
 
 creation_rules:
 

@@ -13,6 +13,7 @@
     ./system/boot.nix
     ./networking/lan.nix
     ./disks/zfs.nix
+    ./hardware/rock5c.nix
   ];
 
   # --- Boot ---
