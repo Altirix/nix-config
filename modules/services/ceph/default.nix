@@ -71,6 +71,12 @@ in
       type = lib.types.ints.unsigned;
     };
 
+    # Enabled cluster-wide by every mgr host, prometheus is what homelab.monitoring scrapes.
+    mgrModules = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = lib.optional config.homelab.monitoring.enable "prometheus";
+    };
+
     # Holds [mon.] and [client.admin], seeds the mon auth database and serves as the admin keyring.
     keyringFile = lib.mkOption {
       type = lib.types.path;
@@ -120,6 +126,12 @@ in
 
     environment.systemPackages = [ ceph ];
 
+    # Only the active mgr serves metrics, standbys answer empty.
+    homelab.monitoring.targets.ceph = lib.mkIf (lib.elem "prometheus" cfg.mgrModules) {
+      port = 9283;
+      labels.cluster = "ceph"; # the ceph dashboards filter on it
+    };
+
     sops.secrets."ceph-keyring" = {
       sopsFile = cfg.keyringFile;
       key = "ceph-keyring";
@@ -152,6 +164,25 @@ in
         daemon = "ceph-mgr-${host}";
         script = bootstrapScript "ceph-mgr-bootstrap" [ ];
         environment.MGR_ID = host;
+      };
+    }
+    // lib.optionalAttrs (cfg.mgrModules != [ ]) {
+      # Retries until quorum, without blocking switch. Enabling an enabled module is a no-op.
+      "ceph-mgr-modules" = {
+        description = "Enable ceph mgr modules";
+        path = [ ceph ];
+        after = [ "ceph-mgr-${host}-bootstrap.service" ];
+        wantedBy = [ "ceph.target" ];
+        startLimitIntervalSec = 0;
+        serviceConfig = {
+          Type = "simple";
+          RemainAfterExit = true;
+          Restart = "on-failure";
+          RestartSec = 15;
+        };
+        script = lib.concatMapStrings (module: ''
+          ceph --connect-timeout 10 mgr module enable ${module}
+        '') cfg.mgrModules;
       };
     }
     // lib.optionalAttrs (osds != [ ]) {

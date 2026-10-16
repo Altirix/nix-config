@@ -13,6 +13,12 @@
     wireguard.enable = lib.mkDefault true;
 
     web.enable = lib.mkDefault true;
+
+    # Scraped through the tunnel, never on the public address.
+    monitoring = {
+      address = lib.head (lib.splitString "/" (lib.head config.homelab.wireguard.address));
+      interfaces = [ config.homelab.wireguard.interface ];
+    };
   };
 
   networking.nftables.enable = true;

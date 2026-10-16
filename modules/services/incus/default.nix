@@ -10,6 +10,7 @@ let
   memberKeys = types.attrsOf (types.attrsOf types.str);
 
   address = "${cfg.cluster.address}:8443";
+  metricsPort = 8444;
 
   # Trusted cluster-wide, re-adding one through preseed fails, so the bootstrap adds missing ones.
   certificates = cfg.trustedCertificates // {
@@ -25,7 +26,13 @@ let
 
   # Cluster-wide state, applied on every member every start.
   preseed = {
-    config."core.https_address" = ":8443";
+    config = {
+      "core.https_address" = ":8443";
+    } // lib.optionalAttrs config.homelab.monitoring.enable {
+      # Unauthenticated metrics for homelab.monitoring, only open on the admin VLANs.
+      "core.metrics_address" = ":${toString metricsPort}";
+      "core.metrics_authentication" = "false";
+    };
     inherit (cfg) networks profiles projects;
     storage_pools = cfg.storagePools;
   };
@@ -197,5 +204,12 @@ in
       allowedTCPPorts = [ 8443 ];
     });
     users.users.admin.extraGroups = [ "incus-admin" ];
+
+    # Hosts and their instances (cpu, memory, disk, network), instances need the incus agent.
+    homelab.monitoring.targets.incus = lib.mkIf config.homelab.monitoring.enable {
+      port = metricsPort;
+      scheme = "https";
+      path = "/1.0/metrics";
+    };
   };
 }

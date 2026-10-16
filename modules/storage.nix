@@ -7,6 +7,8 @@
   # Hosts on a VLAN trunk should use homelab.lan admin VLANs instead.
   networking.firewall.allowedTCPPorts = [ 22 ];
 
+  homelab.monitoring.smartctl.enable = true;
+
   sops.secrets = {
     "storage-hello" = {
       sopsFile = config.homelab.secrets.groupFile;

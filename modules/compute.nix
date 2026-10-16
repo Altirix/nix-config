@@ -48,6 +48,13 @@ in
 
     zfs.arcMax = 16 * 1024 * 1024 * 1024;
 
+    # Scraped on mgmt, like SSH and the incus UI.
+    monitoring = {
+      address = lib.head (lib.splitString "/" config.homelab.lan.vlans.mgmt.address);
+      interfaces = config.homelab.lan.adminInterfaces;
+      smartctl.enable = true;
+    };
+
     ceph = {
       enable = lib.mkDefault true;
       fsid = "420bd11d-4495-4048-b8b0-4a84afbc25cb";

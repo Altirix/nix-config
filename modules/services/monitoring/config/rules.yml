@@ -1,0 +1,68 @@
+# No Alertmanager yet, firing alerts show under Grafana > Alerting (Prometheus rules).
+groups:
+  - name: hosts
+    rules:
+      - alert: TargetDown
+        expr: up == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} on {{ $labels.instance }} is not answering"
+
+      - alert: FilesystemAlmostFull
+        expr: node_filesystem_avail_bytes{fstype!~"tmpfs|ramfs|squashfs|overlay"} / node_filesystem_size_bytes < 0.1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.mountpoint }} on {{ $labels.instance }} has under 10% free"
+
+      - alert: SystemdUnitFailed
+        expr: node_systemd_unit_state{state="failed"} == 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.name }} failed on {{ $labels.instance }}"
+
+  - name: storage
+    rules:
+      - alert: ZpoolNotOnline
+        expr: node_zfs_zpool_state{state!="online"} == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "zpool {{ $labels.zpool }} on {{ $labels.instance }} is {{ $labels.state }}"
+
+      - alert: SmartFailing
+        expr: smartctl_device_smart_status == 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.device }} on {{ $labels.instance }} fails its SMART check"
+
+      - alert: CephHealthWarn
+        expr: ceph_health_status == 1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ceph is HEALTH_WARN, run `ceph health detail`"
+
+      - alert: CephHealthError
+        expr: ceph_health_status == 2
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "ceph is HEALTH_ERR, run `ceph health detail`"
+
+      - alert: CephOsdDown
+        expr: ceph_osd_up == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.ceph_daemon }} is down"

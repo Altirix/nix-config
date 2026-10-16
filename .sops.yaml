@@ -58,6 +58,12 @@ creation_rules:
         - *admin
         - *host_ionos_de
 
+  # Add its host key once installed (ssh-keyscan | ssh-to-age), then `sops updatekeys`.
+  - path_regex: ^hosts[\\/]virtual[\\/]monitor[\\/]secrets\.yaml$
+    key_groups:
+      - age:
+        - *admin
+
   # Shared Secrets
   - path_regex: ^secrets[\\/]common\.yaml$
     key_groups:

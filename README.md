@@ -25,7 +25,8 @@ modules/
   system/                  ssh (admin keys in keys/admin/*.pub), secrets, boot (grub across mirrored ESPs)
   disks/                   disko.nix (homelab.storage -> disko.devices), zfs.nix
   networking/              lan (VLAN trunk), mesh, frr
-  services/                ceph/, incus/, wireguard/ (+ egress NAT, port forwards), web/ (nginx: static or proxied sites, optional ACME)
+  services/                ceph/, incus/, wireguard/ (+ egress NAT, port forwards), web/ (nginx: static or proxied sites, optional ACME),
+                           monitoring/ (exporters + log shipping on every host, server.nix: Prometheus, Loki, Grafana)
   */config/                real config files (frr.conf, nftables tables) with @name@ placeholders
   */scripts/               bootstrap scripts, wrapped with writeShellApplication (shellcheck at build)
 hosts/
@@ -39,6 +40,7 @@ hosts/
   edge/ionos-de/
     networking.nix         wireguard interface + peers, port forwards
     services.nix           web sites
+  virtual/monitor/         Prometheus, Loki and Grafana for every host
 ```
 
 The group directory (`compute/`, `edge/`) is only for layout, and a host with an empty
@@ -72,6 +74,32 @@ Install and deploy:
 ```sh
 nix run github:nix-community/nixos-anywhere -- --flake .#<name> root@<ip>
 nixos-rebuild switch --flake .#<name> --target-host admin@<name> --sudo
+```
+
+## Monitoring
+
+Every host runs the node exporter (systemd, zfs) and ships its journal to Loki with Alloy,
+hardware hosts also run the smartctl exporter. Modules add their own endpoints to
+`homelab.monitoring.targets`: ceph enables the mgr prometheus module (`:9283`), incus serves
+`/1.0/metrics` on `:8444` (hosts and instances). The server (`hosts/virtual/monitor`) reads every
+host's targets through `nodes`, so a new host is scraped once it's in the flake.
+
+| Host type | Scraped at | Exporter ports open on |
+|---|---|---|
+| compute | mgmt address | admin VLANs |
+| edge | tunnel address | the WireGuard interface |
+| storage, virtual | `homelab.monitoring.address` (hostname by default) | every interface |
+
+Grafana is on `http://<monitor>:3000` as `admin`, with Node Exporter Full and the ceph cluster,
+OSD and pool dashboards provisioned. Alert rules (`modules/services/monitoring/config/rules.yml`)
+show under Alerting, nothing notifies yet. The router has to let the monitor VM reach the
+exporters and every host reach Loki on `:3100`.
+
+Before the first deploy, reserve the VM's address (`hosts/virtual/monitor/networking.nix`) and
+create its secrets:
+
+```sh
+sops hosts/virtual/monitor/secrets.yaml   # grafana-admin-password, grafana-secret-key (openssl rand -hex 32)
 ```
 
 ## Storage
