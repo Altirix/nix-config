@@ -11,6 +11,11 @@
       url = "github:nix-community/disko";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # Its pinned nixpkgs has an older gcc than the kernel was built with, the modules wouldn't compile.
+    vgpu4nixos = {
+      url = "github:mrzenc/vgpu4nixos";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs = { self, nixpkgs, ... }@inputs:

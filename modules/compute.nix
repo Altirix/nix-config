@@ -11,6 +11,7 @@ in
     ./networking/frr.nix
     ./networking/mesh.nix
     ./services/incus
+    ./services/vgpu/host.nix
   ];
 
   homelab = {

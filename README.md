@@ -27,7 +27,8 @@ modules/
   hardware/                rock5c.nix (U-Boot + RK3582 unlock patches from Armbian, extlinux, panthor shader mask, AIC8800 wifi)
   disks/                   disko.nix (homelab.storage -> disko.devices), zfs.nix
   networking/              lan (VLAN trunk), mesh, frr, wifi (wpa_supplicant, SSID/PSK from sops)
-  services/                ceph/, incus/, wireguard/ (+ egress NAT, port forwards), web/ (nginx: static or proxied sites, optional ACME), klipper/ (config/mainsail.cfg)
+  services/                ceph/, incus/, wireguard/ (+ egress NAT, port forwards), web/ (nginx: static or proxied sites, optional ACME), klipper/ (config/mainsail.cfg),
+                           vgpu/ (NVIDIA vGPU: host.nix on compute, guest.nix on virtual, releases.nix pins both)
   */config/                real config files (frr.conf, nftables tables) with @name@ placeholders
   */scripts/               bootstrap scripts, wrapped with writeShellApplication (shellcheck at build)
 hosts/
