@@ -3,7 +3,7 @@
   homelab.storage = {
     disks = {
       root = "mmc-A3A551_0xf23d65d1"; # 32GB eMMC module
-      nvme1 = "nvme-eui.002538a741b44aaa"; # 256GB PM9C1a
+      nvme1 = "nvme-PM9C1a_Samsung_256GB_______S75JNF0X787906"; # 256GB PM9C1a
       usb1 = "ata-BadApple_MZ-KPV_AY2026W38SN0037"; # 236GB, SM2246EN bridge UMI20190804E
       usb2 = "ata-BadApple_MZ-KPV_AY2026W38SN0035"; # 236GB, SM2246EN bridge UMI20190804F
     };
