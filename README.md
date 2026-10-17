@@ -26,8 +26,9 @@ modules/
   system/                  ssh (admin keys in keys/admin/*.pub), secrets, boot (grub across mirrored ESPs)
   hardware/                rock5c.nix (U-Boot + RK3582 unlock patches from Armbian, extlinux, panthor shader mask, AIC8800 wifi)
   disks/                   disko.nix (homelab.storage -> disko.devices), zfs.nix
-  networking/              lan (VLAN trunk), mesh, frr, wifi (wpa_supplicant, SSID/PSK from sops)
-  services/                ceph/, incus/, wireguard/ (+ egress NAT, port forwards), web/ (nginx: static or proxied sites, optional ACME), klipper/ (config/mainsail.cfg)
+  networking/              lan (VLAN trunk), mesh, frr, wifi (wpa_supplicant, SSID/PSK from sops), labs-mesh (an incus VM's static address on the overlay)
+  services/                ceph/, incus/, wireguard/ (+ egress NAT, port forwards), web/ (nginx: static or proxied sites, optional ACME), klipper/ (config/mainsail.cfg),
+                           vgpu/ (NVIDIA vGPU: host.nix on compute, guest.nix on virtual, releases.nix pins both)
   */config/                real config files (frr.conf, nftables tables) with @name@ placeholders
   */scripts/               bootstrap scripts, wrapped with writeShellApplication (shellcheck at build)
 hosts/
@@ -41,9 +42,10 @@ hosts/
   edge/ionos-de/
     networking.nix         wireguard interface + peers, port forwards
     services.nix           web sites
+  virtual/dls/             FastAPI-DLS, licenses vGPU guests over labs-mesh
 ```
 
-The group directory (`compute/`, `edge/`) is only for layout, and a host with an empty
+The group directory (`compute/`, `edge/`, `virtual/`) is only for layout, and a host with an empty
 `default.nix` is a placeholder and not built.
 
 ## Add a host

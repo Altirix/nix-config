@@ -2,6 +2,11 @@
 
 # Incus VMs running on the compute hosts.
 {
+  imports = [
+    ./networking/labs-mesh.nix
+    ./services/vgpu/guest.nix
+  ];
+
   homelab.secrets.groupFile = ../secrets/virtual.yaml;
 
   virtualisation.incus.agent.enable = lib.mkDefault true;
