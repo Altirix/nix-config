@@ -2,6 +2,10 @@
 
 # Incus VMs running on the compute hosts.
 {
+  imports = [
+    ./services/mcp
+  ];
+
   homelab.secrets.groupFile = ../secrets/virtual.yaml;
 
   virtualisation.incus.agent.enable = lib.mkDefault true;

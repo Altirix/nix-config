@@ -19,7 +19,7 @@ modules/
   compute.nix              the three incus + ceph hypervisors: mesh, frr, ceph, incus and their values
   compute/                 incus certificates
   storage.nix              HDD storage nodes
-  virtual.nix              incus VMs
+  virtual.nix              incus VMs: mcp servers
   edge.nix                 public-facing hosts: wireguard, egress NAT, port forwards, static sites, ssh
   printer.nix              3D printers: klipper, moonraker, mainsail, mDNS
   desktop.nix              not wired up yet
@@ -27,7 +27,7 @@ modules/
   hardware/                rock5c.nix (U-Boot + RK3582 unlock patches from Armbian, extlinux, panthor shader mask, AIC8800 wifi)
   disks/                   disko.nix (homelab.storage -> disko.devices), zfs.nix
   networking/              lan (VLAN trunk), mesh, frr
-  services/                ceph/, incus/, wireguard/ (+ egress NAT, port forwards), web/ (nginx: static or proxied sites, optional ACME), klipper/ (config/mainsail.cfg)
+  services/                ceph/, incus/, wireguard/ (+ egress NAT, port forwards), web/ (nginx: static or proxied sites, optional ACME), klipper/ (config/mainsail.cfg), mcp/ (servers/: presets)
   */config/                real config files (frr.conf, nftables tables) with @name@ placeholders
   */scripts/               bootstrap scripts, wrapped with writeShellApplication (shellcheck at build)
 hosts/
@@ -38,6 +38,7 @@ hosts/
     networking.nix         trunk interface, VLAN ids/addresses, mesh links/nodeId
     hardware-configuration.nix
     secrets.yaml
+  virtual/mcp/             incus VM serving the MCP servers
   edge/ionos-de/
     networking.nix         wireguard interface + peers, port forwards
     services.nix           web sites
@@ -119,6 +120,28 @@ Set `gpuShaderMask` to `0x50005` without the core that faults.
 
 Mainsail is on `http://alluvium.local`. `printer.cfg` only seeds
 `/var/lib/moonraker/config/printer.cfg` on first start, edit the live copy from Mainsail.
+
+## MCP
+
+`hosts/virtual/mcp` runs MCP servers on the labs bridge, each as its own `mcp-<name>` unit and
+port. stdio servers sit behind mcp-proxy: streamable HTTP on `http://mcp:<port>/mcp`, SSE on
+`/sse`. Nothing authenticates, so they stay off the edge. Clients share one server process, and
+with it any state (memory, browser tabs). Presets in `modules/services/mcp/servers/` only need
+enabling in the host, anything else is added directly:
+
+```nix
+homelab.mcp.servers.time = {
+  enable = true;
+  command = lib.getExe pkgs.mcp-server-time;
+  port = 8100;
+};
+```
+
+Add it to a client:
+
+```sh
+claude mcp add --transport http time http://mcp:8100/mcp
+```
 
 ## Storage
 
