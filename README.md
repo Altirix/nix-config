@@ -159,6 +159,9 @@ sops updatekeys secrets/virtual.yaml
 sops secrets/virtual.yaml   # github-mcp-token: github_pat_...
 ```
 
+context7 serves its own `/mcp` (no `/sse`); an API key is optional, per client:
+`--header "Context7-API-Key: <key>"`.
+
 ## Storage
 
 `homelab.storage` writes disko config. Disk names, zpool members and boot slots become
