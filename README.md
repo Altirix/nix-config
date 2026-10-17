@@ -143,6 +143,9 @@ Add it to a client:
 claude mcp add --transport http time http://mcp:8100/mcp
 ```
 
+context7 serves its own `/mcp` (no `/sse`); an API key is optional, per client:
+`--header "Context7-API-Key: <key>"`.
+
 ## Storage
 
 `homelab.storage` writes disko config. Disk names, zpool members and boot slots become
