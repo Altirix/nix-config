@@ -1,0 +1,111 @@
+{
+  "nodes": {
+    "disko": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1789770686,
+        "narHash": "sha256-uZkBR7yHdIKUFB5SZdfgh1qkGfI3XmYmI/lTiquxbck=",
+        "owner": "nix-community",
+        "repo": "disko",
+        "rev": "725ea35e410ad83be4931d1bff7e090eacaf3563",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-community",
+        "repo": "disko",
+        "type": "github"
+      }
+    },
+    "fastapi-dls-nixos": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1751916690,
+        "narHash": "sha256-Z8dlCaEoVVMc2VwvXSXRD4GhtItsdXOU1RBZEsVAsbo=",
+        "owner": "mrzenc",
+        "repo": "fastapi-dls-nixos",
+        "rev": "2606db50c88e177fa56753b056cd0365a82ea3c7",
+        "type": "github"
+      },
+      "original": {
+        "owner": "mrzenc",
+        "repo": "fastapi-dls-nixos",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1792030654,
+        "narHash": "sha256-OaQwAtPMTjQiY2sT/2/62UbSPhzP/0aDnWzMm/NCiUw=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "26f4107e47e3ad0ffd0db220469ba83b6f6d96e8",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nixos",
+        "ref": "nixos-26.05",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "disko": "disko",
+        "fastapi-dls-nixos": "fastapi-dls-nixos",
+        "nixpkgs": "nixpkgs",
+        "sops-nix": "sops-nix",
+        "vgpu4nixos": "vgpu4nixos"
+      }
+    },
+    "sops-nix": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1792056300,
+        "narHash": "sha256-YU1LjDe1o2Ymg5zEiCHbmMXLkDCtxHQRiVqZ3nC5GGk=",
+        "owner": "Mic92",
+        "repo": "sops-nix",
+        "rev": "44931708c62937c2b1bf7953902989fa5bb9ee1b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Mic92",
+        "repo": "sops-nix",
+        "type": "github"
+      }
+    },
+    "vgpu4nixos": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1752922034,
+        "narHash": "sha256-TEnXV2H4sc3Liav+uC5/Fao6M5QDSaRlRhycyXBtwd0=",
+        "owner": "mrzenc",
+        "repo": "vgpu4nixos",
+        "rev": "fd1fe577e07e76d97a33a845f3b751dcb984a3d3",
+        "type": "github"
+      },
+      "original": {
+        "owner": "mrzenc",
+        "repo": "vgpu4nixos",
+        "type": "github"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
