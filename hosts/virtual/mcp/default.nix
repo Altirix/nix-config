@@ -9,5 +9,7 @@
     ./networking.nix
   ];
 
+  # homelab.mcp.servers.github.enable = true;   # once github-mcp-token is in secrets/virtual.yaml
+
   system.stateVersion = "26.05";
 }

@@ -45,3 +45,16 @@ one more machine) with its own `clients`, which defaults to that list:
 ```nix
 homelab.mcp.servers.time.clients = config.homelab.mcp.clients ++ [ "10.0.0.1" ];
 ```
+
+## github (8103)
+
+Read-only with one server-side token, so every client reads as its owner. Use a fine-grained PAT with read-only
+Contents, Issues, Pull requests and Metadata on the repos it should see (a classic one needs `repo`, which also
+allows writes). Add the mcp VM's age key to the `virtual` group in `.sops.yaml` (see Secrets in the top
+README), add the token, then uncomment the enable line in `hosts/virtual/mcp`. The host doesn't build with it
+enabled and no token.
+
+```sh
+sops updatekeys secrets/virtual.yaml
+sops secrets/virtual.yaml   # github-mcp-token: github_pat_...
+```
