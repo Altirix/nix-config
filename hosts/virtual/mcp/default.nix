@@ -10,5 +10,7 @@
     ./networking.nix
   ];
 
+  homelab.mcp.servers.markitdown.enable = true;
+
   system.stateVersion = "26.05";
 }
