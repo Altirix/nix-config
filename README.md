@@ -148,6 +148,17 @@ REA (`rea`, `http://mcp:8101/mcp`) decompiles with Ghidra and reads APKs with JA
 analysis only, one open target at a time. Copy targets to `/var/lib/rea-samples` on `mcp` (rsync
 as admin) and open them by that path.
 
+`github` (8103) is read-only with one server-side token, so every client reads as its owner.
+Use a fine-grained PAT with read-only Contents, Issues, Pull requests and Metadata on the repos
+it should see (a classic one needs `repo`, which also allows writes). Give the mcp VM an age key
+as under Secrets, with it on the `secrets/virtual.yaml` rule, then add the token and uncomment
+the enable line in `hosts/virtual/mcp`. The host doesn't build with it enabled and no token.
+
+```sh
+sops updatekeys secrets/virtual.yaml
+sops secrets/virtual.yaml   # github-mcp-token: github_pat_...
+```
+
 ## Storage
 
 `homelab.storage` writes disko config. Disk names, zpool members and boot slots become
