@@ -1,6 +1,6 @@
 # Joins the cluster through any member, or creates it on the seed, then applies the cluster-wide preseed.
 # Env: SERVER_NAME, SEED, PEERS ("ip ..."), SEED_PRESEED, JOIN_PRESEED, PRESEED,
-#      CERTIFICATES ("name=path ..."), JOIN_CERT, JOIN_KEY
+#      CERTIFICATES ("name=path ..."), RESTRICTED_CERTIFICATES ("name=project,...=path ..."), JOIN_CERT, JOIN_KEY
 incus admin waitready --timeout 60
 
 if ! incus cluster list > /dev/null 2>&1; then
@@ -32,11 +32,27 @@ if ! incus cluster list > /dev/null 2>&1; then
   fi
 fi
 
+fingerprint() {
+  openssl x509 -in "$1" -noout -fingerprint -sha256 | cut -d= -f2 | tr -d : | tr '[:upper:]' '[:lower:]'
+}
+
 for entry in $CERTIFICATES; do
   name=${entry%%=*}
   cert=${entry#*=}
-  fingerprint=$(openssl x509 -in "$cert" -noout -fingerprint -sha256 | cut -d= -f2 | tr -d : | tr '[:upper:]' '[:lower:]')
-  incus query "/1.0/certificates/$fingerprint" > /dev/null 2>&1 || incus config trust add-certificate "$cert" --name "$name"
+  incus query "/1.0/certificates/$(fingerprint "$cert")" > /dev/null 2>&1 || incus config trust add-certificate "$cert" --name "$name"
 done
 
 incus admin init --preseed < "$PRESEED"
+
+# After the preseed, so they are only ever authorized the way its config says.
+for entry in $RESTRICTED_CERTIFICATES; do
+  name=${entry%%=*}
+  rest=${entry#*=}
+  projects=${rest%%=*}
+  cert=${rest#*=}
+  if existing=$(incus query "/1.0/certificates/$(fingerprint "$cert")" 2> /dev/null); then
+    jq -e .restricted <<< "$existing" > /dev/null || echo "warning: $name is already trusted unrestricted, left as is" >&2
+  else
+    incus config trust add-certificate "$cert" --name "$name" --restricted --projects "$projects"
+  fi
+done

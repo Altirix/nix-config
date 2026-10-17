@@ -17,7 +17,7 @@ flake.nix                  discovers hosts/<group>/<name>/default.nix, adds modu
 modules/
   default.nix              every host: disko, sops, generic blocks, packages, locale, nix, admin user
   compute.nix              the three incus + ceph hypervisors: mesh, frr, ceph, incus and their values
-  compute/                 incus certificates
+  compute/                 incus certificates, authorization scriptlet for restricted ones
   storage.nix              HDD storage nodes
   virtual.nix              incus VMs: mcp servers
   edge.nix                 public-facing hosts: wireguard, egress NAT, port forwards, static sites, ssh
@@ -161,6 +161,32 @@ sops secrets/virtual.yaml   # github-mcp-token: github_pat_...
 
 context7 serves its own `/mcp` (no `/sse`); an API key is optional, per client:
 `--header "Context7-API-Key: <key>"`.
+
+`incus` (8110) reads the incus cluster with a restricted client certificate. Incus routes
+restricted certificates to `modules/compute/incus-restricted.star`, which lets them view the
+`default` project, storage pools, members and resources, and change nothing: no exec, console,
+files, state changes, operations or events. The key still reads every instance's config and logs,
+and so does anyone who reaches 8110, narrow it with `homelab.mcp.clients`. The VM reaches the API
+on the members' mgmt addresses, so the router has to let it (only its address) from labs to mgmt
+on tcp/8443. Set it up with the cluster's certificate and a new key:
+
+```sh
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:secp384r1 -nodes -days 3650 \
+  -subj /CN=mcp-incus -keyout incus-mcp.key -out modules/compute/incus-mcp.crt
+ssh admin@andromeda incus query /1.0 | jq -r .environment.certificate > modules/compute/incus-cluster.crt
+```
+
+Uncomment `restrictedCertificates.mcp-incus` in `modules/compute.nix` and deploy the hypervisors.
+That also makes the scriptlet the policy for every restricted certificate, hand-added ones included
+(`incus config trust list` shows which are). Dropping either from nix later leaves it in place,
+`incus config trust remove` and `incus config unset` take it out. Give the mcp VM an age key as
+under Secrets, on the `secrets/virtual.yaml` rule, add the key as `incus-mcp-key` (the PEM as a
+`|` block), delete `incus-mcp.key`, then uncomment the incus block in `hosts/virtual/mcp`.
+
+```sh
+sops updatekeys secrets/virtual.yaml
+sops secrets/virtual.yaml   # incus-mcp-key: |
+```
 
 ## Storage
 
