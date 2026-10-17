@@ -9,5 +9,7 @@
     ./networking.nix
   ];
 
+  homelab.mcp.servers.playwright.enable = true;
+
   system.stateVersion = "26.05";
 }
