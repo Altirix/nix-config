@@ -16,6 +16,7 @@
   homelab.mcp.servers.context7.enable = true;
   homelab.mcp.servers.fetch.enable = true;
   homelab.mcp.servers.time.enable = true;
+  homelab.mcp.servers.memory.enable = true;
 
   system.stateVersion = "26.05";
 }
