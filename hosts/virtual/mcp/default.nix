@@ -9,5 +9,7 @@
     ./networking.nix
   ];
 
+  homelab.mcp.servers.context7.enable = true;
+
   system.stateVersion = "26.05";
 }

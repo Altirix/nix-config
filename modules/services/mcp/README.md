@@ -45,3 +45,7 @@ one more machine) with its own `clients`, which defaults to that list:
 ```nix
 homelab.mcp.servers.time.clients = config.homelab.mcp.clients ++ [ "10.0.0.1" ];
 ```
+
+## context7 (8104)
+
+Serves its own `/mcp` (no `/sse`). An API key is optional, per client: `--header "Context7-API-Key: <key>"`.
