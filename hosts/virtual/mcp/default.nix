@@ -10,6 +10,7 @@
     ./networking.nix
   ];
 
+  homelab.mcp.servers.fetch.enable = true;
   homelab.mcp.servers.time.enable = true;
 
   system.stateVersion = "26.05";
