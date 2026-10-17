@@ -26,7 +26,7 @@ modules/
   system/                  ssh (admin keys in keys/admin/*.pub), secrets, boot (grub across mirrored ESPs)
   hardware/                rock5c.nix (U-Boot + RK3582 unlock patches from Armbian, extlinux, panthor shader mask, AIC8800 wifi)
   disks/                   disko.nix (homelab.storage -> disko.devices), zfs.nix
-  networking/              lan (VLAN trunk), mesh, frr
+  networking/              lan (VLAN trunk), mesh, frr, wifi (wpa_supplicant, SSID/PSK from sops)
   services/                ceph/, incus/, wireguard/ (+ egress NAT, port forwards), web/ (nginx: static or proxied sites, optional ACME), klipper/ (config/mainsail.cfg)
   */config/                real config files (frr.conf, nftables tables) with @name@ placeholders
   */scripts/               bootstrap scripts, wrapped with writeShellApplication (shellcheck at build)
@@ -154,3 +154,4 @@ nix eval --raw .#nixosConfigurations.<name>.config.system.build.diskoScript.drvP
 
 The on-board AIC8800D80 (USB Wi-Fi 6 / BT 5.4) has no mainline driver, `homelab.hardware.rock5c.wifi`
 builds Radxa's out of tree with its firmware. Check with `ip link` and `bluetoothctl list`.
+`homelab.wifi.enable` joins the network in `wifi-ssid` / `wifi-psk` of `secrets/printer.yaml`.

@@ -12,6 +12,7 @@
     ./disks/disko.nix
     ./system/boot.nix
     ./networking/lan.nix
+    ./networking/wifi.nix
     ./disks/zfs.nix
     ./hardware/rock5c.nix
   ];

@@ -17,5 +17,8 @@
     wifi = true;
   };
 
+  # Credentials in secrets/printer.yaml (wifi-ssid, wifi-psk).
+  homelab.wifi.enable = true;
+
   homelab.klipper.printerConfig = ./printer.cfg;
 }
