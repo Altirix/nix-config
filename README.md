@@ -143,6 +143,10 @@ Add it to a client:
 claude mcp add --transport http time http://mcp:8100/mcp
 ```
 
+REA (`rea`, `http://mcp:8101/mcp`) decompiles with Ghidra and reads APKs with JADX, static
+analysis only, one open target at a time. Copy targets to `/var/lib/rea-samples` on `mcp` (rsync
+as admin) and open them by that path.
+
 ## Storage
 
 `homelab.storage` writes disko config. Disk names, zpool members and boot slots become
