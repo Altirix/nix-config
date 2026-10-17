@@ -25,7 +25,7 @@ let
 
   # Cluster-wide state, applied on every member every start.
   preseed = {
-    config."core.https_address" = ":8443";
+    config = cfg.config // { "core.https_address" = ":8443"; };
     inherit (cfg) networks profiles projects;
     storage_pools = cfg.storagePools;
   };
@@ -113,8 +113,27 @@ in
       };
     };
 
+    # Server config (`incus config set`), cluster-wide. Merged into the live config, a key dropped here stays set.
+    config = mkOption {
+      type = types.attrsOf types.str;
+      default = { };
+      example = { "authorization.client.tls-restricted" = "scriptlet"; };
+    };
+
     trustedCertificates = mkOption {
       type = types.attrsOf types.path;
+      default = { };
+    };
+
+    # Trusted only in `projects`, authorized by whatever authorization.client.tls-restricted routes to.
+    # Like trustedCertificates, one dropped here stays trusted until `incus config trust remove`.
+    restrictedCertificates = mkOption {
+      type = types.attrsOf (types.submodule {
+        options = {
+          certificate = mkOption { type = types.path; };
+          projects = mkOption { type = types.nonEmptyListOf types.str; };
+        };
+      });
       default = { };
     };
 
@@ -168,6 +187,8 @@ in
         JOIN_PRESEED = json.generate "incus-join-preseed.json" joinPreseed;
         PRESEED = json.generate "incus-preseed.json" preseed;
         CERTIFICATES = toString (lib.mapAttrsToList (name: cert: "${name}=${cert}") certificates);
+        RESTRICTED_CERTIFICATES = toString (lib.mapAttrsToList (name: c:
+          "${name}=${lib.concatStringsSep "," c.projects}=${c.certificate}") cfg.restrictedCertificates);
         JOIN_CERT = "${cfg.joinCertificate}";
         JOIN_KEY = config.sops.secrets."incus-join-key".path;
       };
