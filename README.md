@@ -24,7 +24,7 @@ modules/
   printer.nix              3D printers: klipper, moonraker, mainsail, mDNS
   desktop.nix              not wired up yet
   system/                  ssh (admin keys in keys/admin/*.pub), secrets, boot (grub across mirrored ESPs)
-  hardware/                rock5c.nix (U-Boot + RK3582 unlock patches from Armbian, extlinux, panthor shader mask)
+  hardware/                rock5c.nix (U-Boot + RK3582 unlock patches from Armbian, extlinux, panthor shader mask, AIC8800 wifi)
   disks/                   disko.nix (homelab.storage -> disko.devices), zfs.nix
   networking/              lan (VLAN trunk), mesh, frr
   services/                ceph/, incus/, wireguard/ (+ egress NAT, port forwards), web/ (nginx: static or proxied sites, optional ACME), klipper/ (config/mainsail.cfg)
@@ -151,3 +151,6 @@ Check a change against the current disko script before deploying:
 ```sh
 nix eval --raw .#nixosConfigurations.<name>.config.system.build.diskoScript.drvPath
 ```
+
+The on-board AIC8800D80 (USB Wi-Fi 6 / BT 5.4) has no mainline driver, `homelab.hardware.rock5c.wifi`
+builds Radxa's out of tree with its firmware. Check with `ip link` and `bluetoothctl list`.

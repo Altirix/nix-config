@@ -14,6 +14,7 @@
   homelab.hardware.rock5c = {
     enable = true;
     unlocked = true;
+    wifi = true;
   };
 
   homelab.klipper.printerConfig = ./printer.cfg;
