@@ -143,6 +143,17 @@ Add it to a client:
 claude mcp add --transport http time http://mcp:8100/mcp
 ```
 
+`github` (8103) is read-only with one server-side token, so every client reads as its owner.
+Use a fine-grained PAT with read-only Contents, Issues, Pull requests and Metadata on the repos
+it should see (a classic one needs `repo`, which also allows writes). Give the mcp VM an age key
+as under Secrets, with it on the `secrets/virtual.yaml` rule, then add the token and uncomment
+the enable line in `hosts/virtual/mcp`. The host doesn't build with it enabled and no token.
+
+```sh
+sops updatekeys secrets/virtual.yaml
+sops secrets/virtual.yaml   # github-mcp-token: github_pat_...
+```
+
 ## Storage
 
 `homelab.storage` writes disko config. Disk names, zpool members and boot slots become
