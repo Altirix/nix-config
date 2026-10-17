@@ -42,6 +42,7 @@ hosts/
   edge/ionos-de/
     networking.nix         wireguard interface + peers, port forwards
     services.nix           web sites
+tests/                     NixOS VM tests as flake checks: mcp.nix (the mcp host's servers, mcp-call.py client)
 ```
 
 The group directory (`compute/`, `edge/`) is only for layout, and a host with an empty
@@ -187,6 +188,9 @@ under Secrets, on the `secrets/virtual.yaml` rule, add the key as `incus-mcp-key
 sops updatekeys secrets/virtual.yaml
 sops secrets/virtual.yaml   # incus-mcp-key: |
 ```
+
+`nix build .#checks.x86_64-linux.mcp` boots the servers the host enables in VMs and calls each
+from a client over the network, see `tests/mcp.nix`.
 
 ## Storage
 
