@@ -2,7 +2,10 @@
 
 # Incus VMs running on the compute hosts.
 {
-  imports = [ ./services/vgpu/guest.nix ];
+  imports = [
+    ./networking/labs-mesh.nix
+    ./services/vgpu/guest.nix
+  ];
 
   homelab.secrets.groupFile = ../secrets/virtual.yaml;
 
