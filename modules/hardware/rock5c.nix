@@ -13,6 +13,8 @@
 #
 # `gpuShaderMask` keeps a GPU with a bad core: uboot-rk3582-keep-gpu.patch leaves the gpu node
 # enabled and panthor-shader-mask.patch (panthor.ko only) drops the bad core from shader_present.
+#
+# `wifi` is the on-board AIC8800D80 on USB, no mainline driver: aic8800.nix builds Radxa's.
 let
   cfg = config.homelab.hardware.rock5c;
 
@@ -68,6 +70,9 @@ in
       example = "0x40005";
     };
 
+    # Wi-Fi 6 / BT 5.4 module, check with `ip link` and `bluetoothctl list`.
+    wifi = lib.mkEnableOption "the on-board AIC8800D80 Wi-Fi and Bluetooth";
+
     uboot = lib.mkOption {
       type = lib.types.package;
       readOnly = true;
@@ -77,8 +82,9 @@ in
 
   config = lib.mkIf cfg.enable (lib.mkMerge [ {
     nixpkgs.hostPlatform = lib.mkDefault "aarch64-linux";
-    # rkbin for U-Boot's DDR init, linux-firmware for the Mali CSF firmware.
-    nixpkgs.config.allowUnfreePredicate = pkg: lib.elem (lib.getName pkg) [ "rkbin" "linux-firmware" ];
+    # rkbin for U-Boot's DDR init, linux-firmware for the Mali CSF firmware, the AIC8800 blobs.
+    nixpkgs.config.allowUnfreePredicate = pkg: lib.elem (lib.getName pkg)
+      ([ "rkbin" "linux-firmware" ] ++ lib.optional cfg.wifi "aic8800-firmware");
 
     # U-Boot reads extlinux.conf from the ESP, it has no EFI variables to touch.
     boot.loader.grub.enable = false;
@@ -117,5 +123,10 @@ in
     boot.kernelParams = [ "panthor.shader_mask=${cfg.gpuShaderMask}" ];
 
     environment.systemPackages = [ pkgs.glmark2 ];
+  })
+
+  (lib.mkIf cfg.wifi {
+    boot.extraModulePackages = [ (config.boot.kernelPackages.callPackage ./aic8800.nix { }) ];
+    hardware.bluetooth.enable = true;
   }) ]);
 }
