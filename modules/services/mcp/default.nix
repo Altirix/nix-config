@@ -2,7 +2,7 @@
 
 # MCP servers, one systemd unit and port each. stdio servers are put behind mcp-proxy, which
 # serves streamable HTTP on /mcp and SSE on /sse and shares one server process between all clients.
-# There is no auth and no Host check, only expose them on the labs bridge.
+# There is no auth and no Host check, only expose them on the labs bridge and narrow it with `clients`.
 #
 # Presets for packaged servers live in servers/, every file there is imported. A preset sets
 # defaults and never `enable`, the host turns it on:
@@ -54,6 +54,12 @@ let
   };
 
   enabled = lib.filterAttrs (_: s: s.enable) cfg.servers;
+  ports = lib.mapAttrsToList (_: s: s.port) enabled;
+  # One nftables rule per address family that has clients.
+  allow = family:
+    let addrs = lib.filter (a: lib.hasInfix ":" a == (family == "ip6")) cfg.clients;
+    in lib.optionalString (addrs != [ ])
+      "${family} saddr { ${lib.concatStringsSep ", " addrs} } tcp dport { ${lib.concatMapStringsSep ", " toString ports} } accept\n";
 
   presets = lib.attrNames (lib.filterAttrs (name: type: type == "regular" && lib.hasSuffix ".nix" name)
     (builtins.readDir ./servers));
@@ -68,12 +74,20 @@ in
       type = types.attrsOf server;
       default = { };
     };
+
+    # Addresses or prefixes allowed to connect, e.g. the machines agents run on. Empty lets in anyone
+    # who reaches the VM.
+    clients = mkOption {
+      type = types.listOf types.str;
+      default = [ ];
+      example = [ "10.100.0.20" "fd00:100::/64" ];
+    };
   };
 
   config = lib.mkIf (enabled != { }) {
     assertions = [
       {
-        assertion = lib.allUnique (lib.mapAttrsToList (_: s: s.port) enabled);
+        assertion = lib.allUnique ports;
         message = "mcp: every enabled server needs its own port";
       }
     ];
@@ -121,6 +135,7 @@ in
       };
     }) enabled;
 
-    networking.firewall.allowedTCPPorts = lib.mapAttrsToList (_: s: s.port) enabled;
+    networking.firewall.allowedTCPPorts = lib.mkIf (cfg.clients == [ ]) ports;
+    networking.firewall.extraInputRules = lib.mkIf (cfg.clients != [ ]) (allow "ip" + allow "ip6");
   };
 }
