@@ -9,5 +9,7 @@
     ./networking.nix
   ];
 
+  homelab.mcp.servers.nixos.enable = true;
+
   system.stateVersion = "26.05";
 }
