@@ -221,7 +221,15 @@ in
       # The bootstrap adds the pin to the instance, so it holds even when launched with only `-p default`.
       instanceProfiles = lib.mapAttrs (name: _: [ name ]) labsAddresses;
 
+      # Restricted certificates are read-only in their projects, see the scriptlet. Only set once one
+      # is trusted, so the cluster keeps its default authorization until then. Stays set after.
+      config = lib.mkIf (config.homelab.incus.restrictedCertificates != { }) {
+        "authorization.scriptlet" = builtins.readFile ./compute/incus-restricted.star;
+        "authorization.client.tls-restricted" = "scriptlet";
+      };
+
       trustedCertificates.my-browser = ./compute/incus-ui.crt;
+      # restrictedCertificates.mcp-incus = { certificate = ./compute/incus-mcp.crt; projects = [ "default" ]; };   # the mcp VM's incus server
       joinCertificate = ./compute/incus-join.crt;
       members.networks = {
         labs."bridge.external_interfaces" = "labs-uplink";

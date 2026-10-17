@@ -3,7 +3,7 @@
 ```
 default.nix              every host: disko, sops, generic blocks, packages, locale, nix, admin user
 compute.nix              the three incus + ceph hypervisors: mesh, frr, ceph, incus and their values
-compute/                 incus certificates
+compute/                 incus certificates, authorization scriptlet for restricted ones
 storage.nix              HDD storage nodes
 virtual.nix              incus VMs
 edge.nix                 public-facing hosts: wireguard, egress NAT, port forwards, static sites, ssh
