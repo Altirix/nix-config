@@ -130,9 +130,9 @@ with it any state (memory, browser tabs). Presets in `modules/services/mcp/serve
 enabling in the host, anything else is added directly:
 
 ```nix
-homelab.mcp.servers.time = {
+homelab.mcp.servers.sequential-thinking = {
   enable = true;
-  command = lib.getExe pkgs.mcp-server-time;
+  command = lib.getExe pkgs.mcp-server-sequential-thinking;
   port = 8100;
 };
 ```
@@ -140,7 +140,7 @@ homelab.mcp.servers.time = {
 Add it to a client:
 
 ```sh
-claude mcp add --transport http time http://mcp:8100/mcp
+claude mcp add --transport http sequential-thinking http://mcp:8100/mcp
 ```
 
 ## Storage
