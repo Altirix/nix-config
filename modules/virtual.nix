@@ -10,6 +10,8 @@
 
   virtualisation.incus.agent.enable = lib.mkDefault true;
 
+  networking.nftables.enable = true;
+
   # Only on the labs bridge.
   networking.firewall.allowedTCPPorts = [ 22 ];
 
