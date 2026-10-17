@@ -129,6 +129,7 @@ in
             "restricted.backups" = "allow";
             "restricted.snapshots" = "allow";
             "restricted.cluster.target" = "allow";
+            "restricted.devices.gpu" = "allow"; # vGPU slices on andromeda
           };
         }
       ];
