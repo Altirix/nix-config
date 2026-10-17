@@ -16,6 +16,10 @@
       url = "github:mrzenc/vgpu4nixos";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    fastapi-dls-nixos = {
+      url = "github:mrzenc/fastapi-dls-nixos";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs = { self, nixpkgs, ... }@inputs:

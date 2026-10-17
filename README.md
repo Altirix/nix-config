@@ -42,9 +42,10 @@ hosts/
   edge/ionos-de/
     networking.nix         wireguard interface + peers, port forwards
     services.nix           web sites
+  virtual/dls/             FastAPI-DLS, licenses vGPU guests over labs-mesh
 ```
 
-The group directory (`compute/`, `edge/`) is only for layout, and a host with an empty
+The group directory (`compute/`, `edge/`, `virtual/`) is only for layout, and a host with an empty
 `default.nix` is a placeholder and not built.
 
 ## Add a host
