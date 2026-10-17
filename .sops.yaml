@@ -81,6 +81,10 @@ creation_rules:
     key_groups:
       - age: *edge
 
+  - path_regex: ^secrets[\\/]printer\.yaml$
+    key_groups:
+      - age: *printer
+
   - path_regex: ^secrets[\\/]standalone\.yaml$
     key_groups:
       - age:
