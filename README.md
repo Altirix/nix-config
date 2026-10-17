@@ -125,9 +125,10 @@ Mainsail is on `http://alluvium.local`. `printer.cfg` only seeds
 
 `hosts/virtual/mcp` runs MCP servers on the labs bridge, each as its own `mcp-<name>` unit and
 port. stdio servers sit behind mcp-proxy: streamable HTTP on `http://mcp:<port>/mcp`, SSE on
-`/sse`. Nothing authenticates, so they stay off the edge. Clients share one server process, and
-with it any state (memory, browser tabs). Presets in `modules/services/mcp/servers/` only need
-enabling in the host, anything else is added directly:
+`/sse`. Nothing authenticates, so they stay off the edge and `homelab.mcp.clients` limits them to
+the machines agents run on. stdio servers share one process, and with it any state, between
+clients. Presets in `modules/services/mcp/servers/` only need enabling in the host, anything else
+is added directly:
 
 ```nix
 homelab.mcp.servers.time = {
