@@ -6,7 +6,7 @@
 #
 # Presets for packaged servers live in servers/, every file there is imported. A preset sets
 # defaults and never `enable`, the host turns it on:
-#   homelab.mcp.servers.time = { command = lib.mkDefault (lib.getExe pkgs.mcp-server-time); port = lib.mkDefault 8100; };
+#   homelab.mcp.servers.time = { command = lib.mkDefault (lib.getExe pkgs.mcp-server-time); port = lib.mkDefault 8106; };
 # Anything else (LoadCredential, ReadWritePaths) goes straight into systemd.services."mcp-<name>".
 # Tokens go in a sops template with restartUnits = [ "mcp-<name>.service" ] as `environmentFile`.
 let
