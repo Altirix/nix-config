@@ -11,6 +11,7 @@
   ];
 
   homelab.mcp.servers.rea.enable = true;
+  homelab.mcp.servers.nixos.enable = true;
 
   system.stateVersion = "26.05";
 }
