@@ -27,7 +27,7 @@ modules/
   hardware/                rock5c.nix (U-Boot + RK3582 unlock patches from Armbian, extlinux, panthor shader mask, AIC8800 wifi)
   disks/                   disko.nix (homelab.storage -> disko.devices), zfs.nix
   networking/              lan (VLAN trunk), mesh, frr
-  services/                ceph/, incus/, wireguard/ (+ egress NAT, port forwards), web/ (nginx: static or proxied sites, optional ACME), klipper/ (config/mainsail.cfg), mcp/ (servers/: presets)
+  services/                ceph/, incus/, wireguard/ (+ egress NAT, port forwards), web/ (nginx: static or proxied sites, optional ACME), klipper/ (config/mainsail.cfg), mcp/ (servers/: presets, packages/: rea)
   */config/                real config files (frr.conf, nftables tables) with @name@ placeholders
   */scripts/               bootstrap scripts, wrapped with writeShellApplication (shellcheck at build)
 hosts/
@@ -143,6 +143,10 @@ Add it to a client:
 ```sh
 claude mcp add --transport http time http://mcp:8100/mcp
 ```
+
+REA (`rea`, `http://mcp:8101/mcp`) decompiles with Ghidra and reads APKs with JADX, static
+analysis only, one open target at a time. Copy targets to `/var/lib/rea-samples` on `mcp` (rsync
+as admin) and open them by that path.
 
 ## Storage
 
