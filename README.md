@@ -131,9 +131,9 @@ clients. Presets in `modules/services/mcp/servers/` only need enabling in the ho
 is added directly:
 
 ```nix
-homelab.mcp.servers.time = {
+homelab.mcp.servers.sequential-thinking = {
   enable = true;
-  command = lib.getExe pkgs.mcp-server-time;
+  command = lib.getExe pkgs.mcp-server-sequential-thinking;
   port = 8100;
 };
 ```
@@ -141,7 +141,7 @@ homelab.mcp.servers.time = {
 Add it to a client:
 
 ```sh
-claude mcp add --transport http time http://mcp:8100/mcp
+claude mcp add --transport http sequential-thinking http://mcp:8100/mcp
 ```
 
 REA (`rea`, `http://mcp:8101/mcp`) decompiles with Ghidra and reads APKs with JADX, static
