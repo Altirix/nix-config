@@ -193,6 +193,14 @@ in
         (builtins.readFile ./config/instance-isolation.nft);
     };
 
+    # The incus module loads br_netfilter, which sends bridged frames through the inet hooks as iifname/oifname
+    # = the bridge, so the drops above would eat all instance traffic, DHCP included. Bridged stays L2 only.
+    boot.kernel.sysctl = {
+      "net.bridge.bridge-nf-call-iptables" = 0;
+      "net.bridge.bridge-nf-call-ip6tables" = 0;
+      "net.bridge.bridge-nf-call-arptables" = 0;
+    };
+
     networking.firewall.interfaces = lib.genAttrs config.homelab.lan.adminInterfaces (_: {
       allowedTCPPorts = [ 8443 ];
     });
