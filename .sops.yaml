@@ -10,11 +10,19 @@ keys:
   - &host_bode age1t648rtjxt9wpsvzmrtvxlj9cfqajh2sll5u5uxqrnzxy0ffun5qqu6wfh2 # Incus Node 2
   - &host_centaurus age1qfnlgqukf2cvkrl6yzfufwn4nlhrrrt0rvtah6rp9r880r9sq3ksm7llup # Incus Node 3
 
+# Edge Keys
+
   - &host_ionos_de age1ckwdnfk73f5xdlcasvhhray6e4katzfhr5zzxhcpgfh8httuls5ssum87p # IONOS DE Node 1
+
+# Printer Keys
 
   - &host_alluvium age1rcvhed74d0w4lcyvc23wcgk9yf4xpa5ng3vmkvresxc5gzwsudkqucrdm3 # Printer 1
   - &host_basidium age18p60jx786w797ju365683h94red5a3tg993tzrxfx03uk0dl2eaq7kyxa7 # Printer 2
 
+# VM Keys
+
+  - &host_dls age17lhpf7t5av07y4d85cjt9rn5nut4m5qnc59xs88eg76xeh8ugg5s6amk8t # Nvidia DLS
+  
 # Groups
 groups:
   common: &common
@@ -25,6 +33,7 @@ groups:
     - *host_ionos_de
     - *host_alluvium
     - *host_basidium
+    - *host_dls
 
   compute: &compute
     - *admin
@@ -40,6 +49,10 @@ groups:
     - *admin
     - *host_alluvium
     - *host_basidium
+
+  virtual: &virtual
+    - *admin
+    - *host_dls
 
 creation_rules:
 
@@ -97,5 +110,4 @@ creation_rules:
 
   - path_regex: ^secrets[\\/]virtual\.yaml$
     key_groups:
-      - age:
-        - *admin
+      - age: *virtual
