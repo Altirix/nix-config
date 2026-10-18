@@ -38,7 +38,11 @@ let
   vlanNetwork = name: v:
     if v.address == null then {
       matchConfig.Name = name;
-      networkConfig.LinkLocalAddressing = "no";
+      networkConfig = {
+        LinkLocalAddressing = "no";
+        # Without this networkd pulls the uplink back out of the incus bridge on every (re)configure.
+        KeepMaster = true;
+      };
     } else {
       matchConfig.Name = name;
       address = [ v.address ];
