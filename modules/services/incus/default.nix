@@ -51,10 +51,12 @@ let
   };
 
   # Bridges and their uplinks, instances only ever live behind these.
-  instanceInterfaces = lib.concatMap (n:
-    [ n.name ] ++ lib.optional (member "networks" n ? "bridge.external_interfaces")
-      (member "networks" n)."bridge.external_interfaces")
-    cfg.networks;
+  uplinks = lib.concatMap (n: lib.splitString "," (member "networks" n)."bridge.external_interfaces")
+    (lib.filter (n: member "networks" n ? "bridge.external_interfaces") cfg.networks);
+  instanceInterfaces = map (n: n.name) cfg.networks ++ uplinks;
+  bridges = map (n: n.name) (lib.filter (n: n.type or "bridge" == "bridge") cfg.networks);
+
+  nftSet = names: "{ ${lib.concatMapStringsSep ", " (i: ''"${i}"'') names} }";
 
   bootstrapScript = pkgs.writeShellApplication {
     name = "incus-bootstrap";
@@ -113,6 +115,12 @@ in
       };
     };
 
+    # Instance -> profiles it must carry (an address pin), the bootstrap adds them once the instance exists.
+    instanceProfiles = mkOption {
+      type = types.attrsOf (types.listOf types.str);
+      default = { };
+    };
+
     trustedCertificates = mkOption {
       type = types.attrsOf types.path;
       default = { };
@@ -138,6 +146,14 @@ in
           && lib.all (name: lib.elem name (map (e: e.name) cfg.storagePools)) (lib.attrNames cfg.members.storagePools);
         message = "incus: members.* names a network or storage pool that isn't defined";
       }
+      {
+        assertion = lib.allUnique (map (p: p.name) cfg.profiles);
+        message = "incus: profile names must be unique";
+      }
+      {
+        assertion = lib.all (name: lib.elem name (map (p: p.name) cfg.profiles)) (lib.concatLists (lib.attrValues cfg.instanceProfiles));
+        message = "incus: instanceProfiles names a profile that isn't defined";
+      }
     ];
 
     virtualisation.incus = {
@@ -151,7 +167,7 @@ in
       key = "incus-join-key";
     };
 
-    # Bootstraps or joins the cluster, then applies the cluster-wide preseed.
+    # Bootstraps or joins the cluster, applies the cluster-wide preseed, then the instance profiles.
     # Retries until a member hands out a token and the mons have quorum for the ceph pool, without blocking switch.
     systemd.services.incus-bootstrap = {
       description = "Incus cluster bootstrap and preseed";
@@ -168,6 +184,7 @@ in
         JOIN_PRESEED = json.generate "incus-join-preseed.json" joinPreseed;
         PRESEED = json.generate "incus-preseed.json" preseed;
         CERTIFICATES = toString (lib.mapAttrsToList (name: cert: "${name}=${cert}") certificates);
+        INSTANCE_PROFILES = toString (lib.mapAttrsToList (name: profiles: "${name}=${lib.concatStringsSep "," profiles}") cfg.instanceProfiles);
         JOIN_CERT = "${cfg.joinCertificate}";
         JOIN_KEY = config.sops.secrets."incus-join-key".path;
       };
@@ -189,8 +206,26 @@ in
       family = "inet";
       content = builtins.replaceStrings
         [ "@interfaces@" ]
-        [ "{ ${lib.concatMapStringsSep ", " (i: ''"${i}"'') instanceInterfaces} }" ]
+        [ (nftSet instanceInterfaces) ]
         (builtins.readFile ./config/instance-isolation.nft);
+    };
+
+    # Instances share L2, so stop one from posing as the router to the others (rogue DHCP, RAs).
+    # MAC and ARP spoofing are handled per NIC by incus, see security.mac_filtering in the profiles.
+    networking.nftables.tables.instance-guard = lib.mkIf (bridges != [ ]) {
+      family = "bridge";
+      content = builtins.replaceStrings
+        [ "@bridges@" "@fromInstance@" ]
+        [ (nftSet bridges) (lib.optionalString (uplinks != [ ]) "iifname != ${nftSet uplinks} ") ]
+        (builtins.readFile ./config/instance-guard.nft);
+    };
+
+    # The incus module loads br_netfilter, which sends bridged frames through the inet hooks as iifname/oifname
+    # = the bridge, so the drops above would eat all instance traffic, DHCP included. Bridged stays L2 only.
+    boot.kernel.sysctl = {
+      "net.bridge.bridge-nf-call-iptables" = 0;
+      "net.bridge.bridge-nf-call-ip6tables" = 0;
+      "net.bridge.bridge-nf-call-arptables" = 0;
     };
 
     networking.firewall.interfaces = lib.genAttrs config.homelab.lan.adminInterfaces (_: {

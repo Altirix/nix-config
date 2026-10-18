@@ -26,7 +26,7 @@ modules/
   system/                  ssh (admin keys in keys/admin/*.pub), secrets, boot (grub across mirrored ESPs)
   hardware/                rock5c.nix (U-Boot + RK3582 unlock patches from Armbian, extlinux, panthor shader mask, AIC8800 wifi)
   disks/                   disko.nix (homelab.storage -> disko.devices), zfs.nix
-  networking/              lan (VLAN trunk), mesh, frr, wifi (wpa_supplicant, SSID/PSK from sops), labs-mesh (an incus VM's static address on the overlay)
+  networking/              lan (VLAN trunk), mesh, frr, wifi (wpa_supplicant, SSID/PSK from sops), labs (an incus VM's address on VLAN 100, pinned by the hypervisors), labs-mesh (its static address on the overlay)
   services/                ceph/, incus/, wireguard/ (+ egress NAT, port forwards), web/ (nginx: static or proxied sites, optional ACME), klipper/ (config/mainsail.cfg),
                            vgpu/ (NVIDIA vGPU: host.nix on compute, guest.nix on virtual, releases.nix pins both)
   */config/                real config files (frr.conf, nftables tables) with @name@ placeholders
@@ -59,6 +59,16 @@ ls -l /dev/disk/by-id/   # fill in storage.nix
 The template is an incus VM (`modules/virtual.nix`, one ext4 disk, DHCP). `modules/compute.nix`
 is only for the three hypervisors; their `storage.nix`/`networking.nix` show zfs
 roots, ceph disks, VLAN trunks and the mesh.
+
+VLAN 100 (labs) only reaches the router: instance ports are isolated (`security.port_isolation`),
+VMs talk to each other through the router or directly over labs-mesh. Addressing: `10.100.0.0/24`
+infra, `10.100.1.0/24`-`10.100.254.0/24` services, `10.100.255.0/24` the router's DHCP pool, only
+for setup. A VM that serves something sets `homelab.labs.address` (a /32 with the router on-link);
+the hypervisors then pin that IP to the incus instance of the same name (profile `<name>`,
+`security.ipv4_filtering`), so no other instance can take it. Deploy the VM, then the hypervisors.
+
+The router routes VM to VM back out VLAN 100 (no ICMP redirects) and the switch isolates the
+hypervisor ports from each other (protected ports), otherwise VMs on different hosts still share L2.
 
 Secrets:
 
