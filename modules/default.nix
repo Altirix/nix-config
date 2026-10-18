@@ -34,6 +34,7 @@
     curl
     dig
     smartmontools
+    ssh-to-age
   ];
 
   nixpkgs.config.allowUnfree = false;
