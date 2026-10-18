@@ -51,10 +51,12 @@ let
   };
 
   # Bridges and their uplinks, instances only ever live behind these.
-  instanceInterfaces = lib.concatMap (n:
-    [ n.name ] ++ lib.optional (member "networks" n ? "bridge.external_interfaces")
-      (member "networks" n)."bridge.external_interfaces")
-    cfg.networks;
+  uplinks = lib.concatMap (n: lib.splitString "," (member "networks" n)."bridge.external_interfaces")
+    (lib.filter (n: member "networks" n ? "bridge.external_interfaces") cfg.networks);
+  instanceInterfaces = map (n: n.name) cfg.networks ++ uplinks;
+  bridges = map (n: n.name) (lib.filter (n: n.type or "bridge" == "bridge") cfg.networks);
+
+  nftSet = names: "{ ${lib.concatMapStringsSep ", " (i: ''"${i}"'') names} }";
 
   bootstrapScript = pkgs.writeShellApplication {
     name = "incus-bootstrap";
@@ -189,8 +191,18 @@ in
       family = "inet";
       content = builtins.replaceStrings
         [ "@interfaces@" ]
-        [ "{ ${lib.concatMapStringsSep ", " (i: ''"${i}"'') instanceInterfaces} }" ]
+        [ (nftSet instanceInterfaces) ]
         (builtins.readFile ./config/instance-isolation.nft);
+    };
+
+    # Instances share L2, so stop one from posing as the router to the others (rogue DHCP, RAs).
+    # MAC and ARP spoofing are handled per NIC by incus, see security.mac_filtering in the profiles.
+    networking.nftables.tables.instance-guard = lib.mkIf (bridges != [ ]) {
+      family = "bridge";
+      content = builtins.replaceStrings
+        [ "@bridges@" "@fromInstance@" ]
+        [ (nftSet bridges) (lib.optionalString (uplinks != [ ]) "iifname != ${nftSet uplinks} ") ]
+        (builtins.readFile ./config/instance-guard.nft);
     };
 
     # The incus module loads br_netfilter, which sends bridged frames through the inet hooks as iifname/oifname

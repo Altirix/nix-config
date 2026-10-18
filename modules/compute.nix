@@ -133,6 +133,10 @@ in
         }
       ];
 
+      # security.mac_filtering pins each NIC to its own MAC, so instances can't spoof another's MAC or forge
+      # ARP/NDP with one. Claiming another instance's IP needs security.ipv4_filtering + a static ipv4.address,
+      # set per instance (`incus config device override <vm> eth0 security.ipv4_filtering=true ipv4.address=...`)
+      # with a matching reservation on the router.
       profiles = [
         {
           name = "default";
@@ -145,6 +149,7 @@ in
             name = "eth0";
             network = "labs";
             type = "nic";
+            "security.mac_filtering" = "true";
           };
         }
         # Opt in with `-p default -p labs-mesh` for VM to VM traffic over the mesh.
@@ -154,6 +159,7 @@ in
             name = "eth1";
             network = "labs-mesh";
             type = "nic";
+            "security.mac_filtering" = "true";
           };
         }
       ];

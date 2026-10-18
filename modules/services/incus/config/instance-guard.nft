@@ -1,0 +1,6 @@
+# Bridged frames, so iifname is the bridge port. Only a bridge's uplink may answer as DHCP server or router.
+chain forward {
+  type filter hook forward priority filter; policy accept;
+  meta ibrname @bridges@ @fromInstance@udp sport { 67, 547 } drop
+  meta ibrname @bridges@ @fromInstance@icmpv6 type nd-router-advert drop
+}
