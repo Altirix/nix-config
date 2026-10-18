@@ -125,7 +125,11 @@ in
       # Head-end replication: floods go out once per peer, never back into the overlay.
       systemd.network.networks.${cfg.overlay.interface} = {
         matchConfig.Name = cfg.overlay.interface;
-        networkConfig.LinkLocalAddressing = "no";
+        networkConfig = {
+          LinkLocalAddressing = "no";
+          # Incus enslaves it to labs-mesh, networkd would pull it back out.
+          KeepMaster = true;
+        };
         bridgeFDBs = map (peer: {
           MACAddress = "00:00:00:00:00:00";
           Destination = peer;
