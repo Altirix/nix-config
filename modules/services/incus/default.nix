@@ -115,6 +115,12 @@ in
       };
     };
 
+    # Instance -> profiles it must carry (an address pin), the bootstrap adds them once the instance exists.
+    instanceProfiles = mkOption {
+      type = types.attrsOf (types.listOf types.str);
+      default = { };
+    };
+
     trustedCertificates = mkOption {
       type = types.attrsOf types.path;
       default = { };
@@ -140,6 +146,14 @@ in
           && lib.all (name: lib.elem name (map (e: e.name) cfg.storagePools)) (lib.attrNames cfg.members.storagePools);
         message = "incus: members.* names a network or storage pool that isn't defined";
       }
+      {
+        assertion = lib.allUnique (map (p: p.name) cfg.profiles);
+        message = "incus: profile names must be unique";
+      }
+      {
+        assertion = lib.all (name: lib.elem name (map (p: p.name) cfg.profiles)) (lib.concatLists (lib.attrValues cfg.instanceProfiles));
+        message = "incus: instanceProfiles names a profile that isn't defined";
+      }
     ];
 
     virtualisation.incus = {
@@ -153,7 +167,7 @@ in
       key = "incus-join-key";
     };
 
-    # Bootstraps or joins the cluster, then applies the cluster-wide preseed.
+    # Bootstraps or joins the cluster, applies the cluster-wide preseed, then the instance profiles.
     # Retries until a member hands out a token and the mons have quorum for the ceph pool, without blocking switch.
     systemd.services.incus-bootstrap = {
       description = "Incus cluster bootstrap and preseed";
@@ -170,6 +184,7 @@ in
         JOIN_PRESEED = json.generate "incus-join-preseed.json" joinPreseed;
         PRESEED = json.generate "incus-preseed.json" preseed;
         CERTIFICATES = toString (lib.mapAttrsToList (name: cert: "${name}=${cert}") certificates);
+        INSTANCE_PROFILES = toString (lib.mapAttrsToList (name: profiles: "${name}=${lib.concatStringsSep "," profiles}") cfg.instanceProfiles);
         JOIN_CERT = "${cfg.joinCertificate}";
         JOIN_KEY = config.sops.secrets."incus-join-key".path;
       };

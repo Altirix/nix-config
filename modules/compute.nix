@@ -4,6 +4,19 @@
 # hosts add their own VLANs, addresses, links and disks.
 let
   mesh = config.homelab.mesh;
+
+  # Isolated ports can't reach each other, only the uplink, so instances on labs only ever talk to the router.
+  labsNic = {
+    name = "eth0";
+    network = "labs";
+    type = "nic";
+    "security.mac_filtering" = "true";
+    "security.port_isolation" = "true";
+  };
+
+  # Virtual hosts with a static labs address, pinned to the incus instance of the same name.
+  labsAddresses = lib.filterAttrs (_: address: address != null)
+    (lib.mapAttrs (_: node: node.config.homelab.labs.address or null) nodes);
 in
 {
   imports = [
@@ -13,6 +26,11 @@ in
     ./services/incus
     ./services/vgpu/host.nix
   ];
+
+  assertions = [{
+    assertion = lib.allUnique (lib.attrValues labsAddresses);
+    message = "compute: every homelab.labs.address must be unique across hosts";
+  }];
 
   homelab = {
     secrets.groupFile = ../secrets/compute.yaml;
@@ -134,9 +152,8 @@ in
       ];
 
       # security.mac_filtering pins each NIC to its own MAC, so instances can't spoof another's MAC or forge
-      # ARP/NDP with one. Claiming another instance's IP needs security.ipv4_filtering + a static ipv4.address,
-      # set per instance (`incus config device override <vm> eth0 security.ipv4_filtering=true ipv4.address=...`)
-      # with a matching reservation on the router.
+      # ARP/NDP with one. Instances with a static labs address also get a profile named after them that pins it
+      # (security.ipv4_filtering), so no other instance can claim it.
       profiles = [
         {
           name = "default";
@@ -145,12 +162,7 @@ in
             pool = "nvme";
             type = "disk";
           };
-          devices.eth0 = {
-            name = "eth0";
-            network = "labs";
-            type = "nic";
-            "security.mac_filtering" = "true";
-          };
+          devices.eth0 = labsNic;
         }
         # Opt in with `-p default -p labs-mesh` for VM to VM traffic over the mesh.
         {
@@ -162,7 +174,16 @@ in
             "security.mac_filtering" = "true";
           };
         }
-      ];
+      ] ++ lib.mapAttrsToList (name: address: {
+        inherit name;
+        devices.eth0 = labsNic // {
+          "ipv4.address" = address;
+          "security.ipv4_filtering" = "true";
+        };
+      }) labsAddresses;
+
+      # The bootstrap adds the pin to the instance, so it holds even when launched with only `-p default`.
+      instanceProfiles = lib.mapAttrs (name: _: [ name ]) labsAddresses;
 
       trustedCertificates.my-browser = ./compute/incus-ui.crt;
       joinCertificate = ./compute/incus-join.crt;

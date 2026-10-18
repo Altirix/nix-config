@@ -1,6 +1,6 @@
 # Joins the cluster through any member, or creates it on the seed, then applies the cluster-wide preseed.
 # Env: SERVER_NAME, SEED, PEERS ("ip ..."), SEED_PRESEED, JOIN_PRESEED, PRESEED,
-#      CERTIFICATES ("name=path ..."), JOIN_CERT, JOIN_KEY
+#      CERTIFICATES ("name=path ..."), JOIN_CERT, JOIN_KEY, INSTANCE_PROFILES ("instance=profile,... ...")
 incus admin waitready --timeout 60
 
 if ! incus cluster list > /dev/null 2>&1; then
@@ -40,3 +40,18 @@ for entry in $CERTIFICATES; do
 done
 
 incus admin init --preseed < "$PRESEED"
+
+# Added after the preseed so the profiles exist. Instances that don't exist yet get them on a later start.
+profiles_of() {
+  incus query "/1.0/instances/$1" 2> /dev/null | jq -r '.profiles | join(" ")'
+}
+for entry in $INSTANCE_PROFILES; do
+  instance=${entry%%=*}
+  profiles=${entry#*=}
+  current=$(profiles_of "$instance") || continue
+  for profile in ${profiles//,/ }; do
+    # Every member runs this, another may have added it in the meantime.
+    [[ " $current " == *" $profile "* ]] || incus profile add "$instance" "$profile" \
+      || [[ " $(profiles_of "$instance") " == *" $profile "* ]]
+  done
+done
