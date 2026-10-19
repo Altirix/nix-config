@@ -295,6 +295,9 @@ in
     # Incus maps rbd volumes through the kernel client.
     boot.kernelModules = lib.mkIf (lib.any (pool: pool.driver or null == "ceph") cfg.storagePools) [ "rbd" ];
 
+    # The default qemu has no ceph support, so VMs with an ISO or disk on ceph won't boot. qemu_full has it.
+    nixpkgs.overlays = [ (final: _: { qemu_kvm = final.qemu_full; }) ];
+
     # Hosts never talk to or route for instance networks, so instances can't reach mgmt or ceph.
     networking.nftables.tables.instance-isolation = {
       family = "inet";
