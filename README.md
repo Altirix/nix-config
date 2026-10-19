@@ -56,6 +56,19 @@ nixos-generate-config --show-hardware-config > hosts/virtual/<name>/hardware-con
 ls -l /dev/disk/by-id/   # fill in storage.nix
 ```
 
+Install a VM from the hypervisor it runs on, over vsock (`ssh incus-<name>`, works before it has a network):
+
+```sh
+nixos-anywhere --flake .#<name> --target-host root@incus-<name> --extra-files <dir with etc/ssh/ssh_host_ed25519_key>
+```
+
+From another machine, `ssh <instance>.<member>` goes through that member (your key logs in, the member only relays):
+
+```
+Host *.<member>
+    ProxyCommand ssh admin@<member> incus-ssh-proxy %h %p
+```
+
 The template is an incus VM (`modules/virtual.nix`, one ext4 disk, DHCP). `modules/compute.nix`
 is only for the three hypervisors; their `storage.nix`/`networking.nix` show zfs
 roots, ceph disks, VLAN trunks and the mesh.

@@ -63,6 +63,13 @@ let
     runtimeInputs = [ config.virtualisation.incus.package pkgs.jq pkgs.openssl pkgs.coreutils ];
     text = builtins.readFile ./scripts/incus-bootstrap.sh;
   };
+
+  sshProxyScript = pkgs.writeShellApplication {
+    name = "incus-ssh-proxy";
+    runtimeInputs = [ config.virtualisation.incus.package pkgs.jq pkgs.coreutils pkgs.socat ];
+    runtimeEnv.SELF = host;
+    text = builtins.readFile ./scripts/incus-ssh-proxy.sh;
+  };
 in
 {
   options.homelab.incus = {
@@ -197,6 +204,18 @@ in
       };
       script = lib.getExe bootstrapScript;
     };
+
+    # `ssh incus-<instance>` reaches a VM on this member over vsock, also as a nixos-anywhere target.
+    # On PATH so other machines can use it as `ProxyCommand ssh admin@<member> incus-ssh-proxy %h %p`.
+    # Host keys aren't pinned, an installer makes new ones every boot and vsock never leaves this host.
+    environment.systemPackages = [ sshProxyScript ];
+    programs.ssh.extraConfig = ''
+      Host incus-*
+        ProxyCommand ${lib.getExe sshProxyScript} %h %p
+        CheckHostIP no
+        StrictHostKeyChecking no
+        UserKnownHostsFile /dev/null
+    '';
 
     # Incus maps rbd volumes through the kernel client.
     boot.kernelModules = lib.mkIf (lib.any (pool: pool.driver or null == "ceph") cfg.storagePools) [ "rbd" ];
