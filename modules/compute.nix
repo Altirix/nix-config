@@ -156,6 +156,9 @@ in
             "restricted.backups" = "allow";
             "restricted.snapshots" = "allow";
             "restricted.cluster.target" = "allow";
+            # vGPU slices (mdev), see services/vgpu/host.nix. There's no mdev-only key, this also allows passing the
+            # whole card, which would take it from every vGPU guest.
+            "restricted.devices.gpu" = "allow";
           };
         }
       ];
