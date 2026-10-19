@@ -1,6 +1,7 @@
 # Joins the cluster through any member, or creates it on the seed, then applies the cluster-wide preseed.
 # Env: SERVER_NAME, SEED, PEERS ("ip ..."), SEED_PRESEED, JOIN_PRESEED, PRESEED,
-#      CERTIFICATES ("name=path ..."), JOIN_CERT, JOIN_KEY, INSTANCE_PROFILES ("instance=profile,... ...")
+#      CERTIFICATES ("name=path ..."), JOIN_CERT, JOIN_KEY, INSTANCE_PROFILES ("instance=profile,... ..."),
+#      WINDOWS_UNATTEND ("pool volume iso", or empty)
 incus admin waitready --timeout 60
 
 if ! incus cluster list > /dev/null 2>&1; then
@@ -55,3 +56,17 @@ for entry in $INSTANCE_PROFILES; do
       || [[ " $(profiles_of "$instance") " == *" $profile "* ]]
   done
 done
+
+# Attached per VM for the install only, so the preseed never points at it. The description says which build it is,
+# ISO volumes refuse any config change, user.* included. A changed one is replaced unless a VM mid-install still has
+# it attached, then the next start does. Every member runs this, one losing a race fails and retries.
+if [[ -n $WINDOWS_UNATTEND ]]; then
+  read -r pool volume iso <<< "$WINDOWS_UNATTEND"
+  current=$(incus storage volume get -p "$pool" "custom/$volume" description 2> /dev/null) || current=missing
+  if [[ $current != "$iso" ]]; then
+    if [[ $current == missing ]] || incus storage volume delete "$pool" "custom/$volume"; then
+      incus storage volume import "$pool" "$iso" "$volume" --type=iso
+      incus storage volume set -p "$pool" "custom/$volume" description="$iso"
+    fi
+  fi
+fi

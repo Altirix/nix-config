@@ -174,6 +174,27 @@ in
             "security.mac_filtering" = "true";
           };
         }
+        # Windows 11 Pro, see services/incus/README.md. The root disk is nvme because Windows has an inbox driver
+        # for it, the virtio ones come in at first logon. The install and unattend ISOs are attached per VM, so
+        # no later boot from install media can wipe it. image.os=Windows turns on the Hyper-V enlightenments but
+        # is instance only, so it's passed to `incus init`.
+        {
+          name = "windows";
+          config = {
+            "limits.cpu" = "4";
+            "limits.memory" = "8GiB";
+          };
+          devices = {
+            root = {
+              path = "/";
+              pool = "nvme";
+              type = "disk";
+              size = "128GiB";
+              "io.bus" = "nvme";
+            };
+            vtpm.type = "tpm";
+          };
+        }
       ] ++ lib.mapAttrsToList (name: address: {
         inherit name;
         devices.eth0 = labsNic // {
@@ -181,6 +202,9 @@ in
           "security.ipv4_filtering" = "true";
         };
       }) labsAddresses;
+
+      # Remote, so every member installs Windows VMs from the same unattend ISO.
+      windows.pool = "ceph";
 
       # The bootstrap adds the pin to the instance, so it holds even when launched with only `-p default`.
       instanceProfiles = lib.mapAttrs (name: _: [ name ]) labsAddresses;
