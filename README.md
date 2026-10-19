@@ -62,12 +62,15 @@ Install a VM from the hypervisor it runs on, over vsock (`ssh incus-<name>`, wor
 nixos-anywhere --flake .#<name> --target-host root@incus-<name> --extra-files <dir with etc/ssh/ssh_host_ed25519_key>
 ```
 
-From another machine, `ssh <instance>.<member>` goes through that member (your key logs in, the member only relays):
+From another machine, `ssh <instance>.incus` goes through any member, which relays to the one running the VM
+over the mesh (your key logs in, members only relay):
 
 ```
-Host *.<member>
-    ProxyCommand ssh admin@<member> incus-ssh-proxy %h %p
+Host *.incus
+    ProxyCommand ssh admin@<any member> incus-ssh-proxy %h %p
 ```
+
+Relay failures only show on the member running the VM: `journalctl -u 'incus-ssh-relay@*'`.
 
 The template is an incus VM (`modules/virtual.nix`, one ext4 disk, DHCP). `modules/compute.nix`
 is only for the three hypervisors; their `storage.nix`/`networking.nix` show zfs

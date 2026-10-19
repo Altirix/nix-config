@@ -64,10 +64,18 @@ let
     text = builtins.readFile ./scripts/incus-bootstrap.sh;
   };
 
+  # Other members reach this member's VMs through the relay, see incus-ssh-proxy.sh.
+  relayPort = 2222;
+  peers = lib.filterAttrs (name: _: name != host) cfg.cluster.members;
+
   sshProxyScript = pkgs.writeShellApplication {
     name = "incus-ssh-proxy";
     runtimeInputs = [ config.virtualisation.incus.package pkgs.jq pkgs.coreutils pkgs.socat ];
-    runtimeEnv.SELF = host;
+    runtimeEnv = {
+      SELF = host;
+      MEMBERS = toString (lib.mapAttrsToList (name: address: "${name}=${address}") cfg.cluster.members);
+      RELAY_PORT = toString relayPort;
+    };
     text = builtins.readFile ./scripts/incus-ssh-proxy.sh;
   };
 in
@@ -186,7 +194,7 @@ in
       environment = {
         SERVER_NAME = host;
         SEED = cfg.cluster.seed;
-        PEERS = toString (lib.attrValues (lib.filterAttrs (name: _: name != host) cfg.cluster.members));
+        PEERS = toString (lib.attrValues peers);
         SEED_PRESEED = json.generate "incus-seed-preseed.json" seedPreseed;
         JOIN_PRESEED = json.generate "incus-join-preseed.json" joinPreseed;
         PRESEED = json.generate "incus-preseed.json" preseed;
@@ -205,9 +213,9 @@ in
       script = lib.getExe bootstrapScript;
     };
 
-    # `ssh incus-<instance>` reaches a VM on this member over vsock, also as a nixos-anywhere target.
+    # `ssh incus-<instance>` reaches a VM on any member over vsock, also as a nixos-anywhere target.
     # On PATH so other machines can use it as `ProxyCommand ssh admin@<member> incus-ssh-proxy %h %p`.
-    # Host keys aren't pinned, an installer makes new ones every boot and vsock never leaves this host.
+    # Host keys aren't pinned, an installer makes new ones every boot and vsock never leaves the cluster.
     environment.systemPackages = [ sshProxyScript ];
     programs.ssh.extraConfig = ''
       Host incus-*
@@ -216,6 +224,35 @@ in
         StrictHostKeyChecking no
         UserKnownHostsFile /dev/null
     '';
+
+    # Relay for the other members, only reaches sshd of VMs on this member. Mesh only, peers only.
+    systemd.sockets.incus-ssh-relay = {
+      description = "Relay ssh to local incus VMs for other members";
+      wantedBy = [ "sockets.target" ];
+      listenStreams = [ "${cfg.cluster.address}:${toString relayPort}" ];
+      socketConfig = {
+        Accept = true;
+        FreeBind = true;
+        IPAddressDeny = "any";
+        IPAddressAllow = lib.attrValues peers;
+        MaxConnectionsPerSource = 16;
+      };
+    };
+
+    systemd.services."incus-ssh-relay@" = {
+      description = "Relay ssh to a local incus VM";
+      serviceConfig = {
+        ExecStart = "${lib.getExe sshProxyScript} --serve";
+        StandardInput = "socket";
+        StandardError = "journal";
+        DynamicUser = true;
+        SupplementaryGroups = [ "incus-admin" ];
+        # Only the incus socket and vsock, the connection itself comes from the socket unit.
+        RestrictAddressFamilies = [ "AF_UNIX" "AF_VSOCK" ];
+        # The incus client wants a writable config dir, DynamicUser gives each connection its own /tmp.
+        Environment = [ "INCUS_CONF=/tmp/incus" ];
+      };
+    };
 
     # Incus maps rbd volumes through the kernel client.
     boot.kernelModules = lib.mkIf (lib.any (pool: pool.driver or null == "ceph") cfg.storagePools) [ "rbd" ];
