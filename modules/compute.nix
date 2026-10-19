@@ -14,8 +14,11 @@ let
     "security.port_isolation" = "true";
   };
 
+  # Instances that aren't hosts in this flake (Windows), instance -> labs address. They configure it themselves.
+  otherAddresses = { };
+
   # Virtual hosts with a static labs address, pinned to the incus instance of the same name.
-  labsAddresses = lib.filterAttrs (_: address: address != null)
+  labsAddresses = otherAddresses // lib.filterAttrs (_: address: address != null)
     (lib.mapAttrs (_: node: node.config.homelab.labs.address or null) nodes);
 in
 {
@@ -27,10 +30,16 @@ in
     ./services/vgpu/host.nix
   ];
 
-  assertions = [{
-    assertion = lib.allUnique (lib.attrValues labsAddresses);
-    message = "compute: every homelab.labs.address must be unique across hosts";
-  }];
+  assertions = [
+    {
+      assertion = lib.allUnique (lib.attrValues labsAddresses);
+      message = "compute: every homelab.labs.address must be unique across hosts";
+    }
+    {
+      assertion = lib.all (name: !(nodes ? ${name})) (lib.attrNames otherAddresses);
+      message = "compute: otherAddresses names a host of this flake, set its homelab.labs.address instead";
+    }
+  ];
 
   homelab = {
     secrets.groupFile = ../secrets/compute.yaml;
