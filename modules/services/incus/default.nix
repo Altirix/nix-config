@@ -58,6 +58,21 @@ let
 
   nftSet = names: "{ ${lib.concatMapStringsSep ", " (i: ''"${i}"'') names} }";
 
+  # Answer file, first logon scripts and the virtio guest drivers. The install ISO stays as Microsoft ships it,
+  # the root disk is nvme and the media usb, which Windows has inbox drivers for.
+  autounattend = pkgs.writeText "autounattend.xml" (builtins.replaceStrings
+    [ "@language@" ]
+    [ cfg.windows.language ]
+    (builtins.readFile ./config/windows/autounattend.xml));
+  windowsUnattend = pkgs.runCommand "windows-unattend.iso" { nativeBuildInputs = [ pkgs.xorriso ]; } ''
+    mkdir root
+    cp ${autounattend} root/autounattend.xml
+    cp ${./scripts/windows/setup.ps1} root/setup.ps1
+    cp ${./scripts/windows/debloat.ps1} root/debloat.ps1
+    cp ${pkgs.virtio-win}/virtio-win-gt-x64.msi root/
+    xorriso -as mkisofs -J -R -V UNATTEND -o $out root
+  '';
+
   bootstrapScript = pkgs.writeShellApplication {
     name = "incus-bootstrap";
     runtimeInputs = [ config.virtualisation.incus.package pkgs.jq pkgs.openssl pkgs.coreutils ];
@@ -136,6 +151,20 @@ in
       default = { };
     };
 
+    windows = {
+      pool = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        description = "Pool the Windows unattend ISO is imported into as `windows-unattend`, a remote one so every member sees it. null skips it.";
+      };
+
+      language = mkOption {
+        type = types.str;
+        default = "en-GB";
+        description = "Windows setup and display language, the install ISO has to carry it (en-GB is \"English International\").";
+      };
+    };
+
     trustedCertificates = mkOption {
       type = types.attrsOf types.path;
       default = { };
@@ -169,6 +198,14 @@ in
         assertion = lib.all (name: lib.elem name (map (p: p.name) cfg.profiles)) (lib.concatLists (lib.attrValues cfg.instanceProfiles));
         message = "incus: instanceProfiles names a profile that isn't defined";
       }
+      {
+        assertion = cfg.windows.pool == null || lib.elem cfg.windows.pool (map (p: p.name) cfg.storagePools);
+        message = "incus: windows.pool names a storage pool that isn't defined";
+      }
+      {
+        assertion = cfg.windows.pool == null || lib.any (p: p.name == cfg.windows.pool && p.driver == "ceph") cfg.storagePools;
+        message = "incus: windows.pool has to be a ceph pool, every member imports into it";
+      }
     ];
 
     virtualisation.incus = {
@@ -200,6 +237,7 @@ in
         PRESEED = json.generate "incus-preseed.json" preseed;
         CERTIFICATES = toString (lib.mapAttrsToList (name: cert: "${name}=${cert}") certificates);
         INSTANCE_PROFILES = toString (lib.mapAttrsToList (name: profiles: "${name}=${lib.concatStringsSep "," profiles}") cfg.instanceProfiles);
+        WINDOWS_UNATTEND = lib.optionalString (cfg.windows.pool != null) "${cfg.windows.pool} windows-unattend ${windowsUnattend}";
         JOIN_CERT = "${cfg.joinCertificate}";
         JOIN_KEY = config.sops.secrets."incus-join-key".path;
       };

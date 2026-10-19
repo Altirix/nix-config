@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Windows 11 Pro, unattended. Setup finds this at the root of the unattend ISO. The install disk is wiped,
+  the account "admin" starts without a password and has to set one at the first interactive logon.
+  The generic key only picks the edition, activate with a real one afterwards. The UILanguage elements
+  come from homelab.incus.windows.language, setup stops if the install ISO doesn't carry that language.
+-->
+<unattend xmlns="urn:schemas-microsoft-com:unattend" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+  <settings pass="windowsPE">
+    <component name="Microsoft-Windows-International-Core-WinPE" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <SetupUILanguage>
+        <UILanguage>@language@</UILanguage>
+      </SetupUILanguage>
+      <InputLocale>0809:00000809</InputLocale>
+      <SystemLocale>en-GB</SystemLocale>
+      <UILanguage>@language@</UILanguage>
+      <UserLocale>en-GB</UserLocale>
+    </component>
+    <component name="Microsoft-Windows-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <!-- Disk 0 is the nvme root, the install and unattend ISOs are usb CD-ROMs and never show up as disks. -->
+      <DiskConfiguration>
+        <Disk wcm:action="add">
+          <DiskID>0</DiskID>
+          <WillWipeDisk>true</WillWipeDisk>
+          <CreatePartitions>
+            <CreatePartition wcm:action="add">
+              <Order>1</Order>
+              <Type>EFI</Type>
+              <Size>300</Size>
+            </CreatePartition>
+            <CreatePartition wcm:action="add">
+              <Order>2</Order>
+              <Type>MSR</Type>
+              <Size>16</Size>
+            </CreatePartition>
+            <CreatePartition wcm:action="add">
+              <Order>3</Order>
+              <Type>Primary</Type>
+              <Extend>true</Extend>
+            </CreatePartition>
+          </CreatePartitions>
+          <ModifyPartitions>
+            <ModifyPartition wcm:action="add">
+              <Order>1</Order>
+              <PartitionID>1</PartitionID>
+              <Format>FAT32</Format>
+              <Label>System</Label>
+            </ModifyPartition>
+            <ModifyPartition wcm:action="add">
+              <Order>2</Order>
+              <PartitionID>3</PartitionID>
+              <Format>NTFS</Format>
+              <Label>Windows</Label>
+              <Letter>C</Letter>
+            </ModifyPartition>
+          </ModifyPartitions>
+        </Disk>
+      </DiskConfiguration>
+      <ImageInstall>
+        <OSImage>
+          <InstallFrom>
+            <MetaData wcm:action="add">
+              <Key>/IMAGE/NAME</Key>
+              <Value>Windows 11 Pro</Value>
+            </MetaData>
+          </InstallFrom>
+          <InstallTo>
+            <DiskID>0</DiskID>
+            <PartitionID>3</PartitionID>
+          </InstallTo>
+        </OSImage>
+      </ImageInstall>
+      <UserData>
+        <ProductKey>
+          <Key>VK7JG-NPHTM-C97JM-9MPGT-QR4QG</Key>
+          <WillShowUI>OnError</WillShowUI>
+        </ProductKey>
+        <AcceptEula>true</AcceptEula>
+      </UserData>
+    </component>
+  </settings>
+  <settings pass="specialize">
+    <!-- The local account below is what skips the Microsoft account, this only covers builds that still ask for a network. -->
+    <component name="Microsoft-Windows-Deployment" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <RunSynchronous>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>1</Order>
+          <Path>reg.exe add HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OOBE /v BypassNRO /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+      </RunSynchronous>
+    </component>
+  </settings>
+  <settings pass="oobeSystem">
+    <component name="Microsoft-Windows-International-Core" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <InputLocale>0809:00000809</InputLocale>
+      <SystemLocale>en-GB</SystemLocale>
+      <UILanguage>@language@</UILanguage>
+      <UserLocale>en-GB</UserLocale>
+    </component>
+    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <AutoLogon>
+        <Username>admin</Username>
+        <Enabled>true</Enabled>
+        <LogonCount>1</LogonCount>
+        <Password>
+          <Value></Value>
+          <PlainText>true</PlainText>
+        </Password>
+      </AutoLogon>
+      <!-- Drivers, debloat, then forces a password and reboots, see scripts/windows/setup.ps1. -->
+      <FirstLogonCommands>
+        <SynchronousCommand wcm:action="add">
+          <Order>1</Order>
+          <CommandLine>powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "&amp; ((Get-Volume -FileSystemLabel UNATTEND).DriveLetter + ':\setup.ps1')"</CommandLine>
+          <Description>Run setup.ps1 from the unattend ISO</Description>
+        </SynchronousCommand>
+      </FirstLogonCommands>
+      <OOBE>
+        <HideEULAPage>true</HideEULAPage>
+        <HideLocalAccountScreen>true</HideLocalAccountScreen>
+        <HideOEMRegistrationScreen>true</HideOEMRegistrationScreen>
+        <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
+        <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>
+        <ProtectYourPC>3</ProtectYourPC>
+      </OOBE>
+      <TimeZone>GMT Standard Time</TimeZone>
+      <UserAccounts>
+        <LocalAccounts>
+          <LocalAccount wcm:action="add">
+            <Name>admin</Name>
+            <Group>Administrators</Group>
+            <Password>
+              <Value></Value>
+              <PlainText>true</PlainText>
+            </Password>
+          </LocalAccount>
+        </LocalAccounts>
+      </UserAccounts>
+    </component>
+  </settings>
+</unattend>

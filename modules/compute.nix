@@ -14,8 +14,11 @@ let
     "security.port_isolation" = "true";
   };
 
+  # Instances that aren't hosts in this flake (Windows), instance -> labs address. They configure it themselves.
+  otherAddresses = { };
+
   # Virtual hosts with a static labs address, pinned to the incus instance of the same name.
-  labsAddresses = lib.filterAttrs (_: address: address != null)
+  labsAddresses = otherAddresses // lib.filterAttrs (_: address: address != null)
     (lib.mapAttrs (_: node: node.config.homelab.labs.address or null) nodes);
 in
 {
@@ -27,10 +30,16 @@ in
     ./services/vgpu/host.nix
   ];
 
-  assertions = [{
-    assertion = lib.allUnique (lib.attrValues labsAddresses);
-    message = "compute: every homelab.labs.address must be unique across hosts";
-  }];
+  assertions = [
+    {
+      assertion = lib.allUnique (lib.attrValues labsAddresses);
+      message = "compute: every homelab.labs.address must be unique across hosts";
+    }
+    {
+      assertion = lib.all (name: !(nodes ? ${name})) (lib.attrNames otherAddresses);
+      message = "compute: otherAddresses names a host of this flake, set its homelab.labs.address instead";
+    }
+  ];
 
   homelab = {
     secrets.groupFile = ../secrets/compute.yaml;
@@ -147,6 +156,9 @@ in
             "restricted.backups" = "allow";
             "restricted.snapshots" = "allow";
             "restricted.cluster.target" = "allow";
+            # vGPU slices (mdev), see services/vgpu/host.nix. There's no mdev-only key, this also allows passing the
+            # whole card, which would take it from every vGPU guest.
+            "restricted.devices.gpu" = "allow";
           };
         }
       ];
@@ -174,6 +186,27 @@ in
             "security.mac_filtering" = "true";
           };
         }
+        # Windows 11 Pro, see services/incus/README.md. The root disk is nvme because Windows has an inbox driver
+        # for it, the virtio ones come in at first logon. The install and unattend ISOs are attached per VM, so
+        # no later boot from install media can wipe it. image.os=Windows turns on the Hyper-V enlightenments but
+        # is instance only, so it's passed to `incus init`.
+        {
+          name = "windows";
+          config = {
+            "limits.cpu" = "4";
+            "limits.memory" = "8GiB";
+          };
+          devices = {
+            root = {
+              path = "/";
+              pool = "nvme";
+              type = "disk";
+              size = "128GiB";
+              "io.bus" = "nvme";
+            };
+            vtpm.type = "tpm";
+          };
+        }
       ] ++ lib.mapAttrsToList (name: address: {
         inherit name;
         devices.eth0 = labsNic // {
@@ -181,6 +214,9 @@ in
           "security.ipv4_filtering" = "true";
         };
       }) labsAddresses;
+
+      # Remote, so every member installs Windows VMs from the same unattend ISO.
+      windows.pool = "ceph";
 
       # The bootstrap adds the pin to the instance, so it holds even when launched with only `-p default`.
       instanceProfiles = lib.mapAttrs (name: _: [ name ]) labsAddresses;
