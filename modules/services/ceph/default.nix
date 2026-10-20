@@ -71,7 +71,7 @@ in
       type = lib.types.ints.unsigned;
     };
 
-    # Holds [mon.] and [client.admin], seeds the mon auth database and serves as the admin keyring.
+    # Holds ceph-mon-keyring ([mon.]) and ceph-admin-keyring ([client.admin]), both seed the mon auth database.
     keyringFile = lib.mkOption {
       type = lib.types.path;
       default = config.homelab.secrets.groupFile;
@@ -120,9 +120,15 @@ in
 
     environment.systemPackages = [ ceph ];
 
-    sops.secrets."ceph-keyring" = {
+    sops.secrets."ceph-mon-keyring" = {
       sopsFile = cfg.keyringFile;
-      key = "ceph-keyring";
+      key = "ceph-mon-keyring";
+    };
+
+    # Only client.admin: incus hands qemu the first key in this file, a [mon.] above it breaks VMs on ceph.
+    sops.secrets."ceph-admin-keyring" = {
+      sopsFile = cfg.keyringFile;
+      key = "ceph-admin-keyring";
       path = "/etc/ceph/ceph.client.admin.keyring";
     };
 
@@ -144,7 +150,8 @@ in
           MON_ID = host;
           FSID = config.services.ceph.global.fsid;
           MONS = toString (lib.mapAttrsToList (name: ip: "${name}=${ip}") cfg.monitors);
-          KEYRING = config.sops.secrets."ceph-keyring".path;
+          MON_KEYRING = config.sops.secrets."ceph-mon-keyring".path;
+          ADMIN_KEYRING = config.sops.secrets."ceph-admin-keyring".path;
         };
       };
 
