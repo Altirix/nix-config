@@ -40,6 +40,10 @@ incus config device add win11 unattend disk pool=ceph source=windows-unattend io
 incus start win11 --console=vga   # press a key at "Press any key to boot from CD"
 ```
 
+Profiles apply in order, `default` has to come before `windows` or its root disk replaces the nvme one. From
+the web UI, create an empty VM with those profiles and put the same devices (with `io.bus: usb`) and
+`image.os: Windows` in its YAML, its own custom ISO option attaches the ISO on a bus Windows setup can't read.
+
 Once at the desktop, detach both. The answer file wipes disk 0, so a VM must never boot it again:
 
 ```sh
