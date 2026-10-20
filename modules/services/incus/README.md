@@ -37,8 +37,13 @@ incus storage volume import ceph Win11_<build>_EnglishInternational_x64.iso win1
 incus init win11 --empty --vm -p default -p windows -c image.os=Windows
 incus config device add win11 install disk pool=ceph source=win11-<build> io.bus=usb boot.priority=10
 incus config device add win11 unattend disk pool=ceph source=windows-unattend io.bus=usb
-incus start win11 --console=vga   # press a key at "Press any key to boot from CD"
+incus start win11
 ```
+
+No key to press at "Press any key to boot from CD or DVD": `incus-windows-autoboot` on the member running the VM
+presses Enter on its serial console while the root disk is still empty, so setup's own reboots and a VM with the
+ISO left attached boot Windows instead. It takes the web UI's text console over for those 30 seconds, watch the
+graphic one. The console mouse is off until first logon installs the virtio tablet driver, setup doesn't need it.
 
 Profiles apply in order, `default` has to come before `windows` or its root disk replaces the nvme one. From
 the web UI, create an empty VM with those profiles and put the same devices (with `io.bus: usb`) and

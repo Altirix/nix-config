@@ -73,6 +73,13 @@ let
     xorriso -as mkisofs -J -R -V UNATTEND -o $out root
   '';
 
+  windowsAutobootScript = pkgs.writeShellApplication {
+    name = "incus-windows-autoboot";
+    runtimeInputs = [ config.virtualisation.incus.package pkgs.jq pkgs.socat pkgs.coreutils ];
+    runtimeEnv.SELF = host;
+    text = builtins.readFile ./scripts/incus-windows-autoboot.sh;
+  };
+
   bootstrapScript = pkgs.writeShellApplication {
     name = "incus-bootstrap";
     runtimeInputs = [ config.virtualisation.incus.package pkgs.jq pkgs.openssl pkgs.coreutils ];
@@ -249,6 +256,19 @@ in
         RestartSec = 15;
       };
       script = lib.getExe bootstrapScript;
+    };
+
+    # Answers "Press any key to boot from CD or DVD" for Windows VMs installing, see scripts/incus-windows-autoboot.sh.
+    systemd.services.incus-windows-autoboot = lib.mkIf (cfg.windows.pool != null) {
+      description = "Boot Windows VMs from their install media";
+      wantedBy = [ "incus.service" ];
+      after = [ "incus.service" ];
+      bindsTo = [ "incus.service" ];
+      serviceConfig = {
+        ExecStart = lib.getExe windowsAutobootScript;
+        Restart = "always";
+        RestartSec = 5;
+      };
     };
 
     # `ssh incus-<instance>` reaches a VM on any member over vsock, also as a nixos-anywhere target.
