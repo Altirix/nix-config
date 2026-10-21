@@ -34,6 +34,11 @@ in
         path = esp;
         efiSysMountPoint = esp;
       }) (lib.tail esps);
+
+      # Same reason as systemd-boot.editor in default.nix: a superuser locks editing and the grub shell.
+      # The hash is of a thrown away random password, so nobody can edit, every generation still boots.
+      users.root.hashedPassword = "grub.pbkdf2.sha512.10000.C54008A9DF7568CE8E066CEAB2E704F7DA6BF870E714798671FCA46E24E0CB7FE77484DB8C6942246CCE1DA0A1CA1AB9620FBF9DFD9249E64D5007499029723C.22858FB3787FCD8E45A1DF5C8882A9F47A06289B138A9035D038AE4BC7F0F66D0A07D82A9A046B73CAA58D624491E9177288BC0CC0D263961E946DB0CE77EE3B";
+      subEntryOptions = "--class nixos --unrestricted";
     };
   };
 }

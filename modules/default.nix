@@ -8,6 +8,7 @@
     inputs.disko.nixosModules.disko
     inputs.sops-nix.nixosModules.sops
     ./system/ssh.nix
+    ./system/console.nix
     ./system/secrets.nix
     ./disks/disko.nix
     ./system/boot.nix
@@ -20,6 +21,8 @@
   # --- Boot ---
   boot.loader.systemd-boot.enable = lib.mkDefault true;
   boot.loader.efi.canTouchEfiVariables = lib.mkDefault true;
+  # Editing the cmdline is a root shell (init=/bin/sh) for anyone on the console, incus console or the VPS panel.
+  boot.loader.systemd-boot.editor = false;
 
   # --- Locale / time ---
   time.timeZone = lib.mkDefault "Europe/London";
