@@ -16,6 +16,8 @@
     enableNginx = true;
     enablePostgresql = true;
     virtualHost = "partdb";
+    # The version is pinned by nixpkgs, and the check hangs the home page when GitHub is unreachable.
+    settings.CHECK_FOR_UPDATES = "0";
   };
 
   # Only on the labs bridge.
