@@ -16,6 +16,7 @@ edge/ionos-de/             public-facing VPS
   services.nix             web sites
 printer/<name>/            Klipper on ROCK 5C Lites, see printer/README.md
 virtual/dls/               FastAPI-DLS, licenses vGPU guests over labs-mesh
+virtual/partdb/            Part-DB, electronic parts inventory (labs only, no SSO yet)
 ```
 
 The template is an incus VM (`modules/virtual.nix`, one ext4 disk, DHCP). `modules/compute.nix`
