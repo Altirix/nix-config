@@ -22,6 +22,8 @@ keys:
 # VM Keys
 
   - &host_dls age17lhpf7t5av07y4d85cjt9rn5nut4m5qnc59xs88eg76xeh8ugg5s6amk8t # Nvidia DLS
+  - &host_mcp age1jl9as26uxvqqma8mrddejfq9k235gxgnsl6n22m8rr5lsteehp3spjl0k9 # MCP
+  - &host_rea_dynamic age1uyv9yrzamhxlt3ejdutkuhz65jrwgg2zn4cm8y4km4vex3kgf57qrk97p3 # REA Dynamic Exec
   
 # Groups
 groups:
@@ -34,6 +36,8 @@ groups:
     - *host_alluvium
     - *host_basidium
     - *host_dls
+    - *host_mcp
+    - *host_rea_dynamic
 
   compute: &compute
     - *admin
@@ -53,6 +57,8 @@ groups:
   virtual: &virtual
     - *admin
     - *host_dls
+    - *host_mcp
+    - *host_rea_dynamic
 
 creation_rules:
 
