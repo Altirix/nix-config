@@ -102,3 +102,7 @@ enabled and no token.
 sops updatekeys secrets/virtual.yaml
 sops secrets/virtual.yaml   # github-mcp-token: github_pat_...
 ```
+
+## context7 (8104)
+
+Serves its own `/mcp` (no `/sse`). An API key is optional, per client: `--header "Context7-API-Key: <key>"`.
