@@ -14,7 +14,8 @@
   # Address ranges: networking/README.md.
   homelab.labs = {
     gateway = "10.100.0.1";
-    dns = [ "10.100.0.1" ];
+    # The router drops input from labs, its DHCP hands out the same.
+    dns = [ "1.1.1.1" "1.0.0.1" ];
   };
 
   virtualisation.incus.agent.enable = lib.mkDefault true;
