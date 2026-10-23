@@ -45,3 +45,8 @@ one more machine) with its own `clients`, which defaults to that list:
 ```nix
 homelab.mcp.servers.time.clients = config.homelab.mcp.clients ++ [ "10.0.0.1" ];
 ```
+
+## rea (8101)
+
+Decompiles with Ghidra and reads APKs with JADX, static analysis only, one open target at a time. Copy targets
+to `/var/lib/rea-samples` on `mcp` (rsync as admin) and open them by that path.
