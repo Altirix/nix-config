@@ -58,7 +58,9 @@ under a PTY, `capture_browser_scenario` drives Chromium (`executable_path` `/etc
 build). Both work under the unit's sandbox as it is, nothing is relaxed. Samples run as the unit's dynamic user
 and see what it sees: the store, world-readable `/etc`, its state directory and `/var/lib/rea-samples`. gdb,
 rizin, Frida and adb aren't on PATH, so their tools still fail, and binaries built for other distributions need
-their own loader (no nix-ld), Electron apps included.
+their own loader (no nix-ld), Electron apps included. `homelab.mcp.rea.firmware = true` (its own option, also on
+rea-dynamic) adds binwalk and unblob so `inspect_firmware_regions` and `extract_firmware` work; they parse
+untrusted blobs with their own extractors, which is why they stay on this VM.
 
 That only runs on `hosts/virtual/rea-dynamic` (`10.100.1.12`, samples go to its `/var/lib/rea-samples`), which
 serves nothing else (asserted), holds no secrets and is contained:

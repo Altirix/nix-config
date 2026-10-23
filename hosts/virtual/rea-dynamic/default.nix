@@ -13,6 +13,7 @@
 
   homelab.mcp.servers.rea.enable = true;
   homelab.mcp.rea.dynamic = true;
+  homelab.mcp.rea.firmware = true;
 
   # Not in .sops.yaml, so drop the placeholders every host declares: nothing to decrypt, nothing to leak.
   sops.secrets = lib.mkForce { };
