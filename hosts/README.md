@@ -16,6 +16,7 @@ edge/ionos-de/             public-facing VPS
   services.nix             web sites
 printer/<name>/            Klipper on ROCK 5C Lites, see printer/README.md
 virtual/dls/               FastAPI-DLS, licenses vGPU guests over labs-mesh
+virtual/mcp/               MCP servers for agents (labs only, see modules/services/mcp/README.md)
 virtual/partdb/            Part-DB, electronic parts inventory (labs only, no SSO yet)
 ```
 
