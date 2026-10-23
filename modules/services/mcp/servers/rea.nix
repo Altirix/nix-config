@@ -13,11 +13,19 @@ let
   rea = pkgs.callPackage ../packages/rea.nix { staticOnly = !cfg.dynamic; };
   # Playwright's own build, playwright-core launches it with --no-sandbox (no user namespaces here).
   chromium = "${pkgs.playwright-driver.components.chromium}/chrome-linux64/chrome";
+  # A GNU-tar-timestamp test fails in the sandbox and isn't cached, so it would compile and fail on deploy.
+  unblob = pkgs.unblob.overridePythonAttrs (p: {
+    disabledTests = (p.disabledTests or [ ]) ++ [ "test_extractall_ignores_gnu_timestamp_prefix" ];
+  });
 in
 {
   # The full build: capture_process_scenario and browser scenarios run whatever the caller names as
   # the server's user. Only on a VM that is isolated and reset after use (hosts/virtual/rea-dynamic).
   options.homelab.mcp.rea.dynamic = lib.mkEnableOption "REA's dynamic analysis";
+
+  # binwalk/unblob for firmware extraction. They parse untrusted blobs with their own extractors, a
+  # parser-exploit surface, so keep it to the isolated VM rather than the shared host.
+  options.homelab.mcp.rea.firmware = lib.mkEnableOption "REA's firmware extraction (binwalk, unblob)";
 
   config = lib.mkMerge [
     {
@@ -26,7 +34,9 @@ in
         args = lib.mkDefault [ "mcp" ];
         port = lib.mkDefault 8101;
         # REA checks child process ownership with ps.
-        path = [ pkgs.procps rea.jdk ];
+        path = [ pkgs.procps rea.jdk ]
+          # prlimit (util-linux) bounds the extractors, unblob bundles its own.
+          ++ lib.optionals cfg.firmware [ pkgs.binwalk unblob pkgs.util-linux ];
         environment = lib.mapAttrs (_: lib.mkDefault) ({
           GHIDRA_INSTALL_DIR = "${rea.ghidra}/lib/ghidra";
           JAVA_HOME = rea.jdk.home;
@@ -34,6 +44,10 @@ in
         } // lib.optionalAttrs cfg.dynamic {
           # Web module resolution. Browser scenarios take it as executable_path, /etc/rea/chromium for callers.
           REA_BROWSER_EXECUTABLE = chromium;
+        } // lib.optionalAttrs cfg.firmware {
+          REA_BINWALK_COMMAND = lib.getExe pkgs.binwalk;
+          REA_UNBLOB_COMMAND = lib.getExe unblob;
+          REA_FIRMWARE_PRLIMIT_COMMAND = "${pkgs.util-linux}/bin/prlimit";
         });
       };
     }
