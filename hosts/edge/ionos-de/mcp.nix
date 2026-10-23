@@ -6,7 +6,7 @@
 # forwards arrive from that same address and would skip the token.
 let
   # Each reads mcp-token-<name> from secrets/edge.yaml, drop one here (and its secret) to revoke it.
-  clients = [ "laptop" "cloud" ];
+  clients = [ "cloud" ];
 
   # Keep in step with the servers that let the edge in (`clients = edge` in hosts/virtual/mcp).
   servers = {

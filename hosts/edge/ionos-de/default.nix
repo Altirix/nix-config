@@ -8,7 +8,7 @@
     ./storage.nix
     ./networking.nix
     ./services.nix
-    # ./mcp.nix   # once mcp-token-* are in secrets/edge.yaml and mcp.peacocks.me points here
+    ./mcp.nix   # once mcp-token-* are in secrets/edge.yaml and mcp.peacocks.me points here
   ];
 
   system.stateVersion = "26.05";
