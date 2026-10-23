@@ -5,7 +5,7 @@
 # only lets this host's tunnel address in on the routed ports. Never add a wireguard forward to 10.100.1.11:
 # forwards arrive from that same address and would skip the token.
 let
-  # Each reads mcp-token-<name> from secrets/edge.yaml, drop one here (and its secret) to revoke it.
+  # Each reads mcp-token-<name> from this host's secrets.yaml, drop one here (and its secret) to revoke it.
   clients = [ "cloud" ];
 
   # Keep in step with the servers that let the edge in (`clients = edge` in hosts/virtual/mcp).
@@ -29,10 +29,8 @@ in
     tokens = config.sops.templates."mcp-tokens".path;
   };
 
-  sops.secrets = lib.genAttrs (map secret clients) (key: {
-    sopsFile = config.homelab.secrets.groupFile;
-    inherit key;
-  });
+  # From the host's secrets.yaml (sops.defaultSopsFile), only this host can read them.
+  sops.secrets = lib.genAttrs (map secret clients) (key: { inherit key; });
 
   sops.templates."mcp-tokens" = {
     content = lib.concatMapStrings (client: ''

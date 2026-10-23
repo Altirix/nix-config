@@ -53,14 +53,14 @@ homelab.mcp.servers.time.clients = config.homelab.mcp.clients ++ [ "10.0.0.1" ];
 
 `hosts/edge/ionos-de/mcp.nix` serves rea, nixos, context7, fetch, time, memory and markitdown at
 `https://mcp.peacocks.me/<server>/mcp`, proxied over the tunnel (streamable HTTP only, SSE is deprecated).
-playwright runs code, github and incus hold credentials, they get no route. Every request needs
-`Authorization: Bearer <token>`, one token per client in `secrets/edge.yaml` so each can be revoked, and the
-access log names the client. The router already lets the tunnel into labs, and the VM sees the edge as its tunnel
-address `10.0.0.1`, which `hosts/virtual/mcp` lets in on the exposed servers' ports only, so a compromised edge
-still doesn't reach the others. If the router ever masquerades into labs it becomes `10.100.0.1` instead, check
-with `journalctl -k` on `mcp` (dropped connections are logged) if the edge gets 502s. Never add a wireguard
-forward to `10.100.1.11`: forwards arrive from `10.0.0.1` too and would skip the token. Exposing another server
-takes both, `servers` in `mcp.nix` and `clients = edge` in `hosts/virtual/mcp`.
+playwright runs code, github and incus hold credentials, they get no route. Every request needs `Authorization:
+Bearer <token>`, one token per client in `hosts/edge/ionos-de/secrets.yaml` so each can be revoked, and the
+access log names the client. The router already lets the tunnel into labs, and the VM sees the edge as its
+tunnel address `10.0.0.1`, which `hosts/virtual/mcp` lets in on the exposed servers' ports only, so a
+compromised edge still doesn't reach the others. If the router ever masquerades into labs it becomes
+`10.100.0.1` instead, check with `journalctl -k` on `mcp` (dropped connections are logged) if the edge gets
+502s. Never add a wireguard forward to `10.100.1.11`: forwards arrive from `10.0.0.1` too and would skip the
+token. Exposing another server takes both, `servers` in `mcp.nix` and `clients = edge` in `hosts/virtual/mcp`.
 
 Set it up: point an A record for `mcp.peacocks.me` at the VPS (ACME needs it before the first deploy), add a
 token per client named in `mcp.nix` (`openssl rand -hex 32`), uncomment `./mcp.nix` in
@@ -68,11 +68,11 @@ token per client named in `mcp.nix` (`openssl rand -hex 32`), uncomment `./mcp.n
 the tokens missing.
 
 ```sh
-sops secrets/edge.yaml   # mcp-token-laptop: <hex>, mcp-token-cloud: <hex>
+sops hosts/edge/ionos-de/secrets.yaml   # mcp-token-cloud: <hex>
 ```
 
-Revoke one by removing it from `clients` in `mcp.nix` and from `secrets/edge.yaml`, rotate one by editing the
-secret alone (nginx reloads on deploy). Check from anywhere:
+Revoke one by removing it from `clients` in `mcp.nix` and from `hosts/edge/ionos-de/secrets.yaml`, rotate one by
+editing the secret alone (nginx reloads on deploy). Check from anywhere:
 
 ```sh
 curl -i https://mcp.peacocks.me/time/mcp -H "Authorization: Bearer $MCP_TOKEN" \
