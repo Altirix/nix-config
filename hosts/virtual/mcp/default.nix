@@ -11,6 +11,7 @@
 
   homelab.mcp.servers.rea.enable = true;
   homelab.mcp.servers.nixos.enable = true;
+  # homelab.mcp.servers.github.enable = true;   # once github-mcp-token is in secrets/virtual.yaml
 
   system.stateVersion = "26.05";
 }
