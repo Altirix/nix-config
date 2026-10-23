@@ -28,10 +28,4 @@
   # `incus console` attaches to the serial port.
   boot.kernelParams = [ "console=tty1" "console=ttyS0" ];
 
-  sops.secrets = {
-    "virtual-hello" = {
-      sopsFile = config.homelab.secrets.groupFile;
-      key = "hello";
-    };
-  };
 }

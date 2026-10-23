@@ -60,11 +60,4 @@
 
   security.sudo.wheelNeedsPassword = false;
 
-  # --- Secrets ---
-  sops.secrets = {
-    "common-hello" = {
-      sopsFile = ../secrets/common.yaml;
-      key = "hello";
-    };
-  };
 }
