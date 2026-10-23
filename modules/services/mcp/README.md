@@ -2,9 +2,9 @@
 
 `homelab.mcp.servers` runs MCP servers for agents, each as its own `mcp-<name>` unit and port. stdio servers
 sit behind mcp-proxy: streamable HTTP on `http://<host>:<port>/mcp`, SSE on `/sse`. Nothing authenticates, so
-they stay off the edge and `homelab.mcp.clients` narrows them to the machines agents run on. stdio servers
-share one process, and with it any state, between clients. `hosts/virtual/mcp` (`10.100.1.11`) serves them
-on labs.
+`homelab.mcp.clients` narrows them to the machines agents run on, and only the edge's nginx (with tokens) puts
+the low-risk ones on the internet (From outside). stdio servers share one process, and with it any state,
+between clients. `hosts/virtual/mcp` (`10.100.1.11`) serves them on labs.
 
 Presets in `servers/` only need enabling in the host, anything else is added directly:
 
@@ -48,6 +48,71 @@ one more machine) with its own `clients`, which defaults to that list:
 ```nix
 homelab.mcp.servers.time.clients = config.homelab.mcp.clients ++ [ "10.0.0.1" ];
 ```
+
+## From outside
+
+`hosts/edge/ionos-de/mcp.nix` serves rea, nixos, context7, fetch, time, memory and markitdown at
+`https://mcp.peacocks.me/<server>/mcp`, proxied over the tunnel (streamable HTTP only, SSE is deprecated).
+playwright runs code, github and incus hold credentials, they get no route. Every request needs
+`Authorization: Bearer <token>`, one token per client in `secrets/edge.yaml` so each can be revoked, and the
+access log names the client. The router already lets the tunnel into labs, and the VM sees the edge as its tunnel
+address `10.0.0.1`, which `hosts/virtual/mcp` lets in on the exposed servers' ports only, so a compromised edge
+still doesn't reach the others. If the router ever masquerades into labs it becomes `10.100.0.1` instead, check
+with `journalctl -k` on `mcp` (dropped connections are logged) if the edge gets 502s. Never add a wireguard
+forward to `10.100.1.11`: forwards arrive from `10.0.0.1` too and would skip the token. Exposing another server
+takes both, `servers` in `mcp.nix` and `clients = edge` in `hosts/virtual/mcp`.
+
+Set it up: point an A record for `mcp.peacocks.me` at the VPS (ACME needs it before the first deploy), add a
+token per client named in `mcp.nix` (`openssl rand -hex 32`), uncomment `./mcp.nix` in
+`hosts/edge/ionos-de/default.nix`, deploy `mcp`, then `ionos-de`. ionos-de doesn't build with it uncommented and
+the tokens missing.
+
+```sh
+sops secrets/edge.yaml   # mcp-token-laptop: <hex>, mcp-token-cloud: <hex>
+```
+
+Revoke one by removing it from `clients` in `mcp.nix` and from `secrets/edge.yaml`, rotate one by editing the
+secret alone (nginx reloads on deploy). Check from anywhere:
+
+```sh
+curl -i https://mcp.peacocks.me/time/mcp -H "Authorization: Bearer $MCP_TOKEN" \
+  -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"0"}}}'
+```
+
+Claude Code on a laptop, per server:
+
+```sh
+claude mcp add --transport http time https://mcp.peacocks.me/time/mcp --header "Authorization: Bearer $MCP_TOKEN"
+```
+
+Or in a repo's `.mcp.json`, reading the token from the environment when Claude Code starts. Don't commit one to
+this repo, every session would try to connect:
+
+```json
+{
+  "mcpServers": {
+    "nixos": {
+      "type": "http",
+      "url": "https://mcp.peacocks.me/nixos/mcp",
+      "headers": { "Authorization": "Bearer ${MCP_TOKEN}" }
+    },
+    "time": {
+      "type": "http",
+      "url": "https://mcp.peacocks.me/time/mcp",
+      "headers": { "Authorization": "Bearer ${MCP_TOKEN}" }
+    }
+  }
+}
+```
+
+Claude Code cloud sessions read the same `.mcp.json` from the repo they run in. In the cloud environment's
+settings, allow `mcp.peacocks.me` under Network access (Allowed domains, or Full), and add the `cloud` token
+as a network secret for `mcp.peacocks.me` so the agent proxy adds `Authorization: Bearer <token>` outside the VM
+and the token never reaches the session. Leave out the `headers` then. That the proxy injects it for MCP traffic
+isn't documented, so check after deploy that requests show up as `cloud` in `/var/log/nginx/access.log` on
+ionos-de. If they arrive as 401, set `MCP_TOKEN` as an environment variable of the environment instead and keep
+the `headers` (the session can then read the token).
 
 ## rea (8101)
 

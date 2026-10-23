@@ -8,7 +8,7 @@ let
   # Each reads mcp-token-<name> from secrets/edge.yaml, drop one here (and its secret) to revoke it.
   clients = [ "laptop" "cloud" ];
 
-  # Keep in step with the servers hosts/virtual/mcp lets the edge into.
+  # Keep in step with the servers that let the edge in (`clients = edge` in hosts/virtual/mcp).
   servers = {
     rea = 8101;
     nixos = 8102;
