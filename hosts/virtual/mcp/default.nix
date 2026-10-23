@@ -13,6 +13,8 @@
   homelab.mcp.servers.nixos.enable = true;
   # homelab.mcp.servers.github.enable = true;   # once github-mcp-token is in secrets/virtual.yaml
   homelab.mcp.servers.context7.enable = true;
+  homelab.mcp.servers.fetch.enable = true;
+  homelab.mcp.servers.time.enable = true;
 
   system.stateVersion = "26.05";
 }
