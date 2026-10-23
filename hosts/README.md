@@ -18,6 +18,7 @@ printer/<name>/            Klipper on ROCK 5C Lites, see printer/README.md
 virtual/dls/               FastAPI-DLS, licenses vGPU guests over labs-mesh
 virtual/mcp/               MCP servers for agents (labs only, see modules/services/mcp/README.md)
 virtual/partdb/            Part-DB, electronic parts inventory (labs only, no SSO yet)
+virtual/rea-dynamic/       REA with dynamic analysis, no egress, reset from a snapshot (see modules/services/mcp/README.md)
 ```
 
 The template is an incus VM (`modules/virtual.nix`, one ext4 disk, DHCP). `modules/compute.nix`
