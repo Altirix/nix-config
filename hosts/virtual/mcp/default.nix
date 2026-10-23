@@ -18,6 +18,11 @@
   homelab.mcp.servers.memory.enable = true;
   homelab.mcp.servers.playwright.enable = true;
   homelab.mcp.servers.markitdown.enable = true;
+  # Once incus-mcp-key is in secrets/virtual.yaml and the cluster trusts incus-mcp.crt (modules/services/mcp/README.md).
+  # homelab.mcp.servers.incus = {
+  #   enable = true;
+  #   environment.INCUS_SERVER_CERT = "${../../../modules/compute/incus-cluster.crt}";
+  # };
 
   system.stateVersion = "26.05";
 }
