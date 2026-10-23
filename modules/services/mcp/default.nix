@@ -2,7 +2,8 @@
 
 # MCP servers, one systemd unit and port each. stdio servers are put behind mcp-proxy, which
 # serves streamable HTTP on /mcp and SSE on /sse and shares one server process between all clients.
-# There is no auth and no Host check, only expose them on the labs bridge and narrow it with `clients`.
+# There is no auth and no Host check, only expose them on the labs bridge and narrow it with `clients`,
+# per server where one should be reachable from fewer machines than the rest.
 #
 # Presets for packaged servers live in servers/, every file there is imported. A preset sets
 # defaults and never `enable`, the host turns it on:
@@ -24,8 +25,14 @@ let
         default = [ ];
       };
 
-      # Opened in the firewall (to `clients` when set), mcp-proxy listens here for stdio servers.
+      # Opened in the firewall to `clients`, mcp-proxy listens here for stdio servers.
       port = mkOption { type = types.port; };
+      # Who may connect to this one, like homelab.mcp.clients (the default).
+      clients = mkOption {
+        type = types.nullOr (types.listOf types.str);
+        default = cfg.clients;
+        defaultText = lib.literalExpression "config.homelab.mcp.clients";
+      };
 
       # "stdio" runs the command behind mcp-proxy. "http" servers listen on `port` themselves,
       # so `args` must point them at it and at 0.0.0.0.
@@ -54,12 +61,15 @@ let
   };
 
   enabled = lib.filterAttrs (_: s: s.enable) cfg.servers;
-  ports = lib.mapAttrsToList (_: s: s.port) enabled;
-  # One nftables rule per address family that has clients.
-  allow = family:
-    let addrs = lib.filter (a: lib.hasInfix ":" a == (family == "ip6")) cfg.clients;
+  ports = map (s: s.port);
+  open = lib.filter (s: s.clients == null) (lib.attrValues enabled);
+  # Servers with the same clients share a rule, one per address family that has clients.
+  groups = lib.attrValues (lib.groupBy (s: builtins.toJSON s.clients)
+    (lib.filter (s: s.clients != null) (lib.attrValues enabled)));
+  allow = family: group:
+    let addrs = lib.filter (a: lib.hasInfix ":" a == (family == "ip6")) (lib.head group).clients;
     in lib.optionalString (addrs != [ ])
-      "${family} saddr { ${lib.concatStringsSep ", " addrs} } tcp dport { ${lib.concatMapStringsSep ", " toString ports} } accept\n";
+      "${family} saddr { ${lib.concatStringsSep ", " addrs} } tcp dport { ${lib.concatMapStringsSep ", " toString (lib.sort lib.lessThan (ports group))} } accept\n";
 
   presets = lib.attrNames (lib.filterAttrs (name: type: type == "regular" && lib.hasSuffix ".nix" name)
     (builtins.readDir ./servers));
@@ -75,11 +85,11 @@ in
       default = { };
     };
 
-    # Addresses or prefixes allowed to connect, e.g. the machines agents run on. Empty lets in anyone
-    # who reaches the VM. List a client's IPv6 address too, or clients trying it first stall on the drop.
+    # Addresses or prefixes allowed to connect, e.g. the machines agents run on. null lets in anyone who
+    # reaches the VM, [ ] no one. List a client's IPv6 address too, or clients trying it first stall on the drop.
     clients = mkOption {
-      type = types.listOf types.str;
-      default = [ ];
+      type = types.nullOr (types.listOf types.str);
+      default = null;
       example = [ "10.10.0.20" "fd00:100::/64" ];
     };
   };
@@ -87,7 +97,7 @@ in
   config = lib.mkIf (enabled != { }) {
     assertions = [
       {
-        assertion = lib.allUnique ports;
+        assertion = lib.allUnique (ports (lib.attrValues enabled));
         message = "mcp: every enabled server needs its own port";
       }
     ];
@@ -135,7 +145,7 @@ in
       };
     }) enabled;
 
-    networking.firewall.allowedTCPPorts = lib.mkIf (cfg.clients == [ ]) ports;
-    networking.firewall.extraInputRules = lib.mkIf (cfg.clients != [ ]) (allow "ip" + allow "ip6");
+    networking.firewall.allowedTCPPorts = ports open;
+    networking.firewall.extraInputRules = lib.concatMapStrings (group: allow "ip" group + allow "ip6" group) groups;
   };
 }

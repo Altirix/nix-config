@@ -38,3 +38,10 @@ too and one mistake doesn't open both:
 ```nix
 homelab.mcp.clients = [ "10.10.0.20" ];
 ```
+
+Unset lets in anyone who gets past the router, `[ ]` no one. A server can narrow it further (or widen it to
+one more machine) with its own `clients`, which defaults to that list:
+
+```nix
+homelab.mcp.servers.time.clients = config.homelab.mcp.clients ++ [ "10.0.0.1" ];
+```
