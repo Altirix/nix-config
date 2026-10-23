@@ -140,6 +140,9 @@ in
           extraConfig = "keepalive 8;";
         }) s.locations) cfg.sites);
 
+      # A "Bearer <64 hex>" key is past the 64 byte default bucket, nginx refuses to start.
+      mapHashBucketSize = lib.mkIf (lib.any (s: s.tokens != null) (lib.attrValues cfg.sites)) 128;
+
       commonHttpConfig = lib.concatStrings (lib.mapAttrsToList (name: s: ''
         map $http_authorization ''$${clientVar name} {
           default "";
