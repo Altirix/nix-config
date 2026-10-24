@@ -68,6 +68,7 @@ in
 
     servers = json.loads(${builtins.toJSON (builtins.toJSON (lib.genAttrs enabled (name: {
       port = nodes.mcp.homelab.mcp.servers.${name}.port;
+      inherit (nodes.mcp.homelab.mcp.servers.${name}) extraPorts;
       tool = tools.${name};
     })))})
 
@@ -119,6 +120,22 @@ in
             finally:
                 print(mcp.succeed(f"journalctl -u mcp-{name} -o cat | tail -n 40"))
 
+    if "rea" in servers:
+        with subtest("rea uploads"):
+            uploads = f"http://mcp:{servers['rea']['extraPorts'][0]}/samples"
+            mcp.wait_for_unit("nginx.service")
+            client.succeed(f"curl -fsS -T ${lib.getExe pkgs.hello} {uploads}/hello")
+            client.succeed(f"curl -fsS {uploads}/ | grep -q hello")
+            # One level only, and nothing outside the samples.
+            client.fail(f"curl -fsS -T ${lib.getExe pkgs.hello} {uploads}/sub/hello")
+            client.fail(f"curl -fsS -T ${lib.getExe pkgs.hello} http://mcp:{servers['rea']['extraPorts'][0]}/hello")
+            mcp.succeed("test \"$(stat -c %a /var/lib/rea-samples/hello)\" = 644")
+            out = session("rea", [["tools/call", {"name": "open_binary", "arguments": {"path": "/var/lib/rea-samples/hello"}}]])
+            text = out["results"][0]["content"][0]["text"]
+            assert '"format":"elf"' in text, text
+            client.succeed(f"curl -fsS -X DELETE {uploads}/hello")
+            mcp.fail("test -e /var/lib/rea-samples/hello")
+
     if "memory" in servers:
         with subtest("memory graph in the state dir"):
             mcp.succeed("grep -q nixos-test /var/lib/mcp-memory/memory.jsonl")
@@ -127,7 +144,8 @@ in
         other.wait_for_unit("multi-user.target")
         other.succeed("ping -c1 -W5 mcp")
         for name, s in servers.items():
-            for family in ("-4", "-6"):
-                other.fail(f"curl {family} -sS --connect-timeout 5 http://mcp:{s['port']}/mcp")
+            for port in [s["port"]] + s["extraPorts"]:
+                for family in ("-4", "-6"):
+                    other.fail(f"curl {family} -sS --connect-timeout 5 http://mcp:{port}/")
   '';
 }

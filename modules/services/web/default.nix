@@ -29,7 +29,7 @@ let
       };
       # More path prefixes, each proxied to its own upstream with the prefix swapped for the upstream's path:
       # "/time/mcp" = "http://10.100.1.11:8106/mcp". Unbuffered with long timeouts so streams pass straight
-      # through, redirects to the upstream's path are pointed back under the prefix.
+      # through (uploads too), redirects to the upstream's path are pointed back under the prefix.
       locations = mkOption {
         type = types.attrsOf (types.strMatching "http://[^/]+/.*");
         default = { };
@@ -38,6 +38,12 @@ let
       # then answer 401 without a listed token, the upstream never sees it and the access log names the client.
       # nginx matches them case-insensitively, so use hex tokens. A missing file stops nginx, an empty one is all 401.
       tokens = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+      };
+
+      # nginx's client_max_body_size for the site, e.g. "1g" for `locations` that take uploads.
+      maxBodySize = mkOption {
         type = types.nullOr types.str;
         default = null;
       };
@@ -123,6 +129,7 @@ in
           '' + ''
             proxy_set_header Connection "";
             proxy_buffering off;
+            proxy_request_buffering off;
             proxy_cache off;
             proxy_read_timeout 1h;
             proxy_send_timeout 1h;
@@ -131,7 +138,8 @@ in
             proxy_redirect ${(parse url).path} ${prefix};
           '';
         }) s.locations;
-        extraConfig = lib.optionalString (s.tokens != null) "access_log /var/log/nginx/access.log ${clientVar name};";
+        extraConfig = lib.optionalString (s.tokens != null) "access_log /var/log/nginx/access.log ${clientVar name};\n"
+          + lib.optionalString (s.maxBodySize != null) "client_max_body_size ${s.maxBodySize};\n";
       }) cfg.sites;
 
       upstreams = lib.mkMerge (lib.mapAttrsToList (name: s: lib.mapAttrs' (prefix: url:

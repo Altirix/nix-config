@@ -52,10 +52,10 @@ homelab.mcp.servers.time.clients = config.homelab.mcp.clients ++ [ "10.0.0.1" ];
 ## From outside
 
 `hosts/edge/ionos-de/mcp.nix` serves rea, nixos, context7, fetch, time, memory and markitdown at
-`https://mcp.peacocks.me/<server>/mcp`, proxied over the tunnel (streamable HTTP only, SSE is deprecated).
-playwright runs code, github and incus hold credentials, they get no route. Every request needs `Authorization:
-Bearer <token>`, one token per client in `hosts/edge/ionos-de/secrets.yaml` so each can be revoked, and the
-access log names the client. The router already lets the tunnel into labs, and the VM sees the edge as its
+`https://mcp.peacocks.me/<server>/mcp` (and rea's uploads at `/rea/samples/`), proxied over the tunnel (streamable
+HTTP only, SSE is deprecated). playwright runs code, github and incus hold credentials, they get no route. Every
+request needs `Authorization: Bearer <token>`, one token per client in `hosts/edge/ionos-de/secrets.yaml` so each
+can be revoked, and the access log names the client. The router already lets the tunnel into labs, and the VM sees the edge as its
 tunnel address `10.0.0.1`, which `hosts/virtual/mcp` lets in on the exposed servers' ports only, so a
 compromised edge still doesn't reach the others. If the router ever masquerades into labs it becomes
 `10.100.0.1` instead, check with `journalctl -k` on `mcp` (dropped connections are logged) if the edge gets
@@ -127,29 +127,42 @@ the `headers` (the session can then read the token).
 
 ## rea (8101)
 
-Decompiles with Ghidra and reads APKs with JADX, static analysis only, one open target at a time. Copy targets
-to `/var/lib/rea-samples` on `mcp` (rsync as admin) and open them by that path.
+Decompiles with Ghidra and reads APKs with JADX, static analysis only, one open target at a time. REA's tools
+take paths on its own VM, so samples go to `/var/lib/rea-samples` first: PUT them to nginx on 8111
+(`homelab.mcp.rea.uploadPort`, same `clients` as 8101), routed by the edge on the same token, or rsync them in as
+admin. Open them by that path. Files land `0644` and the server can't write there, so tools that write (like
+`extract_firmware`) take a directory under its state directory `/var/lib/mcp-rea` or `/tmp`.
+
+```sh
+curl -T sample.apk https://mcp.peacocks.me/rea/samples/sample.apk           # or /rea-dynamic/samples/
+curl https://mcp.peacocks.me/rea/samples/                                   # list
+curl -X DELETE https://mcp.peacocks.me/rea/samples/sample.apk
+```
+
+From a cloud session the agent proxy adds the token. Uploads are up to 1G, one level (no subdirectories).
 
 ### Dynamic analysis (rea-dynamic)
 
 `homelab.mcp.rea.dynamic = true` builds REA in full: `capture_process_scenario` runs the command it's given
 under a PTY, `capture_browser_scenario` drives Chromium (`executable_path` `/etc/rea/chromium`, Playwright's own
 build). Both work under the unit's sandbox as it is, nothing is relaxed. Samples run as the unit's dynamic user
-and see what it sees: the store, world-readable `/etc`, its state directory and `/var/lib/rea-samples`. gdb,
-rizin, Frida and adb aren't on PATH, so their tools still fail, and binaries built for other distributions need
-their own loader (no nix-ld), Electron apps included. `homelab.mcp.rea.firmware = true` (its own option, also on
-rea-dynamic) adds binwalk and unblob so `inspect_firmware_regions` and `extract_firmware` work; they parse
-untrusted blobs with their own extractors, which is why they stay on this VM.
+and see what it sees: the store, world-readable `/etc`, its state directory and `/var/lib/rea-samples`. Uploads
+aren't executable, copy one into the state directory first (`capture_process_scenario` with `install -m755
+/var/lib/rea-samples/<name> /var/lib/mcp-rea/<name>`). gdb, rizin, Frida and adb aren't on PATH, so their tools
+still fail, and binaries built for other distributions need their own loader (no nix-ld), Electron apps
+included. `homelab.mcp.rea.firmware = true` (its own option, also on rea-dynamic) adds binwalk and unblob (26.6,
+the release REA takes) so `inspect_firmware_regions` and `extract_firmware` work; they parse untrusted blobs with
+their own extractors, which is why they stay on this VM.
 
 That only runs on `hosts/virtual/rea-dynamic` (`10.100.1.12`, samples go to its `/var/lib/rea-samples`), which
-serves nothing else (asserted), holds no secrets and is contained:
+serves nothing else but its uploads (asserted), holds no secrets and is contained:
 
-- **Who connects**: a router rule and `homelab.mcp.clients` as for `mcp`, for 8101 on `10.100.1.12`. It goes
-  before `labs: only home and tunnel in`, which drops everything else home opens into labs:
+- **Who connects**: a router rule and `homelab.mcp.clients` as for `mcp`, for 8101 and 8111 on `10.100.1.12`. It
+  goes before `labs: only home and tunnel in`, which drops everything else home opens into labs:
 
   ```routeros
   /ip firewall filter
-  add chain=forward action=accept connection-state=new src-address=<agent> dst-address=10.100.1.12 protocol=tcp dst-port=8101 comment="labs: agents to rea-dynamic" place-before=[find comment="labs: only home and tunnel in"]
+  add chain=forward action=accept connection-state=new src-address=<agent> dst-address=10.100.1.12 protocol=tcp dst-port=8101,8111 comment="labs: agents to rea-dynamic" place-before=[find comment="labs: only home and tunnel in"]
   ```
 
 - **Egress**: the VM's nftables drops every packet it would send that isn't loopback, IPv6 neighbour

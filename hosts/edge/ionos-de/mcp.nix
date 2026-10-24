@@ -24,6 +24,9 @@ let
     markitdown = 8109;
   };
 
+  # REA's sample uploads on both VMs (homelab.mcp.rea.uploadPort), its tools only open paths there.
+  samples = 8111;
+
   secret = client: "mcp-token-${client}";
 in
 {
@@ -32,7 +35,13 @@ in
     https = true;
     locations = lib.mapAttrs' (name: port: lib.nameValuePair "/${name}/mcp" "http://10.100.1.11:${toString port}/mcp") servers
       # The full REA on its own VM, see hosts/virtual/rea-dynamic (clients = edge there lets only this host in).
-      // { "/rea-dynamic/mcp" = "http://10.100.1.12:8101/mcp"; };
+      // { "/rea-dynamic/mcp" = "http://10.100.1.12:8101/mcp"; }
+      // {
+        "/rea/samples/" = "http://10.100.1.11:${toString samples}/samples/";
+        "/rea-dynamic/samples/" = "http://10.100.1.12:${toString samples}/samples/";
+      };
+    # As the VMs' upload endpoint.
+    maxBodySize = "1g";
     tokens = config.sops.templates."mcp-tokens".path;
   };
 

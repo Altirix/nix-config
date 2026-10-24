@@ -27,6 +27,11 @@ let
 
       # Opened in the firewall to `clients`, mcp-proxy listens here for stdio servers.
       port = mkOption { type = types.port; };
+      # More ports opened to `clients` with `port`, for what runs beside the server (rea's uploads).
+      extraPorts = mkOption {
+        type = types.listOf types.port;
+        default = [ ];
+      };
       # Who may connect to this one, like homelab.mcp.clients (the default).
       clients = mkOption {
         type = types.nullOr (types.listOf types.str);
@@ -61,7 +66,7 @@ let
   };
 
   enabled = lib.filterAttrs (_: s: s.enable) cfg.servers;
-  ports = map (s: s.port);
+  ports = lib.concatMap (s: [ s.port ] ++ s.extraPorts);
   open = lib.filter (s: s.clients == null) (lib.attrValues enabled);
   # Servers with the same clients share a rule, one per address family that has clients.
   groups = lib.attrValues (lib.groupBy (s: builtins.toJSON s.clients)
