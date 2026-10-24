@@ -62,6 +62,17 @@ compromised edge still doesn't reach the others. If the router ever masquerades 
 502s. Never add a wireguard forward to `10.100.1.11`: forwards arrive from `10.0.0.1` too and would skip the
 token. Exposing another server takes both, `servers` in `mcp.nix` and `clients = edge` in `hosts/virtual/mcp`.
 
+`rea-dynamic` is also routed, at `https://mcp.peacocks.me/rea-dynamic/mcp` → its own VM `10.100.1.12:8101`, on
+the same token. It runs code a caller hands it but reaches nothing (no secrets, egress dropped, snapshot reset),
+so a leaked token lands in a dead-end sandbox. That rests on the egress drop holding even against root in the
+VM, so the router's "rea-dynamic opens nothing" drop (below, the real backstop, the VM can flush its own) must
+be live, and must cover IPv6 too if labs carries it, or VM-root egresses over v6:
+
+```routeros
+/ipv6 firewall filter
+add chain=forward action=drop connection-state=new src-address=<rea-dynamic v6> comment="labs: rea-dynamic opens nothing (v6)" place-before=[find comment="labs: no connection to private wg ips"]
+```
+
 Set it up: point an A record for `mcp.peacocks.me` at the VPS (ACME needs it before the first deploy), add a
 token per client named in `mcp.nix` (`openssl rand -hex 32`), uncomment `./mcp.nix` in
 `hosts/edge/ionos-de/default.nix`, deploy `mcp`, then `ionos-de`. ionos-de doesn't build with it uncommented and
