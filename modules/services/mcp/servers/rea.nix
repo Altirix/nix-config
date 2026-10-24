@@ -101,7 +101,7 @@ in
         ReadWritePaths = [ "/var/lib/rea-samples" ];
         # The bind mount above makes nginx copy uploads from its temp dir rather than rename them, and the copy
         # takes the umask (NixOS sets 0027), not dav_access: 0640 uploads the server can't read.
-        UMask = "0022";
+        UMask = lib.mkForce "0022";
       };
     })
 
