@@ -17,7 +17,6 @@ in
   # Machines agents run on in the lab, e.g. "10.10.0.20" (and the router rule, modules/services/mcp/README.md).
   homelab.mcp.clients = [ ];
 
-  homelab.mcp.servers.rea = { enable = true; clients = edge; };
   homelab.mcp.servers.nixos = { enable = true; clients = edge; };
   # homelab.mcp.servers.github.enable = true;   # once github-mcp-token is in secrets/virtual.yaml
   homelab.mcp.servers.context7 = { enable = true; clients = edge; };

@@ -1,7 +1,8 @@
 { config, lib, pkgs, utils, ... }:
 
 # MCP servers, one systemd unit and port each. stdio servers are put behind mcp-proxy, which
-# serves streamable HTTP on /mcp and SSE on /sse and shares one server process between all clients.
+# serves streamable HTTP on /mcp and SSE on /sse and shares one server process between all clients,
+# or with `sessions = "isolated"` behind mcp-session-proxy, one process per MCP session (/mcp only).
 # There is no auth and no Host check, only expose them on the labs bridge and narrow it with `clients`,
 # per server where one should be reachable from fewer machines than the rest.
 #
@@ -27,11 +28,6 @@ let
 
       # Opened in the firewall to `clients`, mcp-proxy listens here for stdio servers.
       port = mkOption { type = types.port; };
-      # More ports opened to `clients` with `port`, for what runs beside the server (rea's uploads).
-      extraPorts = mkOption {
-        type = types.listOf types.port;
-        default = [ ];
-      };
       # Who may connect to this one, like homelab.mcp.clients (the default).
       clients = mkOption {
         type = types.nullOr (types.listOf types.str);
@@ -44,6 +40,17 @@ let
       transport = mkOption {
         type = types.enum [ "stdio" "http" ];
         default = "stdio";
+      };
+
+      # stdio only. "shared": every client talks to the same process and shares its state. "isolated":
+      # each MCP session gets its own process, at most `maxSessions` at once, closed after 30 idle minutes.
+      sessions = mkOption {
+        type = types.enum [ "shared" "isolated" ];
+        default = "shared";
+      };
+      maxSessions = mkOption {
+        type = types.ints.positive;
+        default = 4;
       };
 
       environment = mkOption {
@@ -66,7 +73,7 @@ let
   };
 
   enabled = lib.filterAttrs (_: s: s.enable) cfg.servers;
-  ports = lib.concatMap (s: [ s.port ] ++ s.extraPorts);
+  ports = map (s: s.port);
   open = lib.filter (s: s.clients == null) (lib.attrValues enabled);
   # Servers with the same clients share a rule, one per address family that has clients.
   groups = lib.attrValues (lib.groupBy (s: builtins.toJSON s.clients)
@@ -79,7 +86,10 @@ let
   presets = lib.attrNames (lib.filterAttrs (name: type: type == "regular" && lib.hasSuffix ".nix" name)
     (builtins.readDir ./servers));
 
-  proxy = [ (lib.getExe pkgs.mcp-proxy) "--host" "0.0.0.0" "--port" ];
+  proxy = s: (if s.sessions == "isolated"
+    then [ (lib.getExe (pkgs.callPackage ./packages/mcp-session-proxy { })) "--max-sessions" (toString s.maxSessions) ]
+    else [ (lib.getExe pkgs.mcp-proxy) ])
+    ++ [ "--host" "0.0.0.0" "--port" (toString s.port) "--pass-environment" "--" ];
 in
 {
   imports = map (name: ./servers/${name}) presets;
@@ -117,7 +127,7 @@ in
       environment = { HOME = "/var/lib/mcp-${name}"; } // s.environment;
       serviceConfig = {
         ExecStart = utils.escapeSystemdExecArgs (if s.transport == "stdio"
-          then proxy ++ [ (toString s.port) "--pass-environment" "--" s.command ] ++ s.args
+          then proxy s ++ [ s.command ] ++ s.args
           else [ s.command ] ++ s.args);
         EnvironmentFile = lib.mkIf (s.environmentFile != null) s.environmentFile;
         Restart = "on-failure";
