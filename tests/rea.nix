@@ -47,6 +47,7 @@ in
     import json, shlex
 
     port = ${toString nodes.rea.homelab.mcp.rea.port}
+    projects = json.loads(${builtins.toJSON (builtins.toJSON (lib.genAttrs nodes.rea.homelab.mcp.rea.projects (p: nodes.rea.homelab.mcp.servers."rea-${p}".port)))})
     base = f"http://rea:{port}"
 
     def call(project, calls):
@@ -57,9 +58,14 @@ in
 
     start_all()
     rea.wait_for_unit("nginx.service")
-    for project in ("alpha", "beta"):
+    for project, project_port in projects.items():
         rea.wait_for_unit(f"mcp-rea-{project}.service", timeout=900)
+        rea.wait_for_open_port(project_port, timeout=900)
     rea.wait_for_open_port(port)
+
+    def journals():
+        for project in projects:
+            print(rea.succeed(f"journalctl -u mcp-rea-{project} -o cat | tail -n 40"))
 
     with subtest("uploads per project"):
         client.succeed(f"curl -fsS -T ${hello} {base}/alpha/samples/hello")
@@ -71,27 +77,30 @@ in
         client.fail(f"curl -fsS -T ${hello} {base}/gamma/samples/hello")
         rea.succeed("test \"$(stat -c %a /var/lib/rea-samples/alpha/hello)\" = 644")
 
-    with subtest("a session per agent"):
-        [(text, err)] = call("alpha", [("open_binary", {"path": "/var/lib/rea-samples/alpha/hello"})])
-        assert not err and '"format":"elf"' in text, text
-        # A new session starts with nothing open, not the first one's target.
-        [(text, err)] = call("alpha", [("binary_session", {})])
-        assert not err and '"open":false' in text, text
+    try:
+        with subtest("a session per agent"):
+            [(text, err)] = call("alpha", [("open_binary", {"path": "/var/lib/rea-samples/alpha/hello"})])
+            assert not err and '"format":"elf"' in text, text
+            # A new session starts with nothing open, not the first one's target.
+            [(text, err)] = call("alpha", [("binary_session", {})])
+            assert not err and '"open":false' in text, text
 
-    with subtest("projects only see their own"):
-        [(text, err)] = call("beta", [("open_binary", {"path": "/var/lib/rea-samples/alpha/hello"})])
-        assert err, text
-        text, err = call("alpha", [
-            ("open_binary", {"path": "/var/lib/rea-samples/alpha/hello"}),
-            ("export_evidence_bundle", {"path": "/var/lib/mcp-rea-alpha/shared/evidence.json"}),
-        ])[1]
-        assert not err, text
-        rea.succeed("test -s /var/lib/mcp-rea-alpha/shared/evidence.json")
-        # Another agent on the project picks it up, the other project can't.
-        [(text, err)] = call("alpha", [("import_evidence_bundle", {"path": "/var/lib/mcp-rea-alpha/shared/evidence.json"})])
-        assert not err, text
-        [(text, err)] = call("beta", [("import_evidence_bundle", {"path": "/var/lib/mcp-rea-alpha/shared/evidence.json"})])
-        assert err, text
+        with subtest("projects only see their own"):
+            [(text, err)] = call("beta", [("open_binary", {"path": "/var/lib/rea-samples/alpha/hello"})])
+            assert err, text
+            text, err = call("alpha", [
+                ("open_binary", {"path": "/var/lib/rea-samples/alpha/hello"}),
+                ("export_evidence_bundle", {"path": "/var/lib/mcp-rea-alpha/shared/evidence.json"}),
+            ])[1]
+            assert not err, text
+            rea.succeed("test -s /var/lib/mcp-rea-alpha/shared/evidence.json")
+            # Another agent on the project picks it up, the other project can't.
+            [(text, err)] = call("alpha", [("import_evidence_bundle", {"path": "/var/lib/mcp-rea-alpha/shared/evidence.json"})])
+            assert not err, text
+            [(text, err)] = call("beta", [("import_evidence_bundle", {"path": "/var/lib/mcp-rea-alpha/shared/evidence.json"})])
+            assert err, text
+    finally:
+        journals()
 
     with subtest("clients allowlist"):
         other.wait_for_unit("multi-user.target")
