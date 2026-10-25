@@ -88,6 +88,15 @@ in
             # A new session starts with nothing open, not the first one's target.
             [(text, err)] = call("alpha", [("binary_session", {})])
             assert not err and '"open":false' in text, text
+            # A client trying 2026-07-28 first is turned away, so it falls back to a session (packages/rea.nix).
+            meta = {"io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientInfo": {"name": "t", "version": "0"},
+                    "io.modelcontextprotocol/clientCapabilities": {}}
+            discover = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {"_meta": meta}})
+            out = client.succeed(f"curl -sS -X POST {base}/alpha/mcp -H 'Content-Type: application/json' "
+                                 f"-H 'Accept: application/json, text/event-stream' -H 'MCP-Protocol-Version: 2026-07-28' "
+                                 f"-H 'Mcp-Method: server/discover' -d {shlex.quote(discover)}")
+            assert "Unsupported protocol version" in out, out
             # mcp-call DELETEs its session: its REA is gone.
             rea.wait_until_succeeds("! pgrep -u rea -f 'rea.mjs mcp'", timeout=60)
 

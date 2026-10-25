@@ -35,7 +35,19 @@ buildNpmPackage (finalAttrs: {
   # staticOnly drops the modules behind the tools that run a program the caller names:
   # node-pty (capture_process_scenario), playwright-core (browser and Electron launch) and frida.
   # Those tools stay listed and fail, everything else is untouched.
-  postInstall = lib.optionalString staticOnly ''
+  #
+  # The bundled MCP SDK also speaks protocol 2026-07-28, whose requests are stateless: supergateway then gives a
+  # client that discovers first no session, and the target it opened is gone by its next call. Without it,
+  # clients fall back to 2025-era sessions.
+  postInstall = ''
+    sdk=$out/lib/node_modules/rea-agents/node_modules/@modelcontextprotocol
+    grep -rlZ --include='*.js' --include='*.mjs' --include='*.cjs' 'SUPPORTED_MODERN_PROTOCOL_VERSIONS = \[FIRST_MODERN_PROTOCOL_VERSION\]' $sdk \
+      | xargs -0 -r sed -i 's/SUPPORTED_MODERN_PROTOCOL_VERSIONS = \[FIRST_MODERN_PROTOCOL_VERSION\]/SUPPORTED_MODERN_PROTOCOL_VERSIONS = []/'
+    if grep -rq --include='*.js' --include='*.mjs' --include='*.cjs' 'SUPPORTED_MODERN_PROTOCOL_VERSIONS = \[FIRST' $sdk; then
+      echo "rea: the SDK still speaks 2026-07-28" >&2; exit 1
+    fi
+    grep -rq --include='*.js' --include='*.mjs' --include='*.cjs' 'SUPPORTED_MODERN_PROTOCOL_VERSIONS = \[\]' $sdk
+  '' + lib.optionalString staticOnly ''
     rm -r $out/lib/node_modules/rea-agents/node_modules/{@lydell,playwright-core,frida,.bin/playwright-core}
   '';
 
