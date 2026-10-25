@@ -170,7 +170,6 @@ Sessions pass work along through the shared directory:
 
 ```
 /var/lib/rea-shared/<project>/
-  snapshots/<sha256>.snap                close_binary snapshot_path (overwrite: false), open_binary snapshot_path
   evidence/<branch>__<agent>.json        export_evidence_bundle, import_evidence_bundle
 /var/lib/mcp-rea-<project>/
   scratch/<agent>/<new dir>              extract_firmware output_directory, executable copies
@@ -178,9 +177,13 @@ Sessions pass work along through the shared directory:
 
 Agents on the same branch import each other's evidence, a different branch starts its own. REA only writes into
 existing directories, so the names stay flat (`/` in a branch becomes `-`), and writes them `0600`, so
-`rea-shared-<project>.path` makes them group-readable for nginx a moment after they land. A snapshot skips
-Ghidra's analysis for the next session on the same sample, but can only be saved before any rename or comment.
-Nothing in a session survives it ending (DELETE, 30 idle minutes, a reset) except what it exported, so agents
+`rea-shared-<project>.path` makes them group-readable for nginx a moment after they land.
+
+Bundles carry findings as evidence records, not a Ghidra database: importing one doesn't rename anything in the
+importing session's binary, and REA's snapshots are the same records (no Ghidra analysis in them), so every
+session pays Ghidra's analysis (~90 s for a 1 MB firmware) on its first query. Names and comments that should
+outlive a session go in the project's repo (address, name, why) and are re-applied with `set_addresses_names` and
+`annotate_native_function`; `set_comment` is Hopper only. Nothing in a session survives it ending (DELETE, 30 idle minutes, a reset) except what it exported, so agents
 export after every finding worth keeping. To keep a bundle beyond the VM (in the project's repo, say), download
 it, and upload it as a sample to import it again:
 

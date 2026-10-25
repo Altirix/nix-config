@@ -8,7 +8,7 @@
 # /<project>/shared/ serves /var/lib/rea-shared/<project> read-only. Listing a project turns its server on.
 #
 # Each project is its own dynamic user and sees only its own samples (read-only), its shared directory
-# (evidence bundles and analysis snapshots its sessions pass along, group rea-<project> so nginx can serve
+# (evidence bundles its sessions pass along, group rea-<project> so nginx can serve
 # them) and its state directory /var/lib/mcp-rea-<project> (scratch/ for tool output). Other projects'
 # are out of reach. All of them run in rea.slice, capped at `memoryMax` together.
 #
@@ -113,7 +113,7 @@ in
 
       systemd.paths = lib.listToAttrs (map (p: lib.nameValuePair "rea-shared-${p.name}" {
         wantedBy = [ "multi-user.target" ];
-        pathConfig.PathChanged = [ "/var/lib/rea-shared/${p.name}/evidence" "/var/lib/rea-shared/${p.name}/snapshots" ];
+        pathConfig.PathChanged = [ "/var/lib/rea-shared/${p.name}/evidence" ];
       }) projects);
 
       systemd.services = lib.listToAttrs (map (p: lib.nameValuePair "mcp-rea-${p.name}" {
@@ -131,7 +131,7 @@ in
           UMask = "0027";
         };
       }) projects) // lib.listToAttrs (map (p: lib.nameValuePair "rea-shared-${p.name}" {
-        # REA writes bundles and snapshots 0600, whatever the umask, so nginx couldn't serve them. As the
+        # REA writes bundles 0600, whatever the umask, so nginx couldn't serve them. As the
         # project's own user, so it only ever touches that project's files.
         description = "Make what REA project ${p.name} shares readable to nginx";
         unitConfig.RequiresMountsFor = [ "/var/lib/rea-shared" ];
@@ -180,7 +180,6 @@ in
         ++ lib.concatMap (p: [
           "d /var/lib/rea-samples/${p.name} 2775 nginx users -"
           "d /var/lib/rea-shared/${p.name} 2770 root rea-${p.name} -"
-          "d /var/lib/rea-shared/${p.name}/snapshots 2770 root rea-${p.name} -"
           # REA only writes into directories that exist, so bundles go flat: <branch>__<agent>.json.
           "d /var/lib/rea-shared/${p.name}/evidence 2770 root rea-${p.name} -"
         ]) projects;
