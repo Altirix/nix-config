@@ -16,7 +16,7 @@
     dynamic = true;
     firmware = true;
     # mcp.peacocks.me/rea/<project>/mcp. Add one per line of work that shouldn't share state.
-    projects = [ "default" ];
+    projects = [ "default" "ig5236" ];
     # Reachable only through the edge's tunnel (token-gated). Add a LAN agent here to also reach 8101
     # directly. The router must let the tunnel into labs (it already does).
     clients = [ "10.0.0.1" ];
