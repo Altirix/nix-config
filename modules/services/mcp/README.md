@@ -147,9 +147,10 @@ A repo's `.mcp.json` points at its project (this one at `default`):
 ```
 
 Adding a project is a line in `hosts/virtual/rea-dynamic` and a deploy, the edge needs nothing. Each session takes
-up to 2G (Ghidra's heap), at most 4 per project (`homelab.mcp.servers.rea-<project>.maxSessions`), and all of
-them together at most `homelab.mcp.rea.memoryMax` (75% of the VM, `rea.slice`), so size the VM's
-`limits.memory` for what runs at once.
+about 1.5 times Ghidra's heap (`homelab.mcp.rea.ghidraHeap`, 1G here) once it has a target open, at most
+`homelab.mcp.rea.maxSessions` per project (10 here), and all of them together at most
+`homelab.mcp.rea.memoryMax` (75% of the VM, `rea.slice`), so size the VM's `limits.memory` for what runs at
+once.
 
 REA's tools take paths on the VM, so samples are uploaded first and opened by that path:
 

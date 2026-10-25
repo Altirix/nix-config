@@ -16,8 +16,8 @@
 # capture, browser and Electron launch, Frida), and rizin (its debug sessions run the target) only comes with
 # `dynamic`. objdump is always there, gdb, adb and the other tool CLIs aren't on PATH.
 # Clients can still read anything the server's user can and run Ghidra on it. Each open target is
-# a Ghidra JVM with 2G heap (GHIDRA_HEADLESS_MAXMEM), so a project takes up to 2G per session
-# (homelab.mcp.servers.rea-<project>.maxSessions). REA_GHIDRA_STARTUP_TIMEOUT_MS bounds imports.
+# a Ghidra JVM with a `ghidraHeap` heap (about half as much again in all), so a project takes that per
+# session, up to `maxSessions`. REA_GHIDRA_STARTUP_TIMEOUT_MS bounds imports.
 let
   cfg = config.homelab.mcp.rea;
   projects = lib.imap0 (i: name: { inherit name; port = 8120 + i; }) cfg.projects;
@@ -63,6 +63,18 @@ in
     default = 8101;
   };
 
+  # Per project, the one idle longest makes room for a new session past it (homelab.mcp.servers.<name>.maxSessions).
+  options.homelab.mcp.rea.maxSessions = lib.mkOption {
+    type = lib.types.ints.positive;
+    default = 4;
+  };
+
+  # Each session's Ghidra heap (GHIDRA_HEADLESS_MAXMEM, REA's default 2G). Firmware of a few MB fits in 1G.
+  options.homelab.mcp.rea.ghidraHeap = lib.mkOption {
+    type = lib.types.str;
+    default = "2G";
+  };
+
   # systemd MemoryMax for every project's sessions together, so busy projects can't take the whole VM.
   options.homelab.mcp.rea.memoryMax = lib.mkOption {
     type = lib.types.str;
@@ -84,6 +96,7 @@ in
         args = lib.mkDefault [ "mcp" ];
         inherit (p) port;
         sessions = "isolated";
+        maxSessions = lib.mkDefault cfg.maxSessions;
         # Only nginx, over loopback.
         clients = [ ];
         # REA checks child process ownership with ps.
@@ -93,6 +106,7 @@ in
           ++ lib.optionals cfg.firmware [ pkgs.binwalk unblob pkgs.util-linux ];
         environment = lib.mapAttrs (_: lib.mkDefault) ({
           GHIDRA_INSTALL_DIR = "${rea.ghidra}/lib/ghidra";
+          GHIDRA_HEADLESS_MAXMEM = cfg.ghidraHeap;
           JAVA_HOME = rea.jdk.home;
           REA_JADX_MCP_JAR = "${rea.jadxMcp}";
           # Every BFD target, not just the host's: samples are ARM firmware as often as x86.

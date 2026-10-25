@@ -17,6 +17,10 @@
     firmware = true;
     # mcp.peacocks.me/rea/<project>/mcp. Add one per line of work that shouldn't share state.
     projects = [ "default" "ig5236" ];
+    # 24G VM, rea.slice gets 75%: 10 sessions with a 1G heap (~1.5G each with the JVM's overhead) fit in it.
+    # Past that the slice's OOM killer ends a session, not the VM.
+    maxSessions = 10;
+    ghidraHeap = "1G";
     # Reachable only through the edge's tunnel (token-gated). Add a LAN agent here to also reach 8101
     # directly. The router must let the tunnel into labs (it already does).
     clients = [ "10.0.0.1" ];
