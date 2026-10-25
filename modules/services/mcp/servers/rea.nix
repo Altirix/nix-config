@@ -1,26 +1,24 @@
 { config, lib, pkgs, ... }:
 
 # REA, reverse engineering over MCP. Ghidra is the native engine (Hopper and IDA are unfree),
-# jadx-headless-mcp the Android one. One REA server per project in `projects`, mcp-rea-<project> on
-# 8120 onwards (loopback only), each MCP session its own REA process with its own open target. nginx on
-# `port` is the only way in: /<project>/mcp, /<project>/samples/ takes uploads into
-# /var/lib/rea-samples/<project> (behind the edge's token, REA's tools only take local paths) and
-# /<project>/shared/ serves /var/lib/rea-shared/<project> read-only. Listing a project turns its server on.
+# jadx-headless-mcp the Android one. One supergateway (config/rea-gateway.json) serves every project in
+# `projects` at /<project>/mcp, starting a REA for each MCP session, so agents never share an open target;
+# idle sessions end after `sessionTimeout`. nginx on `port` (config/rea-nginx.conf) is the only way in, and
+# also takes uploads at /<project>/samples/ and serves /<project>/shared/ read-only. Each project lives in
+# /var/lib/rea/<project>: samples/ (nginx writes, REA reads), shared/ (REA writes, nginx reads), scratch/
+# and home/ (REA's own).
 #
-# Each project is its own dynamic user and sees only its own samples (read-only), its shared directory
-# (evidence bundles its sessions pass along, group rea-<project> so nginx can serve
-# them) and its state directory /var/lib/mcp-rea-<project> (scratch/ for tool output). Other projects'
-# are out of reach. All of them run in rea.slice, capped at `memoryMax` together.
+# Projects aren't isolated from each other on the VM: everything runs as the rea user, and a sample one
+# project runs can reach every project's files. The VM is a disposable sandbox, what matters lives in
+# the projects' repos.
 #
 # Static analysis only by default: the package leaves out what runs programs for a caller (process
 # capture, browser and Electron launch, Frida), and rizin (its debug sessions run the target) only comes with
 # `dynamic`. objdump is always there, gdb, adb and the other tool CLIs aren't on PATH.
-# Clients can still read anything the server's user can and run Ghidra on it. Each open target is
-# a Ghidra JVM with a `ghidraHeap` heap (about half as much again in all), so a project takes that per
-# session, up to `maxSessions`. REA_GHIDRA_STARTUP_TIMEOUT_MS bounds imports.
+# Each open target is a Ghidra JVM with a `ghidraHeap` heap (about half as much again in all), every session
+# together capped at `memoryMax`. REA_GHIDRA_STARTUP_TIMEOUT_MS bounds imports.
 let
   cfg = config.homelab.mcp.rea;
-  projects = lib.imap0 (i: name: { inherit name; port = 8120 + i; }) cfg.projects;
   rea = pkgs.callPackage ../packages/rea.nix { staticOnly = !cfg.dynamic; };
   # Playwright's own build, playwright-core launches it with --no-sandbox (no user namespaces here).
   chromium = "${pkgs.playwright-driver.components.chromium}/chrome-linux64/chrome";
@@ -39,6 +37,24 @@ let
     };
     doCheck = false;
   });
+  supergateway = pkgs.callPackage ../packages/supergateway.nix { };
+
+  # config/rea-gateway.json with a rea-gateway-project.json per project, checked by supergateway at build.
+  gatewayConfig = pkgs.runCommand "rea-gateway.json" {
+    config = builtins.replaceStrings
+      [ "@port@" "@sessionTimeout@" "@projects@" ]
+      [
+        (toString cfg.gatewayPort)
+        (toString cfg.sessionTimeout)
+        (lib.concatMapStrings (p: builtins.replaceStrings [ "@project@" "@rea@" ] [ p (lib.getExe rea) ]
+          (builtins.readFile ../config/rea-gateway-project.json)) cfg.projects)
+      ]
+      (builtins.readFile ../config/rea-gateway.json);
+    passAsFile = [ "config" ];
+  } ''
+    cp "$configPath" $out
+    ${lib.getExe supergateway} --checkConfig --config $out
+  '';
 in
 {
   # The full build: capture_process_scenario and browser scenarios run whatever the caller names as
@@ -49,24 +65,26 @@ in
   # parser-exploit surface, so keep it to the isolated VM rather than the shared host.
   options.homelab.mcp.rea.firmware = lib.mkEnableOption "REA's firmware extraction (binwalk, unblob)";
 
-  # Each gets its own server, samples and state, e.g. one per repo agents work from.
+  # Each gets its URLs and /var/lib/rea/<project>, e.g. one per repo agents work from. Listing one turns REA on.
   options.homelab.mcp.rea.projects = lib.mkOption {
     type = lib.types.listOf (lib.types.strMatching "[a-z0-9][a-z0-9-]*");
     default = [ ];
   };
 
-  # nginx, opened to `clients`: POST /<project>/mcp is the project's server, PUT /<project>/samples/<name>
-  # stores a sample, GET /<project>/samples/ lists them, DELETE removes one. Samples land read-only (0644,
-  # no subdirectories), so on rea-dynamic copy one into scratch/ with `install -m755` before running it.
+  # nginx, opened to `clients`. The gateway listens on gatewayPort, loopback only.
   options.homelab.mcp.rea.port = lib.mkOption {
     type = lib.types.port;
     default = 8101;
   };
+  options.homelab.mcp.rea.gatewayPort = lib.mkOption {
+    type = lib.types.port;
+    default = 8102;
+  };
 
-  # Per project, the one idle longest makes room for a new session past it (homelab.mcp.servers.<name>.maxSessions).
-  options.homelab.mcp.rea.maxSessions = lib.mkOption {
+  # Milliseconds a session may sit idle before its REA is stopped.
+  options.homelab.mcp.rea.sessionTimeout = lib.mkOption {
     type = lib.types.ints.positive;
-    default = 4;
+    default = 30 * 60 * 1000;
   };
 
   # Each session's Ghidra heap (GHIDRA_HEADLESS_MAXMEM, REA's default 2G). Firmware of a few MB fits in 1G.
@@ -75,7 +93,8 @@ in
     default = "2G";
   };
 
-  # systemd MemoryMax for every project's sessions together, so busy projects can't take the whole VM.
+  # systemd MemoryMax for the gateway and every session's REA together, so they can't take the whole VM.
+  # Past it the kernel ends a session, not the VM.
   options.homelab.mcp.rea.memoryMax = lib.mkOption {
     type = lib.types.str;
     default = "75%";
@@ -88,23 +107,36 @@ in
     defaultText = lib.literalExpression "config.homelab.mcp.clients";
   };
 
-  config = lib.mkIf (projects != [ ]) (lib.mkMerge [
+  config = lib.mkIf (cfg.projects != [ ]) (lib.mkMerge [
     {
-      homelab.mcp.servers = lib.listToAttrs (map (p: lib.nameValuePair "rea-${p.name}" {
-        enable = true;
-        command = lib.mkDefault (lib.getExe rea);
-        args = lib.mkDefault [ "mcp" ];
-        inherit (p) port;
-        sessions = "isolated";
-        maxSessions = lib.mkDefault cfg.maxSessions;
-        # Only nginx, over loopback.
-        clients = [ ];
+      assertions = [
+        {
+          assertion = lib.all (s: !s.enable) (lib.attrValues config.homelab.mcp.servers);
+          message = "mcp: REA runs what callers name, nothing else may serve from its host";
+        }
+      ];
+
+      users.users.rea = {
+        isSystemUser = true;
+        group = "rea";
+        home = "/var/lib/rea";
+      };
+      users.groups.rea = { };
+
+      systemd.services.rea = {
+        description = "REA over MCP, one per session";
+        wantedBy = [ "multi-user.target" ];
+        requires = [ "rea-dirs.service" ];
+        after = [ "rea-dirs.service" ];
+        # A host that mounts it from a volume of its own (rea-dynamic) never runs REA on the root disk.
+        unitConfig.RequiresMountsFor = [ "/var/lib/rea" ];
         # REA checks child process ownership with ps.
         path = [ pkgs.procps rea.jdk ]
           ++ lib.optionals cfg.dynamic [ pkgs.rizin ]
           # prlimit (util-linux) bounds the extractors, unblob bundles its own.
           ++ lib.optionals cfg.firmware [ pkgs.binwalk unblob pkgs.util-linux ];
-        environment = lib.mapAttrs (_: lib.mkDefault) ({
+        # Every session's REA inherits these, the gateway config adds HOME and the directory per project.
+        environment = {
           GHIDRA_INSTALL_DIR = "${rea.ghidra}/lib/ghidra";
           GHIDRA_HEADLESS_MAXMEM = cfg.ghidraHeap;
           JAVA_HOME = rea.jdk.home;
@@ -120,125 +152,73 @@ in
           REA_BINWALK_COMMAND = lib.getExe pkgs.binwalk;
           REA_UNBLOB_COMMAND = lib.getExe unblob;
           REA_FIRMWARE_PRLIMIT_COMMAND = "${pkgs.util-linux}/bin/prlimit";
-        });
-      }) projects);
-
-      systemd.slices.rea.sliceConfig.MemoryMax = cfg.memoryMax;
-
-      systemd.paths = lib.listToAttrs (map (p: lib.nameValuePair "rea-shared-${p.name}" {
-        wantedBy = [ "multi-user.target" ];
-        pathConfig.PathChanged = [ "/var/lib/rea-shared/${p.name}/evidence" ];
-      }) projects);
-
-      systemd.services = lib.listToAttrs (map (p: lib.nameValuePair "mcp-rea-${p.name}" {
-        # A host that mounts these from a volume of their own (rea-dynamic) never runs REA on the root disk.
-        unitConfig.RequiresMountsFor = [ "/var/lib/private" "/var/lib/rea-samples" "/var/lib/rea-shared" ];
-        serviceConfig = {
-          Slice = "rea.slice";
-          ExecStartPre = "${pkgs.coreutils}/bin/mkdir -p scratch";
-          # Its own samples and shared directory at the same paths, nothing else of either.
-          TemporaryFileSystem = [ "/var/lib/rea-samples:ro" "/var/lib/rea-shared:ro" ];
-          BindReadOnlyPaths = [ "/var/lib/rea-samples/${p.name}" ];
-          BindPaths = [ "/var/lib/rea-shared/${p.name}" ];
-          # What it writes there is group rea-<project> (setgid directory) and readable by it, for nginx.
-          SupplementaryGroups = [ "rea-${p.name}" ];
-          UMask = "0027";
         };
-      }) projects) // lib.listToAttrs (map (p: lib.nameValuePair "rea-shared-${p.name}" {
-        # REA writes bundles 0600, whatever the umask, so nginx couldn't serve them. As the
-        # project's own user, so it only ever touches that project's files.
-        description = "Make what REA project ${p.name} shares readable to nginx";
-        unitConfig.RequiresMountsFor = [ "/var/lib/rea-shared" ];
+        serviceConfig = {
+          ExecStart = "${lib.getExe supergateway} --config ${gatewayConfig}";
+          User = "rea";
+          Group = "rea";
+          ReadWritePaths = [ "/var/lib/rea" ];
+          MemoryMax = cfg.memoryMax;
+          Restart = "on-failure";
+          RestartSec = 5;
+        } // import ../hardening.nix;
+      };
+
+      # tmpfiles runs before a host's own mount of /var/lib/rea is up (at boot with nofail, and on switch), and
+      # would create the projects' directories underneath it. Again once it's mounted, before anything uses it.
+      systemd.services.rea-dirs = {
+        description = "Create REA's project directories";
+        requiredBy = [ "nginx.service" ];
+        before = [ "nginx.service" ];
+        unitConfig.RequiresMountsFor = [ "/var/lib/rea" ];
         serviceConfig = {
           Type = "oneshot";
-          User = "mcp-rea-${p.name}";
-          DynamicUser = true;
-          SupplementaryGroups = [ "rea-${p.name}" ];
-          ReadWritePaths = [ "/var/lib/rea-shared/${p.name}" ];
-          ExecStart = "${pkgs.findutils}/bin/find /var/lib/rea-shared/${p.name} -user mcp-rea-${p.name} -exec ${pkgs.coreutils}/bin/chmod g+rX {} +";
+          RemainAfterExit = true;
+          ExecStart = "${config.systemd.package}/bin/systemd-tmpfiles --create --prefix=/var/lib/rea";
         };
-      }) projects) // {
-        # tmpfiles runs before a host's own mounts of these are up (at boot with nofail, and on switch), and would
-        # create the projects' directories underneath them. Again once they're mounted, before anything uses them,
-        # /var/lib/private included: systemd won't put a state directory under it unless it's 0700.
-        rea-dirs = {
-          description = "Create REA's sample, shared and state directories";
-          wantedBy = [ "multi-user.target" ];
-          requiredBy = [ "nginx.service" ] ++ map (p: "mcp-rea-${p.name}.service") projects;
-          before = [ "nginx.service" ] ++ map (p: "mcp-rea-${p.name}.service") projects;
-          unitConfig.RequiresMountsFor = [ "/var/lib/private" "/var/lib/rea-samples" "/var/lib/rea-shared" ];
-          serviceConfig = {
-            Type = "oneshot";
-            RemainAfterExit = true;
-            ExecStart = "${config.systemd.package}/bin/systemd-tmpfiles --create --prefix=/var/lib/private --prefix=/var/lib/rea-samples --prefix=/var/lib/rea-shared";
-          };
-        };
-        nginx = {
-          unitConfig.RequiresMountsFor = [ "/var/lib/rea-samples" "/var/lib/rea-shared" ];
-          serviceConfig = {
-            ReadWritePaths = [ "/var/lib/rea-samples" ];
-            # The bind mount above makes nginx copy uploads from its temp dir rather than rename them, and the copy
-            # takes the umask (NixOS sets 0027), not dav_access: 0640 uploads the server can't read.
-            UMask = lib.mkForce "0022";
-          };
+      };
+      systemd.tmpfiles.rules = [ "d /var/lib/rea 0755 root root -" ]
+        ++ lib.concatMap (p: [
+          "d /var/lib/rea/${p} 0755 root root -"
+          # nginx writes uploads (0644), REA reads them.
+          "d /var/lib/rea/${p}/samples 2755 nginx rea -"
+          # REA writes, nginx (group) reads. REA only writes into directories that exist, so bundles go
+          # flat: <branch>__<agent>.json.
+          "d /var/lib/rea/${p}/shared 2750 rea nginx -"
+          "d /var/lib/rea/${p}/shared/evidence 2750 rea nginx -"
+          "d /var/lib/rea/${p}/scratch 0750 rea rea -"
+          "d /var/lib/rea/${p}/home 0750 rea rea -"
+        ]) cfg.projects;
+
+      # REA writes bundles 0600, whatever the umask, so nginx couldn't serve them.
+      systemd.paths.rea-shared = {
+        wantedBy = [ "multi-user.target" ];
+        pathConfig.PathChanged = map (p: "/var/lib/rea/${p}/shared/evidence") cfg.projects;
+      };
+      systemd.services.rea-shared = {
+        description = "Make what REA projects share readable to nginx";
+        unitConfig.RequiresMountsFor = [ "/var/lib/rea" ];
+        serviceConfig = {
+          Type = "oneshot";
+          User = "rea";
+          ExecStart = "${pkgs.findutils}/bin/find ${lib.concatMapStringsSep " " (p: "/var/lib/rea/${p}/shared") cfg.projects} -user rea ! -perm -g+r -exec ${pkgs.coreutils}/bin/chmod g+rX {} +";
         };
       };
 
-      # nginx writes uploads, admin (users) can still rsync in, the servers only read. The other way round for
-      # shared: the project writes, nginx (in every project's group) only reads.
-      systemd.tmpfiles.rules = [
-        "d /var/lib/private 0700 root root -"
-        "d /var/lib/rea-samples 0755 root root -"
-        "d /var/lib/rea-shared 0755 root root -"
-      ]
-        ++ lib.concatMap (p: [
-          "d /var/lib/rea-samples/${p.name} 2775 nginx users -"
-          "d /var/lib/rea-shared/${p.name} 2770 root rea-${p.name} -"
-          # REA only writes into directories that exist, so bundles go flat: <branch>__<agent>.json.
-          "d /var/lib/rea-shared/${p.name}/evidence 2770 root rea-${p.name} -"
-        ]) projects;
-
-      users.groups = lib.listToAttrs (map (p: lib.nameValuePair "rea-${p.name}" { }) projects);
-      users.users.nginx.extraGroups = map (p: "rea-${p.name}") projects;
-
       services.nginx = {
         enable = true;
-        virtualHosts.rea = {
-          listen = [
-            { addr = "0.0.0.0"; inherit (cfg) port; }
-            { addr = "[::]"; inherit (cfg) port; }
-          ];
-          locations = { "/".return = "404"; } // lib.listToAttrs (lib.concatMap (p: [
-            (lib.nameValuePair "= /${p.name}/mcp" {
-              proxyPass = "http://127.0.0.1:${toString p.port}/mcp";
-              # Streams pass straight through, sessions stay open while an agent works.
-              extraConfig = ''
-                proxy_http_version 1.1;
-                proxy_set_header Connection "";
-                proxy_buffering off;
-                proxy_request_buffering off;
-                proxy_read_timeout 1h;
-                proxy_send_timeout 1h;
-              '';
-            })
-            (lib.nameValuePair "/${p.name}/samples/" {
-              alias = "/var/lib/rea-samples/${p.name}/";
-              extraConfig = ''
-                dav_methods PUT DELETE;
-                dav_access group:r all:r;
-                client_max_body_size 1g;
-                autoindex on;
-                limit_except GET PUT DELETE { deny all; }
-              '';
-            })
-            (lib.nameValuePair "/${p.name}/shared/" {
-              alias = "/var/lib/rea-shared/${p.name}/";
-              extraConfig = ''
-                autoindex on;
-                limit_except GET { deny all; }
-              '';
-            })
-          ]) projects);
+        appendHttpConfig = builtins.replaceStrings
+          [ "@port@" "@gatewayPort@" "@projects@" ]
+          [ (toString cfg.port) (toString cfg.gatewayPort) (lib.concatStringsSep "|" cfg.projects) ]
+          (builtins.readFile ../config/rea-nginx.conf);
+      };
+      systemd.services.nginx = {
+        unitConfig.RequiresMountsFor = [ "/var/lib/rea" ];
+        serviceConfig = {
+          ReadWritePaths = map (p: "/var/lib/rea/${p}/samples") cfg.projects;
+          # The bind mount above makes nginx copy uploads from its temp dir rather than rename them, and the copy
+          # takes the umask (NixOS sets 0027), not dav_access: 0640 uploads REA can't read.
+          UMask = lib.mkForce "0022";
         };
       };
 
@@ -251,13 +231,6 @@ in
     }
 
     (lib.mkIf cfg.dynamic {
-      assertions = [
-        {
-          assertion = lib.all (lib.hasPrefix "rea-") (lib.attrNames (lib.filterAttrs (_: s: s.enable) config.homelab.mcp.servers));
-          message = "mcp: homelab.mcp.rea.dynamic runs what callers name, REA must be the only server on its host";
-        }
-      ];
-
       environment.etc."rea/chromium".source = chromium;
     })
   ]);

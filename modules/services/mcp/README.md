@@ -4,8 +4,7 @@
 sit behind mcp-proxy: streamable HTTP on `http://<host>:<port>/mcp`, SSE on `/sse`. Nothing authenticates, so
 `homelab.mcp.clients` narrows them to the machines agents run on, and only the edge's nginx (with tokens) puts
 the low-risk ones on the internet (From outside). stdio servers share one process, and with it any state,
-between clients, unless `sessions = "isolated"` gives each MCP session its own (mcp-session-proxy, `/mcp` only,
-`maxSessions` at once, the one idle longest making room for a new one, closed after 30 idle minutes). `hosts/virtual/mcp` (`10.100.1.11`) serves them on labs.
+between clients. `hosts/virtual/mcp` (`10.100.1.11`) serves them on labs.
 
 Presets in `servers/` only need enabling in the host, anything else is added directly:
 
@@ -129,15 +128,16 @@ the `headers` (the session can then read the token).
 ## rea (8101)
 
 Decompiles with Ghidra, reads APKs with JADX, runs samples and unpacks firmware. It only runs on
-`hosts/virtual/rea-dynamic` (`10.100.1.12`), one server per project in `homelab.mcp.rea.projects`, and every MCP
-session gets its own REA process with its own open target, so agents never close or replace each other's.
-nginx on 8101 (`homelab.mcp.rea.port`, opened to `homelab.mcp.rea.clients`) is the only way in, the project
-servers (`mcp-rea-<project>`, 8120 onwards) only listen for it:
+`hosts/virtual/rea-dynamic` (`10.100.1.12`): one supergateway (`rea.service`, `config/rea-gateway.json`) serves
+every project in `homelab.mcp.rea.projects` and starts a REA for each MCP session, so agents never close or
+replace each other's target; a session idle for 30 minutes ends, and its REA with it. nginx on 8101
+(`homelab.mcp.rea.port`, `config/rea-nginx.conf`, opened to `homelab.mcp.rea.clients`) is the only way in, the
+gateway (8102) only listens on loopback:
 
 ```
 https://mcp.peacocks.me/rea/<project>/mcp       the project's server
-https://mcp.peacocks.me/rea/<project>/samples/  its uploads, /var/lib/rea-samples/<project> on the VM
-https://mcp.peacocks.me/rea/<project>/shared/   what its sessions share, read-only, /var/lib/rea-shared/<project>
+https://mcp.peacocks.me/rea/<project>/samples/  its uploads, /var/lib/rea/<project>/samples on the VM
+https://mcp.peacocks.me/rea/<project>/shared/   what its sessions share, read-only, /var/lib/rea/<project>/shared
 ```
 
 A repo's `.mcp.json` points at its project (this one at `default`):
@@ -147,10 +147,9 @@ A repo's `.mcp.json` points at its project (this one at `default`):
 ```
 
 Adding a project is a line in `hosts/virtual/rea-dynamic` and a deploy, the edge needs nothing. Each session takes
-about 1.5 times Ghidra's heap (`homelab.mcp.rea.ghidraHeap`, 1G here) once it has a target open, at most
-`homelab.mcp.rea.maxSessions` per project (10 here), and all of them together at most
-`homelab.mcp.rea.memoryMax` (75% of the VM, `rea.slice`), so size the VM's `limits.memory` for what runs at
-once.
+about 1.5 times Ghidra's heap (`homelab.mcp.rea.ghidraHeap`, 1G here) once it has a target open, and all of them
+together at most `homelab.mcp.rea.memoryMax` (75% of the VM): past that the kernel ends a session, not the VM.
+There's no cap on sessions, so size the VM's `limits.memory` for what runs at once.
 
 REA's tools take paths on the VM, so samples are uploaded first and opened by that path:
 
@@ -165,20 +164,21 @@ From a cloud session the agent proxy adds the token. Uploads are up to 1G, one l
 
 ### Projects and sharing
 
-Each project is its own dynamic user and sees only its own samples (read-only), shared directory and state
-directory, all of which its sessions share; another project's are out of reach, samples run there included.
-Sessions pass work along through the shared directory:
+Projects keep work apart, they don't isolate it: everything runs as the `rea` user, and a sample one project
+runs can reach every project's files. The VM is a disposable sandbox, what matters lives in the projects' repos.
+Each project's sessions pass work along through its shared directory:
 
 ```
-/var/lib/rea-shared/<project>/
-  evidence/<branch>__<agent>.json        export_evidence_bundle, import_evidence_bundle
-/var/lib/mcp-rea-<project>/
-  scratch/<agent>/<new dir>              extract_firmware output_directory, executable copies
+/var/lib/rea/<project>/
+  samples/<name>                         uploads, read-only to REA
+  shared/evidence/<branch>__<agent>.json export_evidence_bundle, import_evidence_bundle
+  scratch/<agent>/<new dir>              extract_firmware output_directory, executable copies (REA's cwd)
+  home/                                  REA's HOME
 ```
 
 Agents on the same branch import each other's evidence, a different branch starts its own. REA only writes into
 existing directories, so the names stay flat (`/` in a branch becomes `-`), and writes them `0600`, so
-`rea-shared-<project>.path` makes them group-readable for nginx a moment after they land.
+`rea-shared.path` makes them group-readable for nginx a moment after they land.
 
 Bundles carry findings as evidence records, not a Ghidra database: importing one doesn't rename anything in the
 importing session's binary, and REA's snapshots are the same records (no Ghidra analysis in them), so every
@@ -198,10 +198,10 @@ curl -fsS -T main__agent-1.json https://mcp.peacocks.me/rea/default/samples/main
 
 `homelab.mcp.rea.dynamic = true` builds REA in full: `capture_process_scenario` runs the command it's given
 under a PTY, `capture_browser_scenario` drives Chromium (`executable_path` `/etc/rea/chromium`, Playwright's own
-build). Both work under the unit's sandbox as it is, nothing is relaxed. Samples run as the project's dynamic
-user and see what it sees: the store, world-readable `/etc`, its state directory and its samples. Uploads aren't
-executable, copy one into scratch first (`capture_process_scenario` with `install -m755
-/var/lib/rea-samples/<project>/<name> /var/lib/mcp-rea-<project>/scratch/<agent>/<name>`). rizin (`execute_rizin_command`, ESIL
+build). Both work under the unit's sandbox as it is, nothing is relaxed. Samples run as `rea` and see what it
+sees: the store, world-readable `/etc` and `/var/lib/rea`. Uploads aren't executable, copy one into scratch first
+(`capture_process_scenario` with `install -m755 /var/lib/rea/<project>/samples/<name>
+/var/lib/rea/<project>/scratch/<agent>/<name>`). rizin (`execute_rizin_command`, ESIL
 emulation, debug sessions) and objdump are there; gdb, Frida and adb aren't on PATH, so their tools still fail, and binaries built for other distributions need their own
 loader (no nix-ld), Electron apps included. `homelab.mcp.rea.firmware = true` adds binwalk and unblob (26.6, the
 release REA takes) so `inspect_firmware_regions` and `extract_firmware` work; they parse untrusted blobs with
@@ -228,9 +228,7 @@ The VM serves nothing else (asserted), holds no secrets and is contained:
   add chain=forward action=drop connection-state=new src-address=10.100.1.12 comment="labs: rea-dynamic opens nothing" place-before=[find comment="labs: no connection to private wg ips"]
   ```
 
-- **Data**: samples, shared directories and the projects' state live on the `rea-data` volume (`/srv/rea`,
-  bind-mounted on `/var/lib/rea-samples`, `/var/lib/rea-shared` and `/var/lib/private`), which the instance
-  snapshot doesn't include. REA and nginx
+- **Data**: `/var/lib/rea` is the `rea-data` volume, which the instance snapshot doesn't include. REA and nginx
   won't start without it. Create it once:
 
   ```sh
@@ -238,11 +236,10 @@ The VM serves nothing else (asserted), holds no secrets and is contained:
   incus config device add rea-dynamic data disk pool=ceph source=rea-data
   ssh admin@rea-dynamic lsblk                                   # the new, empty disk, e.g. sdb
   ssh admin@rea-dynamic 'sudo mkfs.ext4 -L rea-data /dev/sdb'
-  ssh admin@rea-dynamic 'sudo mount /dev/disk/by-label/rea-data /mnt && sudo install -d -m700 /mnt/private && sudo install -d -m755 /mnt/samples /mnt/shared && sudo umount /mnt'
   ```
 
 - **Reset**: snapshot the VM stopped once installed (and again after each deploy), roll its root back when no
-  session is running. It restarts every session, the volume (and what samples wrote into their project) stays:
+  session is running. It restarts every session, the volume (and whatever samples wrote to it) stays:
 
   ```sh
   incus stop rea-dynamic && incus snapshot create rea-dynamic clean --reuse && incus start rea-dynamic

@@ -2,8 +2,8 @@ self:
 { lib, pkgs, ... }:
 
 # REA as hosts/virtual/rea-dynamic runs it (homelab.mcp.rea), with two projects, driven from `client`
-# through its nginx: every session gets its own REA, a project only sees its own samples and state,
-# and the per-project servers are only reachable through nginx. `other` isn't a client and must be dropped.
+# through its nginx: every session gets its own REA, each project its own URLs and directories, and the
+# gateway is only reachable through nginx. `other` isn't a client and must be dropped.
 let
   hello = lib.getExe pkgs.hello;
 in
@@ -47,7 +47,7 @@ in
     import json, shlex
 
     port = ${toString nodes.rea.homelab.mcp.rea.port}
-    projects = json.loads(${builtins.toJSON (builtins.toJSON (lib.genAttrs nodes.rea.homelab.mcp.rea.projects (p: nodes.rea.homelab.mcp.servers."rea-${p}".port)))})
+    gateway = ${toString nodes.rea.homelab.mcp.rea.gatewayPort}
     base = f"http://rea:{port}"
 
     def call(project, calls):
@@ -57,76 +57,69 @@ in
         return [("\n".join(c.get("text", "") for c in r["content"]), r.get("isError", False)) for r in out["results"]]
 
     start_all()
+    rea.wait_for_unit("rea.service", timeout=900)
     rea.wait_for_unit("nginx.service")
-    for project, project_port in projects.items():
-        rea.wait_for_unit(f"mcp-rea-{project}.service", timeout=900)
-        rea.wait_for_open_port(project_port, timeout=900)
+    rea.wait_for_open_port(gateway, timeout=900)
     rea.wait_for_open_port(port)
-
-    def journals():
-        for project in projects:
-            print(rea.succeed(f"journalctl -u mcp-rea-{project} -o cat | tail -n 40"))
 
     with subtest("uploads per project"):
         client.succeed(f"curl -fsS -T ${hello} {base}/alpha/samples/hello")
         client.succeed(f"curl -fsS {base}/alpha/samples/ | grep -q hello")
         client.fail(f"curl -fsS {base}/beta/samples/ | grep -q hello")
-        # One level only, and nothing outside a project's samples.
+        # One level only, nothing outside a project's samples, no undeclared projects.
         client.fail(f"curl -fsS -T ${hello} {base}/alpha/samples/sub/hello")
         client.fail(f"curl -fsS -T ${hello} {base}/hello")
         client.fail(f"curl -fsS -T ${hello} {base}/gamma/samples/hello")
-        rea.succeed("test \"$(stat -c %a /var/lib/rea-samples/alpha/hello)\" = 644")
+        rea.succeed("test \"$(stat -c %a /var/lib/rea/alpha/samples/hello)\" = 644")
 
     try:
         with subtest("a session per agent"):
-            [(text, err)] = call("alpha", [("open_binary", {"path": "/var/lib/rea-samples/alpha/hello"})])
+            [(text, err)] = call("alpha", [("open_binary", {"path": "/var/lib/rea/alpha/samples/hello"})])
             assert not err and '"format":"elf"' in text, text
             # A new session starts with nothing open, not the first one's target.
             [(text, err)] = call("alpha", [("binary_session", {})])
             assert not err and '"open":false' in text, text
+            # mcp-call DELETEs its session: its REA is gone.
+            rea.wait_until_succeeds("! pgrep -u rea -f 'rea.mjs mcp'", timeout=60)
 
         with subtest("rizin and objdump"):
             # ESIL emulation, what agents reach for first on rea-dynamic.
-            [(text, err)] = call("alpha", [("execute_rizin_command", {"path": "/var/lib/rea-samples/alpha/hello", "command": "aei; aeim; ar"})])
+            [(text, err)] = call("alpha", [("execute_rizin_command", {"path": "/var/lib/rea/alpha/samples/hello", "command": "aei; aeim; ar"})])
             assert not err and "rip" in text, text
-            [(text, err)] = call("alpha", [("inspect_with_objdump", {"path": "/var/lib/rea-samples/alpha/hello", "operation": "file_headers"})])
+            [(text, err)] = call("alpha", [("inspect_with_objdump", {"path": "/var/lib/rea/alpha/samples/hello", "operation": "file_headers"})])
             assert not err and "elf64" in text, text
 
-        with subtest("projects only see their own"):
-            [(text, err)] = call("beta", [("open_binary", {"path": "/var/lib/rea-samples/alpha/hello"})])
-            assert err, text
+        with subtest("sharing"):
+            bundle = "/var/lib/rea/alpha/shared/evidence/main__agent-1.json"
             text, err = call("alpha", [
-                ("open_binary", {"path": "/var/lib/rea-samples/alpha/hello"}),
-                ("export_evidence_bundle", {"path": "/var/lib/rea-shared/alpha/evidence/main__agent-1.json"}),
+                ("open_binary", {"path": "/var/lib/rea/alpha/samples/hello"}),
+                ("export_evidence_bundle", {"path": bundle}),
             ])[1]
             assert not err, text
-            rea.succeed("test -s /var/lib/rea-shared/alpha/evidence/main__agent-1.json")
-            # nginx serves it, read-only, only under its own project.
+            rea.succeed(f"test -s {bundle}")
+            # nginx serves it, read-only, once rea-shared.path has caught the write.
             client.succeed(f"curl -fsS {base}/alpha/shared/evidence/ | grep -q main__agent-1.json")
-            # Readable to nginx once rea-shared-alpha.path has caught the write.
             client.wait_until_succeeds(f"curl -fsS {base}/alpha/shared/evidence/main__agent-1.json | grep -q .", timeout=60)
             client.fail(f"curl -fsS -T ${hello} {base}/alpha/shared/hello")
             client.fail(f"curl -fsS {base}/beta/shared/evidence/main__agent-1.json")
-            # Another agent on the project picks it up, the other project can't.
-            [(text, err)] = call("alpha", [("import_evidence_bundle", {"path": "/var/lib/rea-shared/alpha/evidence/main__agent-1.json"})])
+            # Another agent picks it up.
+            [(text, err)] = call("alpha", [("import_evidence_bundle", {"path": bundle})])
             assert not err, text
-            [(text, err)] = call("beta", [("import_evidence_bundle", {"path": "/var/lib/rea-shared/alpha/evidence/main__agent-1.json"})])
-            assert err, text
+            # An undeclared project has no server.
+            client.fail(f"mcp-call {base}/gamma/mcp '[]'")
     finally:
-        journals()
+        print(rea.succeed("journalctl -u rea -o cat | tail -n 40"))
 
-    with subtest("rea.slice"):
-        for project in projects:
-            rea.succeed(f"systemctl show -p Slice mcp-rea-{project} | grep -qx Slice=rea.slice")
-        rea.succeed("systemctl show -p MemoryMax rea.slice | grep -v infinity")
+    with subtest("memory cap"):
+        rea.succeed("systemctl show -p MemoryMax rea | grep -v infinity")
 
     with subtest("clients allowlist"):
         other.wait_for_unit("multi-user.target")
         other.succeed("ping -c1 -W5 rea")
-        for p in (port, ${toString nodes.rea.homelab.mcp.servers.rea-alpha.port}):
+        for p in (port, gateway):
             for family in ("-4", "-6"):
                 other.fail(f"curl {family} -sS --connect-timeout 5 http://rea:{p}/")
-        # The project servers only listen for nginx.
-        client.fail("curl -sS --connect-timeout 5 http://rea:${toString nodes.rea.homelab.mcp.servers.rea-alpha.port}/mcp")
+        # The gateway only listens for nginx.
+        client.fail(f"curl -sS --connect-timeout 5 http://rea:{gateway}/alpha/mcp")
   '';
 }

@@ -2,8 +2,8 @@
 
 # REA with dynamic analysis: it runs the samples it's given, so it's alone on its own VM, opens nothing
 # outward, and its root is reset from a snapshot after use (modules/services/mcp/README.md). The router drops
-# what it opens too. The only REA: one server per project, one REA process per agent session.
-# Samples and project state live on their own volume (storage.nix), so resets keep them.
+# what it opens too. The only REA: one per agent session, projects under /var/lib/rea, which lives on its own
+# volume (storage.nix), so resets keep it.
 {
   imports = [
     ../../../modules/virtual.nix
@@ -17,9 +17,7 @@
     firmware = true;
     # mcp.peacocks.me/rea/<project>/mcp. Add one per line of work that shouldn't share state.
     projects = [ "default" "ig5236" ];
-    # 24G VM, rea.slice gets 75%: 10 sessions with a 1G heap (~1.5G each with the JVM's overhead) fit in it.
-    # Past that the slice's OOM killer ends a session, not the VM.
-    maxSessions = 10;
+    # 24G VM, REA gets 75%: a dozen sessions with Ghidra open at 1G (~1.5G each with the JVM's overhead).
     ghidraHeap = "1G";
     # Reachable only through the edge's tunnel (token-gated). Add a LAN agent here to also reach 8101
     # directly. The router must let the tunnel into labs (it already does).

@@ -1,8 +1,7 @@
 { config, lib, pkgs, utils, ... }:
 
 # MCP servers, one systemd unit and port each. stdio servers are put behind mcp-proxy, which
-# serves streamable HTTP on /mcp and SSE on /sse and shares one server process between all clients,
-# or with `sessions = "isolated"` behind mcp-session-proxy, one process per MCP session (/mcp only).
+# serves streamable HTTP on /mcp and SSE on /sse and shares one server process between all clients.
 # There is no auth and no Host check, only expose them on the labs bridge and narrow it with `clients`,
 # per server where one should be reachable from fewer machines than the rest.
 #
@@ -42,18 +41,6 @@ let
         default = "stdio";
       };
 
-      # stdio only. "shared": every client talks to the same process and shares its state. "isolated":
-      # each MCP session gets its own process, at most `maxSessions` at once (the one idle longest makes room
-      # for a new one), closed after 30 idle minutes.
-      sessions = mkOption {
-        type = types.enum [ "shared" "isolated" ];
-        default = "shared";
-      };
-      maxSessions = mkOption {
-        type = types.ints.positive;
-        default = 4;
-      };
-
       environment = mkOption {
         type = types.attrsOf types.str;
         default = { };
@@ -87,10 +74,7 @@ let
   presets = lib.attrNames (lib.filterAttrs (name: type: type == "regular" && lib.hasSuffix ".nix" name)
     (builtins.readDir ./servers));
 
-  proxy = s: (if s.sessions == "isolated"
-    then [ (lib.getExe (pkgs.callPackage ./packages/mcp-session-proxy { })) "--max-sessions" (toString s.maxSessions) ]
-    else [ (lib.getExe pkgs.mcp-proxy) ])
-    ++ [ "--host" "0.0.0.0" "--port" (toString s.port) "--pass-environment" "--" ];
+  proxy = [ (lib.getExe pkgs.mcp-proxy) "--host" "0.0.0.0" "--port" ];
 in
 {
   imports = map (name: ./servers/${name}) presets;
@@ -128,7 +112,7 @@ in
       environment = { HOME = "/var/lib/mcp-${name}"; } // s.environment;
       serviceConfig = {
         ExecStart = utils.escapeSystemdExecArgs (if s.transport == "stdio"
-          then proxy s ++ [ s.command ] ++ s.args
+          then proxy ++ [ (toString s.port) "--pass-environment" "--" s.command ] ++ s.args
           else [ s.command ] ++ s.args);
         EnvironmentFile = lib.mkIf (s.environmentFile != null) s.environmentFile;
         Restart = "on-failure";
@@ -138,27 +122,7 @@ in
         DynamicUser = true;
         StateDirectory = "mcp-${name}";
         WorkingDirectory = "/var/lib/mcp-${name}";
-        ProtectSystem = "strict";
-        ProtectHome = true;
-        PrivateTmp = true;
-        PrivateDevices = true;
-        # Each server only sees its own processes.
-        ProtectProc = "invisible";
-        NoNewPrivileges = true;
-        CapabilityBoundingSet = "";
-        ProtectKernelTunables = true;
-        ProtectKernelModules = true;
-        ProtectKernelLogs = true;
-        ProtectControlGroups = true;
-        ProtectClock = true;
-        ProtectHostname = true;
-        LockPersonality = true;
-        RestrictNamespaces = true;
-        RestrictRealtime = true;
-        RestrictSUIDSGID = true;
-        SystemCallArchitectures = "native";
-        RestrictAddressFamilies = [ "AF_INET" "AF_INET6" "AF_UNIX" ];
-      };
+      } // import ./hardening.nix;
     }) enabled;
 
     networking.firewall.allowedTCPPorts = ports open;

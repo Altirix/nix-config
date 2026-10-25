@@ -17,7 +17,8 @@ networking/              lan (VLAN trunk), mesh, frr, wifi (wpa_supplicant, SSID
 services/                ceph/, incus/ (+ unattended Windows VMs), wireguard/ (+ egress NAT, port forwards),
                          web/ (nginx: static or proxied sites, optional ACME), klipper/ (config/mainsail.cfg),
                          vgpu/ (NVIDIA vGPU: host.nix on compute, guest.nix on virtual, releases.nix pins both)
-                         mcp/ (MCP servers for agents, one sandboxed unit each, servers/: presets, packages/: what nixpkgs lacks)
+                         mcp/ (MCP servers for agents, one sandboxed unit each, servers/: presets, packages/: what nixpkgs lacks,
+                         config/: REA's supergateway and nginx)
 */config/                real config files (frr.conf, nftables tables, autounattend.xml) with @name@ placeholders
 */scripts/               bootstrap scripts, wrapped with writeShellApplication (shellcheck at build), and the
                          PowerShell that runs inside Windows VMs
