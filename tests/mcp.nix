@@ -9,7 +9,6 @@ let
 
   # A tool each server must list.
   tools = {
-    rea = "open_binary";
     nixos = "nix";
     github = "get_me";
     context7 = "resolve-library-id";
@@ -42,7 +41,7 @@ in
       time.timeZone = "Europe/London";
       users.users.admin.isNormalUser = true;
 
-      # REA's Ghidra takes a 2G heap, chromium and the JVMs are slow without KVM.
+      # Chromium is slow without KVM.
       virtualisation.memorySize = 6144;
       virtualisation.cores = 4;
       virtualisation.diskSize = 4096;
@@ -64,11 +63,10 @@ in
   };
 
   testScript = { nodes, ... }: ''
-    import json, os, shlex
+    import json, shlex
 
     servers = json.loads(${builtins.toJSON (builtins.toJSON (lib.genAttrs enabled (name: {
       port = nodes.mcp.homelab.mcp.servers.${name}.port;
-      inherit (nodes.mcp.homelab.mcp.servers.${name}) extraPorts;
       tool = tools.${name};
     })))})
 
@@ -83,11 +81,7 @@ in
         "fetch": [("fetch", {"url": "http://client/"}, "Hello from client")],
         "markitdown": [("convert_to_markdown", {"uri": "http://client/"}, "Hello from client")],
         "playwright": [("browser_navigate", {"url": "http://client/"}, "mcp-test")],
-        "rea": [("open_binary", {"path": "${lib.getExe pkgs.hello}"}, "\"format\":\"elf\"")],
     }
-    # Ghidra: REA gives `java -version` 5s, longer than a JVM takes to start without KVM.
-    if os.path.exists("/dev/kvm"):
-        calls["rea"].append(("binary_overview", {}, "hello"))
 
     def session(name, requests, retry=False):
         cmd = f"mcp-call http://mcp:{servers[name]['port']}/mcp {shlex.quote(json.dumps(requests))}"
@@ -120,22 +114,6 @@ in
             finally:
                 print(mcp.succeed(f"journalctl -u mcp-{name} -o cat | tail -n 40"))
 
-    if "rea" in servers:
-        with subtest("rea uploads"):
-            uploads = f"http://mcp:{servers['rea']['extraPorts'][0]}/samples"
-            mcp.wait_for_unit("nginx.service")
-            client.succeed(f"curl -fsS -T ${lib.getExe pkgs.hello} {uploads}/hello")
-            client.succeed(f"curl -fsS {uploads}/ | grep -q hello")
-            # One level only, and nothing outside the samples.
-            client.fail(f"curl -fsS -T ${lib.getExe pkgs.hello} {uploads}/sub/hello")
-            client.fail(f"curl -fsS -T ${lib.getExe pkgs.hello} http://mcp:{servers['rea']['extraPorts'][0]}/hello")
-            mcp.succeed("test \"$(stat -c %a /var/lib/rea-samples/hello)\" = 644")
-            out = session("rea", [["tools/call", {"name": "open_binary", "arguments": {"path": "/var/lib/rea-samples/hello"}}]])
-            text = out["results"][0]["content"][0]["text"]
-            assert '"format":"elf"' in text, text
-            client.succeed(f"curl -fsS -X DELETE {uploads}/hello")
-            mcp.fail("test -e /var/lib/rea-samples/hello")
-
     if "memory" in servers:
         with subtest("memory graph in the state dir"):
             mcp.succeed("grep -q nixos-test /var/lib/mcp-memory/memory.jsonl")
@@ -144,8 +122,7 @@ in
         other.wait_for_unit("multi-user.target")
         other.succeed("ping -c1 -W5 mcp")
         for name, s in servers.items():
-            for port in [s["port"]] + s["extraPorts"]:
-                for family in ("-4", "-6"):
-                    other.fail(f"curl {family} -sS --connect-timeout 5 http://mcp:{port}/")
+            for family in ("-4", "-6"):
+                other.fail(f"curl {family} -sS --connect-timeout 5 http://mcp:{s['port']}/")
   '';
 }

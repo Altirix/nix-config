@@ -1,7 +1,6 @@
 {
   "mcpServers": {
-    "rea": { "type": "http", "url": "https://mcp.peacocks.me/rea/mcp" },
-    "rea-dynamic": { "type": "http", "url": "https://mcp.peacocks.me/rea-dynamic/mcp" },
+    "rea": { "type": "http", "url": "https://mcp.peacocks.me/rea/default/mcp" },
     "nixos": { "type": "http", "url": "https://mcp.peacocks.me/nixos/mcp" },
     "context7": { "type": "http", "url": "https://mcp.peacocks.me/context7/mcp" },
     "fetch": { "type": "http", "url": "https://mcp.peacocks.me/fetch/mcp" },

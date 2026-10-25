@@ -4,7 +4,8 @@
 sit behind mcp-proxy: streamable HTTP on `http://<host>:<port>/mcp`, SSE on `/sse`. Nothing authenticates, so
 `homelab.mcp.clients` narrows them to the machines agents run on, and only the edge's nginx (with tokens) puts
 the low-risk ones on the internet (From outside). stdio servers share one process, and with it any state,
-between clients. `hosts/virtual/mcp` (`10.100.1.11`) serves them on labs.
+between clients, unless `sessions = "isolated"` gives each MCP session its own (mcp-session-proxy, `/mcp` only,
+`maxSessions` at once, the one idle longest making room for a new one, closed after 30 idle minutes). `hosts/virtual/mcp` (`10.100.1.11`) serves them on labs.
 
 Presets in `servers/` only need enabling in the host, anything else is added directly:
 
@@ -51,8 +52,8 @@ homelab.mcp.servers.time.clients = config.homelab.mcp.clients ++ [ "10.0.0.1" ];
 
 ## From outside
 
-`hosts/edge/ionos-de/mcp.nix` serves rea, nixos, context7, fetch, time, memory and markitdown at
-`https://mcp.peacocks.me/<server>/mcp` (and rea's uploads at `/rea/samples/`), proxied over the tunnel (streamable
+`hosts/edge/ionos-de/mcp.nix` serves nixos, context7, fetch, time, memory and markitdown at
+`https://mcp.peacocks.me/<server>/mcp`, proxied over the tunnel (streamable
 HTTP only, SSE is deprecated). playwright runs code, github and incus hold credentials, they get no route. Every
 request needs `Authorization: Bearer <token>`, one token per client in `hosts/edge/ionos-de/secrets.yaml` so each
 can be revoked, and the access log names the client. The router already lets the tunnel into labs, and the VM sees the edge as its
@@ -62,8 +63,8 @@ compromised edge still doesn't reach the others. If the router ever masquerades 
 502s. Never add a wireguard forward to `10.100.1.11`: forwards arrive from `10.0.0.1` too and would skip the
 token. Exposing another server takes both, `servers` in `mcp.nix` and `clients = edge` in `hosts/virtual/mcp`.
 
-`rea-dynamic` is also routed, at `https://mcp.peacocks.me/rea-dynamic/mcp` → its own VM `10.100.1.12:8101`, on
-the same token. It runs code a caller hands it but reaches nothing (no secrets, egress dropped, snapshot reset),
+REA is also routed, `https://mcp.peacocks.me/rea/` → its own VM's nginx `10.100.1.12:8101`, on the same
+token. It runs code a caller hands it but reaches nothing (no secrets, egress dropped, snapshot reset),
 so a leaked token lands in a dead-end sandbox. That rests on the egress drop holding even against root in the
 VM, so the router's "rea-dynamic opens nothing" drop (below, the real backstop, the VM can flush its own) must
 be live, and must cover IPv6 too if labs carries it, or VM-root egresses over v6:
@@ -127,42 +128,89 @@ the `headers` (the session can then read the token).
 
 ## rea (8101)
 
-Decompiles with Ghidra and reads APKs with JADX, static analysis only, one open target at a time. REA's tools
-take paths on its own VM, so samples go to `/var/lib/rea-samples` first: PUT them to nginx on 8111
-(`homelab.mcp.rea.uploadPort`, same `clients` as 8101), routed by the edge on the same token, or rsync them in as
-admin. Open them by that path. Files land `0644` and the server can't write there, so tools that write (like
-`extract_firmware`) take a directory under its state directory `/var/lib/mcp-rea` or `/tmp`.
+Decompiles with Ghidra, reads APKs with JADX, runs samples and unpacks firmware. It only runs on
+`hosts/virtual/rea-dynamic` (`10.100.1.12`), one server per project in `homelab.mcp.rea.projects`, and every MCP
+session gets its own REA process with its own open target, so agents never close or replace each other's.
+nginx on 8101 (`homelab.mcp.rea.port`, opened to `homelab.mcp.rea.clients`) is the only way in, the project
+servers (`mcp-rea-<project>`, 8120 onwards) only listen for it:
 
-```sh
-curl -T sample.apk https://mcp.peacocks.me/rea/samples/sample.apk           # or /rea-dynamic/samples/
-curl https://mcp.peacocks.me/rea/samples/                                   # list
-curl -X DELETE https://mcp.peacocks.me/rea/samples/sample.apk
+```
+https://mcp.peacocks.me/rea/<project>/mcp       the project's server
+https://mcp.peacocks.me/rea/<project>/samples/  its uploads, /var/lib/rea-samples/<project> on the VM
+https://mcp.peacocks.me/rea/<project>/shared/   what its sessions share, read-only, /var/lib/rea-shared/<project>
 ```
 
-From a cloud session the agent proxy adds the token. Uploads are up to 1G, one level (no subdirectories).
+A repo's `.mcp.json` points at its project (this one at `default`):
 
-### Dynamic analysis (rea-dynamic)
+```json
+{ "mcpServers": { "rea": { "type": "http", "url": "https://mcp.peacocks.me/rea/default/mcp" } } }
+```
+
+Adding a project is a line in `hosts/virtual/rea-dynamic` and a deploy, the edge needs nothing. Each session takes
+up to 2G (Ghidra's heap), at most 4 per project (`homelab.mcp.servers.rea-<project>.maxSessions`), and all of
+them together at most `homelab.mcp.rea.memoryMax` (75% of the VM, `rea.slice`), so size the VM's
+`limits.memory` for what runs at once.
+
+REA's tools take paths on the VM, so samples are uploaded first and opened by that path:
+
+```sh
+curl -T sample.apk https://mcp.peacocks.me/rea/default/samples/sample.apk
+curl https://mcp.peacocks.me/rea/default/samples/                           # list
+curl -X DELETE https://mcp.peacocks.me/rea/default/samples/sample.apk
+```
+
+From a cloud session the agent proxy adds the token. Uploads are up to 1G, one level (no subdirectories), land
+`0644`, and the server only reads them.
+
+### Projects and sharing
+
+Each project is its own dynamic user and sees only its own samples (read-only), shared directory and state
+directory, all of which its sessions share; another project's are out of reach, samples run there included.
+Sessions pass work along through the shared directory:
+
+```
+/var/lib/rea-shared/<project>/
+  snapshots/<sha256>.snap                close_binary snapshot_path (overwrite: false), open_binary snapshot_path
+  evidence/<branch>__<agent>.json        export_evidence_bundle, import_evidence_bundle
+/var/lib/mcp-rea-<project>/
+  scratch/<agent>/<new dir>              extract_firmware output_directory, executable copies
+```
+
+Agents on the same branch import each other's evidence, a different branch starts its own. REA only writes into
+existing directories, so the names stay flat (`/` in a branch becomes `-`), and writes them `0600`, so
+`rea-shared-<project>.path` makes them group-readable for nginx a moment after they land. A snapshot skips
+Ghidra's analysis for the next session on the same sample, but can only be saved before any rename or comment.
+Nothing in a session survives it ending (DELETE, 30 idle minutes, a reset) except what it exported, so agents
+export after every finding worth keeping. To keep a bundle beyond the VM (in the project's repo, say), download
+it, and upload it as a sample to import it again:
+
+```sh
+curl -fsS https://mcp.peacocks.me/rea/default/shared/evidence/                  # list
+curl -fsSO https://mcp.peacocks.me/rea/default/shared/evidence/main__agent-1.json
+curl -fsS -T main__agent-1.json https://mcp.peacocks.me/rea/default/samples/main__agent-1.json
+```
+
+### Dynamic analysis
 
 `homelab.mcp.rea.dynamic = true` builds REA in full: `capture_process_scenario` runs the command it's given
 under a PTY, `capture_browser_scenario` drives Chromium (`executable_path` `/etc/rea/chromium`, Playwright's own
-build). Both work under the unit's sandbox as it is, nothing is relaxed. Samples run as the unit's dynamic user
-and see what it sees: the store, world-readable `/etc`, its state directory and `/var/lib/rea-samples`. Uploads
-aren't executable, copy one into the state directory first (`capture_process_scenario` with `install -m755
-/var/lib/rea-samples/<name> /var/lib/mcp-rea/<name>`). gdb, rizin, Frida and adb aren't on PATH, so their tools
-still fail, and binaries built for other distributions need their own loader (no nix-ld), Electron apps
-included. `homelab.mcp.rea.firmware = true` (its own option, also on rea-dynamic) adds binwalk and unblob (26.6,
-the release REA takes) so `inspect_firmware_regions` and `extract_firmware` work; they parse untrusted blobs with
+build). Both work under the unit's sandbox as it is, nothing is relaxed. Samples run as the project's dynamic
+user and see what it sees: the store, world-readable `/etc`, its state directory and its samples. Uploads aren't
+executable, copy one into scratch first (`capture_process_scenario` with `install -m755
+/var/lib/rea-samples/<project>/<name> /var/lib/mcp-rea-<project>/scratch/<agent>/<name>`). rizin (`execute_rizin_command`, ESIL
+emulation, debug sessions) and objdump are there; gdb, Frida and adb aren't on PATH, so their tools still fail, and binaries built for other distributions need their own
+loader (no nix-ld), Electron apps included. `homelab.mcp.rea.firmware = true` adds binwalk and unblob (26.6, the
+release REA takes) so `inspect_firmware_regions` and `extract_firmware` work; they parse untrusted blobs with
 their own extractors, which is why they stay on this VM.
 
-That only runs on `hosts/virtual/rea-dynamic` (`10.100.1.12`, samples go to its `/var/lib/rea-samples`), which
-serves nothing else but its uploads (asserted), holds no secrets and is contained:
+The VM serves nothing else (asserted), holds no secrets and is contained:
 
-- **Who connects**: a router rule and `homelab.mcp.clients` as for `mcp`, for 8101 and 8111 on `10.100.1.12`. It
-  goes before `labs: only home and tunnel in`, which drops everything else home opens into labs:
+- **Who connects**: a router rule and `homelab.mcp.rea.clients`, for 8101 on `10.100.1.12`. It goes before
+  `labs: only home and tunnel in`, which drops everything else home opens into labs:
 
   ```routeros
   /ip firewall filter
-  add chain=forward action=accept connection-state=new src-address=<agent> dst-address=10.100.1.12 protocol=tcp dst-port=8101,8111 comment="labs: agents to rea-dynamic" place-before=[find comment="labs: only home and tunnel in"]
+  add chain=forward action=accept connection-state=new src-address=<agent> dst-address=10.100.1.12 protocol=tcp dst-port=8101 comment="labs: agents to rea-dynamic" place-before=[find comment="labs: only home and tunnel in"]
   ```
 
 - **Egress**: the VM's nftables drops every packet it would send that isn't loopback, IPv6 neighbour
@@ -176,8 +224,21 @@ serves nothing else but its uploads (asserted), holds no secrets and is containe
   add chain=forward action=drop connection-state=new src-address=10.100.1.12 comment="labs: rea-dynamic opens nothing" place-before=[find comment="labs: no connection to private wg ips"]
   ```
 
-- **Reset**: snapshot the VM stopped once installed (and again after each deploy), roll back after every
-  analysis:
+- **Data**: samples, shared directories and the projects' state live on the `rea-data` volume (`/srv/rea`,
+  bind-mounted on `/var/lib/rea-samples`, `/var/lib/rea-shared` and `/var/lib/private`), which the instance
+  snapshot doesn't include. REA and nginx
+  won't start without it. Create it once:
+
+  ```sh
+  incus storage volume create ceph rea-data --type=block size=100GiB
+  incus config device add rea-dynamic data disk pool=ceph source=rea-data
+  ssh admin@rea-dynamic lsblk                                   # the new, empty disk, e.g. sdb
+  ssh admin@rea-dynamic 'sudo mkfs.ext4 -L rea-data /dev/sdb'
+  ssh admin@rea-dynamic 'sudo mount /dev/disk/by-label/rea-data /mnt && sudo install -d -m700 /mnt/private && sudo install -d -m755 /mnt/samples /mnt/shared && sudo umount /mnt'
+  ```
+
+- **Reset**: snapshot the VM stopped once installed (and again after each deploy), roll its root back when no
+  session is running. It restarts every session, the volume (and what samples wrote into their project) stays:
 
   ```sh
   incus stop rea-dynamic && incus snapshot create rea-dynamic clean --reuse && incus start rea-dynamic
