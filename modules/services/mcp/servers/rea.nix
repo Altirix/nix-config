@@ -91,8 +91,9 @@ in
     default = 30 * 60 * 1000;
   };
 
-  # Only show agents the tools in config/rea-tools-<toolset>.txt. REA has 207, most for other kinds of target,
-  # and each one listed costs context; null shows them all.
+  # Only show agents the tools in config/rea-tools-<toolset>.txt, for clients that load every schema up front.
+  # Claude Code only loads a tool's schema when it's searched for, and with the compact schemas all 207 names
+  # cost ~1.6k tokens, so null (all of them) is the better default: agents can reach any category they need.
   options.homelab.mcp.rea.toolset = lib.mkOption {
     type = lib.types.nullOr (lib.types.enum [ "firmware" ]);
     default = null;
