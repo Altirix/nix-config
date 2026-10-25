@@ -19,6 +19,8 @@
     projects = [ "default" "ig5236" ];
     # 24G VM, REA gets 75%: a dozen sessions with Ghidra open at 1G (~1.5G each with the JVM's overhead).
     ghidraHeap = "1G";
+    # Firmware RE: 42 of REA's 207 tools, ~12k tokens of schemas instead of ~840k.
+    toolset = "firmware";
     # Reachable only through the edge's tunnel (token-gated). Add a LAN agent here to also reach 8101
     # directly. The router must let the tunnel into labs (it already does).
     clients = [ "10.0.0.1" ];

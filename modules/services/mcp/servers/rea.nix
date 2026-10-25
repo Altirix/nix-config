@@ -39,6 +39,10 @@ let
   });
   supergateway = pkgs.callPackage ../packages/supergateway.nix { };
 
+  # config/rea-tools-<toolset>.txt as the gateway's "tools", or nothing (every tool) without a toolset.
+  tools = lib.optionalString (cfg.toolset != null) ''"tools": ${builtins.toJSON (lib.filter (l: l != "" && !lib.hasPrefix "#" l)
+    (lib.splitString "\n" (builtins.readFile ../config/rea-tools-${cfg.toolset}.txt)))},'';
+
   # config/rea-gateway.json with a rea-gateway-project.json per project, checked by supergateway at build.
   gatewayConfig = pkgs.runCommand "rea-gateway.json" {
     config = builtins.replaceStrings
@@ -46,7 +50,7 @@ let
       [
         (toString cfg.gatewayPort)
         (toString cfg.sessionTimeout)
-        (lib.concatMapStrings (p: builtins.replaceStrings [ "@project@" "@rea@" ] [ p (lib.getExe rea) ]
+        (lib.concatMapStrings (p: builtins.replaceStrings [ "@project@" "@rea@" "@tools@" ] [ p (lib.getExe rea) tools ]
           (builtins.readFile ../config/rea-gateway-project.json)) cfg.projects)
       ]
       (builtins.readFile ../config/rea-gateway.json);
@@ -85,6 +89,13 @@ in
   options.homelab.mcp.rea.sessionTimeout = lib.mkOption {
     type = lib.types.ints.positive;
     default = 30 * 60 * 1000;
+  };
+
+  # Only show agents the tools in config/rea-tools-<toolset>.txt. REA has 207, most for other kinds of target,
+  # and each one listed costs context; null shows them all.
+  options.homelab.mcp.rea.toolset = lib.mkOption {
+    type = lib.types.nullOr (lib.types.enum [ "firmware" ]);
+    default = null;
   };
 
   # Each session's Ghidra heap (GHIDRA_HEADLESS_MAXMEM, REA's default 2G). Firmware of a few MB fits in 1G.
@@ -139,6 +150,10 @@ in
         environment = {
           GHIDRA_INSTALL_DIR = "${rea.ghidra}/lib/ghidra";
           GHIDRA_HEADLESS_MAXMEM = cfg.ghidraHeap;
+          # Schemas without nested prose and no output schemas: tools/list is 15x smaller (3.3MB to 224KB for
+          # all 207), and REA still validates every result against the full contract.
+          REA_MCP_INPUT_SCHEMA_PROFILE = "compact";
+          REA_MCP_OUTPUT_SCHEMA_PROFILE = "off";
           JAVA_HOME = rea.jdk.home;
           REA_JADX_MCP_JAR = "${rea.jadxMcp}";
           # Every BFD target, not just the host's: samples are ARM firmware as often as x86.

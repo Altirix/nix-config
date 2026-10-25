@@ -3,4 +3,5 @@
       "args": ["mcp"],
       "cwd": "/var/lib/rea/@project@/scratch",
       "env": { "HOME": "/var/lib/rea/@project@/home" },
+      @tools@
     },

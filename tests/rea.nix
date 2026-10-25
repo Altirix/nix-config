@@ -21,6 +21,7 @@ in
       homelab.mcp.rea = {
         dynamic = true;
         projects = [ "alpha" "beta" ];
+        toolset = "firmware";
         clients = with nodes.client.networking; [ primaryIPAddress primaryIPv6Address ];
       };
 
@@ -61,6 +62,14 @@ in
     rea.wait_for_unit("nginx.service")
     rea.wait_for_open_port(gateway, timeout=900)
     rea.wait_for_open_port(port)
+
+    with subtest("firmware toolset"):
+        out = json.loads(client.succeed(f"mcp-call {base}/alpha/mcp \'[[\"tools/list\", {{}}]]\'"))
+        names = [t["name"] for t in out["results"][0]["tools"]]
+        assert "execute_rizin_command" in names and "compare_web_captures" not in names, names
+        assert len(names) == ${toString (lib.length (lib.filter (l: l != "" && !lib.hasPrefix "#" l)
+          (lib.splitString "\n" (builtins.readFile ../modules/services/mcp/config/rea-tools-firmware.txt))))}, len(names)
+        assert all("outputSchema" not in t for t in out["results"][0]["tools"])
 
     with subtest("uploads per project"):
         client.succeed(f"curl -fsS -T ${hello} {base}/alpha/samples/hello")
