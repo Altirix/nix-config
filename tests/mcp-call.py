@@ -81,4 +81,8 @@ session.headers["MCP-Protocol-Version"] = init["protocolVersion"]
 session.post({"jsonrpc": "2.0", "method": "notifications/initialized"}).read()
 threading.Thread(target=session.listen, daemon=True).start()
 results = [session.request(method, params) for method, params in json.loads(sys.argv[2])]
+# End the session, as clients should, rather than leave it to the server's idle timeout.
+conn = http.client.HTTPConnection(session.url.hostname, session.url.port, timeout=60)
+conn.request("DELETE", session.url.path, headers=session.headers)
+conn.getresponse().read()
 print(json.dumps({"serverInfo": init["serverInfo"], "results": results}))
