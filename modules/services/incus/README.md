@@ -63,7 +63,7 @@ $nic = (Get-NetAdapter | Where-Object MacAddress -eq '<eth0 MAC, dashes>').Name
 New-NetIPAddress -InterfaceAlias $nic -IPAddress 10.100.2.10 -PrefixLength 32
 New-NetRoute -InterfaceAlias $nic -DestinationPrefix 10.100.0.1/32 -NextHop 0.0.0.0
 New-NetRoute -InterfaceAlias $nic -DestinationPrefix 0.0.0.0/0 -NextHop 10.100.0.1
-Set-DnsClientServerAddress -InterfaceAlias $nic -ServerAddresses 10.100.0.1
+Set-DnsClientServerAddress -InterfaceAlias $nic -ServerAddresses 1.1.1.1,1.0.0.1
 ```
 
 ## vGPU
