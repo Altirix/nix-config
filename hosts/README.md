@@ -14,9 +14,12 @@ compute/<name>/            the three incus + ceph hypervisors
 edge/ionos-de/             public-facing VPS
   networking.nix           wireguard interface + peers, port forwards
   services.nix             web sites
+  mcp.nix                  mcp.peacocks.me, token-gated proxy to the mcp VM
 printer/<name>/            Klipper on ROCK 5C Lites, see printer/README.md
 virtual/dls/               FastAPI-DLS, licenses vGPU guests over labs-mesh
+virtual/mcp/               MCP servers for agents (labs, low-risk ones via the edge, see modules/services/mcp/README.md)
 virtual/partdb/            Part-DB, electronic parts inventory (labs only, no SSO yet)
+virtual/rea-dynamic/       REA per project and session, dynamic analysis, no egress, reset from a snapshot (see modules/services/mcp/README.md)
 ```
 
 The template is an incus VM (`modules/virtual.nix`, one ext4 disk, DHCP). `modules/compute.nix`

@@ -1,0 +1,8 @@
+# The tools /<project>/cli/mcp shows, one per line: what runs beside Ghidra rather than through it. That endpoint
+# is its own REA process, so rizin can run while the main session has the same file open in Ghidra, which REA
+# refuses within one session ("Close the active Ghidra session explicitly before an external mutation").
+execute_rizin_command
+inspect_with_objdump
+inspect_firmware_regions
+extract_firmware
+capture_process_scenario

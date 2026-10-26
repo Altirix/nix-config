@@ -62,5 +62,9 @@
     in
     {
       nixosConfigurations = lib.listToAttrs (map (host: lib.nameValuePair host.name (mkHost host)) hosts);
+
+      # VM tests in tests/, `nix build .#checks.x86_64-linux.<name>`.
+      checks.x86_64-linux.mcp = nixpkgs.legacyPackages.x86_64-linux.testers.runNixOSTest (import ./tests/mcp.nix self);
+      checks.x86_64-linux.rea = nixpkgs.legacyPackages.x86_64-linux.testers.runNixOSTest (import ./tests/rea.nix self);
     };
 }

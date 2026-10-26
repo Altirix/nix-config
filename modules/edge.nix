@@ -22,10 +22,4 @@
   # Key-only (system/ssh.nix), reachable from anywhere.
   networking.firewall.allowedTCPPorts = [ 22 ];
 
-  sops.secrets = {
-    "edge-hello" = {
-      sopsFile = config.homelab.secrets.groupFile;
-      key = "hello";
-    };
-  };
 }

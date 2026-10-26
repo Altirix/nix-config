@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "rea": { "type": "http", "url": "https://mcp.peacocks.me/rea/default/mcp" },
+    "nixos": { "type": "http", "url": "https://mcp.peacocks.me/nixos/mcp" },
+    "context7": { "type": "http", "url": "https://mcp.peacocks.me/context7/mcp" },
+    "fetch": { "type": "http", "url": "https://mcp.peacocks.me/fetch/mcp" },
+    "time": { "type": "http", "url": "https://mcp.peacocks.me/time/mcp" },
+    "memory": { "type": "http", "url": "https://mcp.peacocks.me/memory/mcp" },
+    "markitdown": { "type": "http", "url": "https://mcp.peacocks.me/markitdown/mcp/" }
+  }
+}

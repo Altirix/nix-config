@@ -1,0 +1,57 @@
+# REA's tools for firmware work (homelab.mcp.rea.toolset = "firmware"), one per line. supergateway shows
+# only these: a call to any other is refused before it reaches REA. Everything else REA has (web, Electron,
+# Android, .NET, macOS, adb, Hopper navigation) stays out of tools/list, which is most of its size.
+
+# Session
+open_binary
+close_binary
+binary_session
+binary_overview
+
+# Functions and code
+list_procedures
+search_procedures
+procedure_info
+procedure_pseudo_code
+procedure_assembly
+procedure_callers
+procedure_callees
+procedure_references
+analyze_function
+read_function_instructions
+batch_decompile
+get_call_graph
+compare_functions
+
+# Data, strings, references
+list_strings
+search_strings
+list_names
+list_segments
+read_bytes
+search_bytes
+xrefs
+find_xrefs_to_name
+address_name
+address_to_file_offset
+resolve_containing_procedure
+inspect_address_context
+
+# Naming (re-applied from the repo's names tables)
+set_address_name
+set_addresses_names
+annotate_native_function
+
+# rizin (ESIL emulation), objdump, firmware, running samples
+execute_rizin_command
+inspect_with_objdump
+inspect_firmware_regions
+extract_firmware
+capture_process_scenario
+
+# Evidence passed between sessions
+export_evidence_bundle
+import_evidence_bundle
+record_unknown
+update_unknown
+list_unknowns

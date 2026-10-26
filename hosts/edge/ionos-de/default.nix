@@ -8,6 +8,7 @@
     ./storage.nix
     ./networking.nix
     ./services.nix
+    ./mcp.nix   # needs mcp-token-* in secrets.yaml and mcp.peacocks.me pointed here
   ];
 
   system.stateVersion = "26.05";
