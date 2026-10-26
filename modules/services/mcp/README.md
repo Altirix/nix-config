@@ -3,9 +3,9 @@
 `homelab.mcp.servers` runs MCP servers for agents, each as its own `mcp-<name>` unit and port. stdio servers
 sit behind mcp-proxy: streamable HTTP on `http://<host>:<port>/mcp`, SSE on `/sse`. Nothing authenticates, so
 the router decides who reaches which port (Router), and only the edge's nginx (with tokens) puts the low-risk
-ones on the internet (From outside). The VMs open every port they serve: a firewall on a VM is gone
-with root on it, so none of what keeps them apart lives there. stdio servers share one process, and with it any
-state, between clients. `hosts/virtual/mcp` (`10.100.1.11`) serves them on labs.
+ones on the internet (From outside). The VMs open every port they serve: a firewall on a VM is gone with root
+on it, so none of what keeps them apart lives there. stdio servers share one process, and with it any state,
+between clients. `hosts/virtual/mcp` (`10.100.1.11`) serves them on labs.
 
 Presets in `servers/` only need enabling in the host, anything else is added directly:
 
@@ -129,7 +129,8 @@ Claude Code on a laptop, per server:
 claude mcp add --transport http time https://mcp.peacocks.me/time/mcp --header "Authorization: Bearer $MCP_TOKEN"
 ```
 
-Or in a repo's `.mcp.json`, reading the token from the environment when Claude Code starts:
+Or in a repo's `.mcp.json`, reading the token from the environment when Claude Code starts. This repo's own
+`.mcp.json` leaves out the `headers`, for cloud sessions (below):
 
 ```json
 {
