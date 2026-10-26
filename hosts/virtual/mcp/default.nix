@@ -7,6 +7,9 @@
   ];
 
   # MCP servers for agents, each on its own port. Presets are in modules/services/mcp/servers/, enable them here.
+  # Who reaches which port is the router's call (modules/services/mcp/README.md): agents on every port, the edge
+  # (hosts/edge/ionos-de/mcp.nix) only on the low-risk ones. Never let the edge at playwright (runs code) or
+  # github (holds a token).
   homelab.mcp.servers.nixos.enable = true;
   homelab.mcp.servers.github.enable = true;
   homelab.mcp.servers.context7.enable = true;

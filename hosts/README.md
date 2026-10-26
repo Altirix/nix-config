@@ -14,9 +14,10 @@ compute/<name>/            the three incus + ceph hypervisors
 edge/ionos-de/             public-facing VPS
   networking.nix           wireguard interface + peers, port forwards
   services.nix             web sites
+  mcp.nix                  mcp.peacocks.me, token-gated proxy to the mcp VM
 printer/<name>/            Klipper on ROCK 5C Lites, see printer/README.md
 virtual/dls/               FastAPI-DLS, licenses vGPU guests over labs-mesh
-virtual/mcp/               MCP servers for agents (labs, see modules/services/mcp/README.md)
+virtual/mcp/               MCP servers for agents (labs, low-risk ones via the edge, see modules/services/mcp/README.md)
 virtual/partdb/            Part-DB, electronic parts inventory (labs only, no SSO yet)
 ```
 
