@@ -56,3 +56,14 @@ add chain=forward action=drop connection-state=new src-address=10.100.1.11 dst-a
 
 The VM uses `1.1.1.1` for DNS, so it needs nothing from the router itself. Check with
 `/ip firewall filter print stats where comment~"mcp"`.
+
+## github (8103)
+
+Read-only with one server-side token, so every client reads as its owner. Use a fine-grained PAT with read-only
+Contents, Issues, Pull requests and Metadata on the repos it should see (a classic one needs `repo`, which also
+allows writes). It lives in the mcp VM's own `hosts/virtual/mcp/secrets.yaml`, so no other host can decrypt
+it. The host doesn't build with it enabled and no token.
+
+```sh
+sops hosts/virtual/mcp/secrets.yaml   # github-mcp-token: github_pat_...
+```

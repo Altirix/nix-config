@@ -22,6 +22,7 @@ keys:
 # VM Keys
 
   - &host_dls age17lhpf7t5av07y4d85cjt9rn5nut4m5qnc59xs88eg76xeh8ugg5s6amk8t # Nvidia DLS
+  - &host_mcp age1jl9as26uxvqqma8mrddejfq9k235gxgnsl6n22m8rr5lsteehp3spjl0k9 # MCP
   
 # Groups
 groups:
@@ -34,6 +35,7 @@ groups:
     - *host_alluvium
     - *host_basidium
     - *host_dls
+    - *host_mcp
 
   compute: &compute
     - *admin
@@ -53,6 +55,7 @@ groups:
   virtual: &virtual
     - *admin
     - *host_dls
+    - *host_mcp
 
 creation_rules:
 
@@ -80,6 +83,12 @@ creation_rules:
       - age:
         - *admin
         - *host_ionos_de
+
+  - path_regex: ^hosts[\\/]virtual[\\/]mcp[\\/]secrets\.yaml$
+    key_groups:
+      - age:
+        - *admin
+        - *host_mcp
 
   # Shared Secrets
   - path_regex: ^secrets[\\/]common\.yaml$
