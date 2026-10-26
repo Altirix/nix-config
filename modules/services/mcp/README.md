@@ -67,3 +67,7 @@ it. The host doesn't build with it enabled and no token.
 ```sh
 sops hosts/virtual/mcp/secrets.yaml   # github-mcp-token: github_pat_...
 ```
+
+## context7 (8104)
+
+Serves its own `/mcp` (no `/sse`). An API key is optional, per client: `--header "Context7-API-Key: <key>"`.
