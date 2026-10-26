@@ -47,6 +47,17 @@ buildNpmPackage (finalAttrs: {
       echo "rea: the SDK still speaks 2026-07-28" >&2; exit 1
     fi
     grep -rq --include='*.js' --include='*.mjs' --include='*.cjs' 'SUPPORTED_MODERN_PROTOCOL_VERSIONS = \[\]' $sdk
+
+    # Every result's text, what the model reads, also carried ~2KB of the same boilerplate: analysis_profile (the
+    # provider's configuration, echoed), limitations (the tool's standing caveats) and a normalized_result that
+    # only repeats raw_result (rizin's and objdump's output, twice). The text leaves without them;
+    # structuredContent (the SDK validates it against REA's contract) and REA's evidence store, which bundles are
+    # exported from, keep them.
+    for f in $out/lib/node_modules/rea-agents/dist/server/toolResult.js $out/lib/node_modules/rea-agents/dist/mcp/main-*.js; do
+      substituteInPlace $f --replace-fail \
+        'encodeToolResult(value, this.resultBudgetBytes, "structured-and-text", contract.returnsTargetContent)' \
+        'encodeToolResult(((trim) => trim(trim, value))((trim, v) => Array.isArray(v) ? v.map((x) => trim(trim, x)) : v !== null && typeof v === "object" ? Object.fromEntries(Object.entries(v).filter(([k, x]) => k !== "analysis_profile" && k !== "limitations" && !(k === "normalized_result" && JSON.stringify(x) === JSON.stringify(v.raw_result))).map(([k, x]) => [k, trim(trim, x)])) : v), this.resultBudgetBytes, "structured-and-text", contract.returnsTargetContent)'
+    done
   '' + lib.optionalString staticOnly ''
     rm -r $out/lib/node_modules/rea-agents/node_modules/{@lydell,playwright-core,frida,.bin/playwright-core}
   '';

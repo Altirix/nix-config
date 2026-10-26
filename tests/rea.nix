@@ -100,6 +100,15 @@ in
             # mcp-call DELETEs its session: its REA is gone.
             rea.wait_until_succeeds("! pgrep -u rea -f 'rea.mjs mcp'", timeout=60)
 
+        with subtest("cli endpoint"):
+            # The project's CLI tools in a REA of their own: rizin beside an open Ghidra session.
+            out = json.loads(client.succeed(f"mcp-call {base}/alpha/cli/mcp \'[[\"tools/list\", {{}}]]\'"))
+            names = sorted(t["name"] for t in out["results"][0]["tools"])
+            assert names == sorted(${builtins.toJSON (lib.filter (l: l != "" && !lib.hasPrefix "#" l)
+              (lib.splitString "\n" (builtins.readFile ../modules/services/mcp/config/rea-tools-cli.txt)))}), names
+            [(text, err)] = call("alpha/cli", [("execute_rizin_command", {"path": "/var/lib/rea/alpha/samples/hello", "command": "iI~bits"})])
+            assert not err and "64" in text, text
+
         with subtest("rizin and objdump"):
             # ESIL emulation, what agents reach for first on rea-dynamic.
             [(text, err)] = call("alpha", [("execute_rizin_command", {"path": "/var/lib/rea/alpha/samples/hello", "command": "aei; aeim; ar"})])

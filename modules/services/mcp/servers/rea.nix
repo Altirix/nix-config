@@ -39,9 +39,11 @@ let
   });
   supergateway = pkgs.callPackage ../packages/supergateway.nix { };
 
-  # config/rea-tools-<toolset>.txt as the gateway's "tools", or nothing (every tool) without a toolset.
-  tools = lib.optionalString (cfg.toolset != null) ''"tools": ${builtins.toJSON (lib.filter (l: l != "" && !lib.hasPrefix "#" l)
-    (lib.splitString "\n" (builtins.readFile ../config/rea-tools-${cfg.toolset}.txt)))},'';
+  # A config/rea-tools-*.txt as a list of tool names, its comments and blank lines left out.
+  toolList = file: lib.filter (l: l != "" && !lib.hasPrefix "#" l) (lib.splitString "\n" (builtins.readFile file));
+  # The project's "tools": its toolset's, or nothing (every tool) without one.
+  tools = lib.optionalString (cfg.toolset != null)
+    ''"tools": ${builtins.toJSON (toolList ../config/rea-tools-${cfg.toolset}.txt)},'';
 
   # config/rea-gateway.json with a rea-gateway-project.json per project, checked by supergateway at build.
   gatewayConfig = pkgs.runCommand "rea-gateway.json" {
@@ -50,7 +52,8 @@ let
       [
         (toString cfg.gatewayPort)
         (toString cfg.sessionTimeout)
-        (lib.concatMapStrings (p: builtins.replaceStrings [ "@project@" "@rea@" "@tools@" ] [ p (lib.getExe rea) tools ]
+        (lib.concatMapStrings (p: builtins.replaceStrings [ "@project@" "@rea@" "@tools@" "@cliTools@" ]
+          [ p (lib.getExe rea) tools (builtins.toJSON (toolList ../config/rea-tools-cli.txt)) ]
           (builtins.readFile ../config/rea-gateway-project.json)) cfg.projects)
       ]
       (builtins.readFile ../config/rea-gateway.json);
