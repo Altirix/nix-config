@@ -121,22 +121,10 @@ in
           };
         } // lib.mapAttrs (prefix: url: {
           proxyPass = "http://${upstreamName name prefix}${(parse url).path}";
-          extraConfig = lib.optionalString (s.tokens != null) ''
-            if (''$${clientVar name} = "") {
-              return 401;
-            }
-            proxy_set_header Authorization "";
-          '' + ''
-            proxy_set_header Connection "";
-            proxy_buffering off;
-            proxy_request_buffering off;
-            proxy_cache off;
-            proxy_read_timeout 1h;
-            proxy_send_timeout 1h;
-            proxy_redirect http://$host${(parse url).path} ${prefix};
-            proxy_redirect https://$host${(parse url).path} ${prefix};
-            proxy_redirect ${(parse url).path} ${prefix};
-          '';
+          extraConfig = lib.optionalString (s.tokens != null)
+            (builtins.replaceStrings [ "@client@" ] [ (clientVar name) ] (builtins.readFile ./config/token-check.conf))
+            + builtins.replaceStrings [ "@path@" "@prefix@" ] [ (parse url).path prefix ]
+              (builtins.readFile ./config/proxy-location.conf);
         }) s.locations;
         extraConfig = lib.optionalString (s.tokens != null) "access_log /var/log/nginx/access.log ${clientVar name};\n"
           + lib.optionalString (s.maxBodySize != null) "client_max_body_size ${s.maxBodySize};\n";
@@ -151,13 +139,9 @@ in
       # A "Bearer <64 hex>" key is past the 64 byte default bucket, nginx refuses to start.
       mapHashBucketSize = lib.mkIf (lib.any (s: s.tokens != null) (lib.attrValues cfg.sites)) 128;
 
-      commonHttpConfig = lib.concatStrings (lib.mapAttrsToList (name: s: ''
-        map $http_authorization ''$${clientVar name} {
-          default "";
-          include ${s.tokens};
-        }
-        log_format ${clientVar name} '$remote_addr ''$${clientVar name} [$time_local] "$request" $status $body_bytes_sent $request_time';
-      '') (lib.filterAttrs (_: s: s.tokens != null) cfg.sites));
+      commonHttpConfig = lib.concatStrings (lib.mapAttrsToList (name: s:
+        builtins.replaceStrings [ "@client@" "@tokens@" ] [ (clientVar name) s.tokens ] (builtins.readFile ./config/token-map.conf))
+        (lib.filterAttrs (_: s: s.tokens != null) cfg.sites));
     };
 
     systemd.tmpfiles.rules = lib.mapAttrsToList (_: s: "d ${s.root} 0755 admin users -")
