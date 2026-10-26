@@ -63,8 +63,8 @@
     };
   };
 
-  # kanidmd won't start without TLS. Its own CA and a certificate for the origin's name, made once; the edge
-  # doesn't check them.
+  # kanidmd won't start without TLS. Its own CA and a certificate for the origin's name, made once (kept after
+  # that); the edge doesn't check them. cert-generate refuses to run before the database directory exists.
   systemd.services.kanidm-cert = {
     requiredBy = [ "kanidm.service" ];
     before = [ "kanidm.service" ];
@@ -73,7 +73,7 @@
       RemainAfterExit = true;
       User = "kanidm";
       Group = "kanidm";
-      StateDirectory = "kanidm-cert";
+      StateDirectory = [ "kanidm-cert" "kanidm" ];
       StateDirectoryMode = "0700";
       ExecStart = "${config.services.kanidm.package}/bin/kanidmd cert-generate -c /etc/kanidm/server.toml";
     };

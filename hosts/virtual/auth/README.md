@@ -30,7 +30,9 @@ add chain=forward action=accept connection-state=new in-interface=wg-vpn src-add
 2. Install the VM ([hosts/README.md](../../README.md#add-a-vm)), deploy it, then the hypervisors so they pin
    `10.100.1.13`. Add the router rule.
 3. Deploy `ionos-de` with `auth.nix` only (comment out `mcp.nix` until step 5), so ACME gets the certificate.
-4. Give yourself a credential. `idm_admin`'s password is reset on the VM, then a one-time link sets up the person:
+4. Give yourself a credential. `idm_admin`'s password is reset on the VM, then a one-time link sets up the person.
+   Every start of `kanidm.service` (deploys, reboots) resets it again for provisioning, so recover it right
+   before each admin session:
 
    ```sh
    ssh admin@auth sudo kanidmd recover-account -c /etc/kanidm/server.toml idm_admin

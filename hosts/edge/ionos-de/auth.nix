@@ -14,6 +14,20 @@
     rewrite ^/\.well-known/(oauth-authorization-server|openid-configuration)(/oauth2/openid/[^/]+)$ $2/.well-known/$1 last;
   '';
 
+  # Kanidm trusts X-Forwarded-For from here and takes its first address, so it's the client's alone, never what
+  # the client sent (recommendedProxySettings appends to that).
+  services.nginx.virtualHosts.auth.locations."/" = {
+    recommendedProxySettings = false;
+    extraConfig = ''
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $remote_addr;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_set_header X-Forwarded-Host $host;
+      proxy_set_header X-Forwarded-Server $hostname;
+    '';
+  };
+
   # oauth2-proxy reads the issuer through this host's own nginx, not out and back in.
   networking.hosts."127.0.0.1" = [ "auth.peacocks.me" ];
 }
