@@ -2,7 +2,7 @@
 
 `homelab.mcp.servers` runs MCP servers for agents, each as its own `mcp-<name>` unit and port. stdio servers
 sit behind mcp-proxy: streamable HTTP on `http://<host>:<port>/mcp`, SSE on `/sse`. Nothing authenticates, so
-the router decides who reaches which port (Router), and only the edge's nginx (with tokens) puts the low-risk
+the router decides who reaches which port (Router), and only the edge's nginx (with OAuth) puts the low-risk
 ones on the internet (From outside). The VMs open every port they serve: a firewall on a VM is gone with root
 on it, so none of what keeps them apart lives there. stdio servers share one process, and with it any state,
 between clients. `hosts/virtual/mcp` (`10.100.1.11`) serves them on labs.
@@ -94,68 +94,79 @@ ever masquerades into labs, the edge arrives as `10.100.0.1` instead of `10.0.0.
 `hosts/edge/ionos-de/mcp.nix` serves nixos, context7, fetch, time, memory and markitdown at
 `https://mcp.peacocks.me/<server>/mcp`, proxied over the tunnel (streamable
 HTTP only, SSE is deprecated). playwright runs code, github holds a token, they get no route. Every
-request needs `Authorization: Bearer <token>`, one token per client in `hosts/edge/ionos-de/secrets.yaml` so each
-can be revoked, and the access log names the client. The router only lets the edge's tunnel
+request needs an OAuth access token from Kanidm (`hosts/virtual/auth`, [README](../../../hosts/virtual/auth/README.md)),
+which only signs in members of `mcp_users`. The router only lets the edge's tunnel
 address `10.0.0.1` in on the exposed servers' ports (`labs: edge to mcp`, Router), so a compromised edge still
 doesn't reach the others. Never add a wireguard forward to `10.100.1.11` or `10.100.1.12`: forwards arrive from
-`10.0.0.1` too and would skip the token. Exposing another server takes both, `servers` in `mcp.nix` and its port
+`10.0.0.1` too and would skip the check. Exposing another server takes both, `servers` in `mcp.nix` and its port
 in `labs: edge to mcp`.
 
-REA is also routed, `https://mcp.peacocks.me/rea/` → its own VM's nginx `10.100.1.12:8101`, on the same
-token. It runs code a caller hands it but reaches nothing (no secrets, the router drops what it opens,
+How a client gets in (the MCP authorization spec): its first request gets a 401 whose `WWW-Authenticate` points at
+`/.well-known/oauth-protected-resource/<server>/mcp` (RFC 9728, one per location, written by
+`modules/services/web`), which names the issuer `https://auth.peacocks.me/oauth2/openid/mcp`. The client signs the
+person in there (authorization code + PKCE) and sends `Authorization: Bearer <access token>` from then on, refreshing
+it every 15 minutes. On the edge, nginx asks oauth2-proxy (loopback, `auth_request`) about each request; it checks the
+token's ES256 signature against Kanidm's keys, its issuer, audience (`mcp` or `mcp-cli`) and expiry, offline.
+Cookies don't count, the upstream never sees the token, and the access log names the person (the token's `sub`,
+their Kanidm uuid: `kanidm person get <uuid>`). Kanidm has no dynamic client registration, so clients are given
+their client id.
+
+REA is also routed, `https://mcp.peacocks.me/rea/` → its own VM's nginx `10.100.1.12:8101`, behind the same
+sign-in. It runs code a caller hands it but reaches nothing (no secrets, the router drops what it opens,
 snapshot reset), so a leaked token lands in a dead-end sandbox. That rests on `labs: rea-dynamic opens nothing`
 (Router) being live, and covering IPv6 too if labs carries it.
 
-Set it up: point an A record for `mcp.peacocks.me` at the VPS (ACME needs it before the first deploy), add a
-token per client named in `mcp.nix` (`openssl rand -hex 32`), add the router rules (Router), deploy `mcp`, then
-`ionos-de`. ionos-de doesn't build with the tokens missing.
+Set it up: Kanidm first ([its README](../../../hosts/virtual/auth/README.md#set-up)), point an A record for
+`mcp.peacocks.me` at the VPS (ACME needs it before the first deploy), add the router rules (Router), deploy `mcp`,
+then `ionos-de`. ionos-de doesn't build without `kanidm-mcp-secret` and `oauth2-proxy-cookie-secret` in its
+`secrets.yaml`. Revoke a person by removing them from `mcp_users` (or Kanidm) and destroying their sessions: their
+access token lasts at most 15 more minutes, no refresh after that.
+
+Check from anywhere, without a token (401, and the metadata it points at):
 
 ```sh
-sops hosts/edge/ionos-de/secrets.yaml   # mcp-token-cloud: <hex>
+curl -i https://mcp.peacocks.me/time/mcp -d '{}'
+curl https://mcp.peacocks.me/.well-known/oauth-protected-resource/time/mcp
 ```
 
-Revoke one by removing it from `clients` in `mcp.nix` and from `hosts/edge/ionos-de/secrets.yaml`, rotate one by
-editing the secret alone (nginx reloads on deploy). Check from anywhere:
+Claude (claude.ai, desktop and mobile apps): Settings → Connectors → Add custom connector, URL
+`https://mcp.peacocks.me/<server>/mcp`, and under Advanced settings the OAuth client id `mcp` and its secret
+(`kanidm system oauth2 show-basic-secret mcp`). Connecting opens Kanidm's sign-in.
+
+Claude Code, per server, signs in with `/mcp` in a session (browser on this machine, callback on the port given):
 
 ```sh
-curl -i https://mcp.peacocks.me/time/mcp -H "Authorization: Bearer $MCP_TOKEN" \
-  -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"0"}}}'
+claude mcp add --transport http --client-id mcp-cli --callback-port 8976 time https://mcp.peacocks.me/time/mcp
 ```
 
-Claude Code on a laptop, per server:
-
-```sh
-claude mcp add --transport http time https://mcp.peacocks.me/time/mcp --header "Authorization: Bearer $MCP_TOKEN"
-```
-
-Or in a repo's `.mcp.json`, reading the token from the environment when Claude Code starts. This repo's own
-`.mcp.json` leaves out the `headers`, for cloud sessions (below):
+Or in a repo's `.mcp.json`, as this repo's own:
 
 ```json
 {
   "mcpServers": {
-    "nixos": {
-      "type": "http",
-      "url": "https://mcp.peacocks.me/nixos/mcp",
-      "headers": { "Authorization": "Bearer ${MCP_TOKEN}" }
-    },
     "time": {
       "type": "http",
       "url": "https://mcp.peacocks.me/time/mcp",
-      "headers": { "Authorization": "Bearer ${MCP_TOKEN}" }
+      "oauth": { "clientId": "mcp-cli", "callbackPort": 8976 }
     }
   }
 }
 ```
 
-Claude Code cloud sessions read the same `.mcp.json` from the repo they run in. In the cloud environment's
-settings, allow `mcp.peacocks.me` under Network access (Allowed domains, or Full), and add the `cloud` token
-as a network secret for `mcp.peacocks.me` so the agent proxy adds `Authorization: Bearer <token>` outside the VM
-and the token never reaches the session. Leave out the `headers` then. That the proxy injects it for MCP traffic
-isn't documented, so check after deploy that requests show up as `cloud` in `/var/log/nginx/access.log` on
-ionos-de. If they arrive as 401, set `MCP_TOKEN` as an environment variable of the environment instead and keep
-the `headers` (the session can then read the token).
+Scripts and headless agents (curl, Claude Code cloud sessions) can't do a browser sign-in. A Kanidm service account
+in `mcp_users` can: its API token is exchanged for a 15 minute access token (RFC 8693, no client secret), which works
+anywhere a person's does. It isn't set up; a cloud session would need the API token itself (an environment variable)
+and to exchange it before each use:
+
+```sh
+kanidm service-account create <name> "<display name>" idm_admins -H https://auth.peacocks.me -D idm_admin
+kanidm group add-members mcp_users <name> -H https://auth.peacocks.me -D idm_admin
+kanidm service-account api-token generate <name> <label> -H https://auth.peacocks.me -D idm_admin
+curl -s https://auth.peacocks.me/oauth2/token -d client_id=mcp-cli -d scope=openid \
+  -d grant_type=urn:ietf:params:oauth:grant-type:token-exchange \
+  -d subject_token_type=urn:ietf:params:oauth:token-type:access_token \
+  --data-urlencode subject_token="$KANIDM_API_TOKEN" | jq -r .access_token
+```
 
 ## rea (8101)
 
@@ -191,7 +202,7 @@ curl https://mcp.peacocks.me/rea/default/samples/                           # li
 curl -X DELETE https://mcp.peacocks.me/rea/default/samples/sample.apk
 ```
 
-From a cloud session the agent proxy adds the token. Uploads are up to 1G, one level (no subdirectories), land
+Each needs `-H "Authorization: Bearer <access token>"` (From outside). Uploads are up to 1G, one level (no subdirectories), land
 `0644`, and the server only reads them.
 
 ### Projects and sharing

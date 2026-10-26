@@ -1,11 +1,11 @@
 {
   "mcpServers": {
-    "rea": { "type": "http", "url": "https://mcp.peacocks.me/rea/default/mcp" },
-    "nixos": { "type": "http", "url": "https://mcp.peacocks.me/nixos/mcp" },
-    "context7": { "type": "http", "url": "https://mcp.peacocks.me/context7/mcp" },
-    "fetch": { "type": "http", "url": "https://mcp.peacocks.me/fetch/mcp" },
-    "time": { "type": "http", "url": "https://mcp.peacocks.me/time/mcp" },
-    "memory": { "type": "http", "url": "https://mcp.peacocks.me/memory/mcp" },
-    "markitdown": { "type": "http", "url": "https://mcp.peacocks.me/markitdown/mcp/" }
+    "rea": { "type": "http", "url": "https://mcp.peacocks.me/rea/default/mcp", "oauth": { "clientId": "mcp-cli", "callbackPort": 8976 } },
+    "nixos": { "type": "http", "url": "https://mcp.peacocks.me/nixos/mcp", "oauth": { "clientId": "mcp-cli", "callbackPort": 8976 } },
+    "context7": { "type": "http", "url": "https://mcp.peacocks.me/context7/mcp", "oauth": { "clientId": "mcp-cli", "callbackPort": 8976 } },
+    "fetch": { "type": "http", "url": "https://mcp.peacocks.me/fetch/mcp", "oauth": { "clientId": "mcp-cli", "callbackPort": 8976 } },
+    "time": { "type": "http", "url": "https://mcp.peacocks.me/time/mcp", "oauth": { "clientId": "mcp-cli", "callbackPort": 8976 } },
+    "memory": { "type": "http", "url": "https://mcp.peacocks.me/memory/mcp", "oauth": { "clientId": "mcp-cli", "callbackPort": 8976 } },
+    "markitdown": { "type": "http", "url": "https://mcp.peacocks.me/markitdown/mcp/", "oauth": { "clientId": "mcp-cli", "callbackPort": 8976 } }
   }
 }

@@ -7,9 +7,6 @@ let
   cfg = config.homelab.web;
   inherit (lib) mkOption types;
 
-  # nginx variable holding the client a site's token belongs to.
-  clientVar = name: "web_client_${lib.replaceStrings [ "-" ] [ "_" ] name}";
-
   # http://10.100.1.11:8106/mcp -> { server = "10.100.1.11:8106"; path = "/mcp"; }, for upstream blocks with keepalive.
   parse = url:
     let m = builtins.match "http://([^/]+)(/.*)" url;
@@ -34,12 +31,12 @@ let
         type = types.attrsOf (types.strMatching "http://[^/]+/.*");
         default = { };
       };
-      # File of nginx map lines, `"Bearer <token>" <client>;` (a sops template, never the nix store). `locations`
-      # then answer 401 without a listed token, the upstream never sees it and the access log names the client.
-      # nginx matches them case-insensitively, so use hex tokens. A missing file stops nginx, an empty one is all 401.
-      tokens = mkOption {
-        type = types.nullOr types.str;
-        default = null;
+      # `locations` are an OAuth protected resource (MCP authorization): 401 without an access token from one of
+      # `oauth`'s issuers, pointing at /.well-known/oauth-protected-resource/<path> (RFC 9728) for where to get
+      # one. oauth2-proxy checks the token, the upstream never sees it and the access log names the user.
+      oauth = mkOption {
+        type = types.bool;
+        default = false;
       };
 
       # nginx's client_max_body_size for the site, e.g. "1g" for `locations` that take uploads.
@@ -73,6 +70,7 @@ let
   };
 
   https = lib.any (s: s.https) (lib.attrValues cfg.sites);
+  oauth = lib.any (s: s.oauth) (lib.attrValues cfg.sites);
 in
 {
   options.homelab.web = {
@@ -82,12 +80,35 @@ in
       type = types.attrsOf site;
       default = { };
     };
+
+    # oauth2-proxy on loopback, checking the bearer tokens of sites with `oauth`: signature, issuer, audience
+    # (the client id) and expiry, offline against the issuer's keys. Who gets a token is the issuer's call.
+    oauth = {
+      # The issuer sites advertise, and its client, e.g. Kanidm's https://auth.example.com/oauth2/openid/<client>.
+      issuer = mkOption { type = types.str; };
+      clientId = mkOption { type = types.str; };
+      # Scopes clients ask for.
+      scopes = mkOption {
+        type = types.listOf types.str;
+        default = [ "openid" ];
+      };
+      # More clients whose tokens count, issuer -> client id.
+      extraIssuers = mkOption {
+        type = types.attrsOf types.str;
+        default = { };
+      };
+      # sops secrets: the client's secret and a 32 character cookie secret. Neither is used (no cookie logins),
+      # oauth2-proxy won't start without them.
+      clientSecretFile = mkOption { type = types.str; };
+      cookieSecretFile = mkOption { type = types.str; };
+    };
   };
 
   config = lib.mkIf cfg.enable {
     assertions = lib.mapAttrsToList (name: s: {
-      assertion = (s.root == null || s.upstream == null) && (s.https -> s.domains != [ ] && s.address == null);
-      message = "web: site ${name} has both root and upstream, or https without domains on every address";
+      assertion = (s.root == null || s.upstream == null) && (s.https -> s.domains != [ ] && s.address == null)
+        && (s.oauth -> s.https);
+      message = "web: site ${name} has both root and upstream, https without domains on every address, or oauth without https";
     }) cfg.sites;
 
     # No account email: Let's Encrypt no longer sends expiry mail, and it would end up in the nix store.
@@ -121,12 +142,28 @@ in
           };
         } // lib.mapAttrs (prefix: url: {
           proxyPass = "http://${upstreamName name prefix}${(parse url).path}";
-          extraConfig = lib.optionalString (s.tokens != null)
-            (builtins.replaceStrings [ "@client@" ] [ (clientVar name) ] (builtins.readFile ./config/token-check.conf))
+          extraConfig = lib.optionalString s.oauth
+            (builtins.replaceStrings [ "@prefix@" ] [ prefix ] (builtins.readFile ./config/oauth-check.conf))
             + builtins.replaceStrings [ "@path@" "@prefix@" ] [ (parse url).path prefix ]
               (builtins.readFile ./config/proxy-location.conf);
-        }) s.locations;
-        extraConfig = lib.optionalString (s.tokens != null) "access_log /var/log/nginx/access.log ${clientVar name};\n"
+        }) s.locations
+        # Each location's RFC 9728 metadata, the resource is the location itself.
+        // lib.optionalAttrs s.oauth (lib.mapAttrs' (prefix: _:
+          lib.nameValuePair "= /.well-known/oauth-protected-resource${prefix}" {
+            extraConfig = ''
+              default_type application/json;
+              return 200 '${builtins.toJSON {
+                resource = "https://${lib.head s.domains}${prefix}";
+                authorization_servers = [ cfg.oauth.issuer ];
+                scopes_supported = cfg.oauth.scopes;
+                bearer_methods_supported = [ "header" ];
+              }}';
+            '';
+          }) s.locations);
+        extraConfig = lib.optionalString s.oauth ("access_log /var/log/nginx/access.log oauth;\n"
+            + builtins.replaceStrings [ "@proxy@" "@domain@" "@scopes@" ]
+              [ config.services.oauth2-proxy.httpAddress (lib.head s.domains) (lib.concatStringsSep " " cfg.oauth.scopes) ]
+              (builtins.readFile ./config/oauth-server.conf))
           + lib.optionalString (s.maxBodySize != null) "client_max_body_size ${s.maxBodySize};\n";
       }) cfg.sites;
 
@@ -136,13 +173,35 @@ in
           extraConfig = "keepalive 8;";
         }) s.locations) cfg.sites);
 
-      # A "Bearer <64 hex>" key is past the 64 byte default bucket, nginx refuses to start.
-      mapHashBucketSize = lib.mkIf (lib.any (s: s.tokens != null) (lib.attrValues cfg.sites)) 128;
-
-      commonHttpConfig = lib.concatStrings (lib.mapAttrsToList (name: s:
-        builtins.replaceStrings [ "@client@" "@tokens@" ] [ (clientVar name) s.tokens ] (builtins.readFile ./config/token-map.conf))
-        (lib.filterAttrs (_: s: s.tokens != null) cfg.sites));
+      # Access log lines of oauth sites name the user (the token's sub).
+      commonHttpConfig = lib.optionalString oauth ''
+        log_format oauth '$remote_addr $oauth_user [$time_local] "$request" $status $body_bytes_sent $request_time';
+      '';
     };
+
+    services.oauth2-proxy = lib.mkIf oauth {
+      enable = true;
+      provider = "oidc";
+      oidcIssuerUrl = cfg.oauth.issuer;
+      clientID = cfg.oauth.clientId;
+      inherit (cfg.oauth) clientSecretFile;
+      cookie.secretFile = cfg.oauth.cookieSecretFile;
+      email.domains = [ "*" ];
+      setXauthrequest = true;
+      reverseProxy = true;
+      trustedProxyIP = [ "127.0.0.1" ];
+      extraConfig = {
+        skip-jwt-bearer-tokens = true;
+        # A bad or expired token is a 401 (clients refresh on it), not a 403.
+        bearer-token-login-fallback = true;
+        extra-jwt-issuers = lib.mapAttrsToList (issuer: client: "${issuer}=${client}") cfg.oauth.extraIssuers;
+        # Access tokens carry no email, without this it asks the userinfo endpoint and fails.
+        skip-claims-from-profile-url = true;
+      };
+    };
+
+    # It exits while the issuer is unreachable (discovery at start), don't hit the start limit waiting for it.
+    systemd.services.oauth2-proxy.serviceConfig.RestartSec = lib.mkIf oauth 5;
 
     systemd.tmpfiles.rules = lib.mapAttrsToList (_: s: "d ${s.root} 0755 admin users -")
       (lib.filterAttrs (_: s: s.root != null) cfg.sites);
