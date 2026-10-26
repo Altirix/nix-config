@@ -26,6 +26,7 @@ docs/          design notes
 | [modules/README.md](modules/README.md) | what each module does |
 | [modules/networking/README.md](modules/networking/README.md) | labs (VLAN 100), address pinning, labs-mesh, the router |
 | [modules/services/incus/README.md](modules/services/incus/README.md) | ssh into VMs, Windows VMs, vGPU |
+| [modules/services/mcp/README.md](modules/services/mcp/README.md) | MCP servers for agents, presets, who can reach them |
 | [modules/disks/README.md](modules/disks/README.md) | `homelab.storage`, partition labels |
 | [hosts/printer/README.md](hosts/printer/README.md) | the ROCK 5C Klipper hosts |
 | [docs/scope-usability.md](docs/scope-usability.md) | what host-driven config covers |
