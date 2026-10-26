@@ -22,6 +22,9 @@ Add it to a client:
 claude mcp add --transport http sequential-thinking http://<host>:8100/mcp
 ```
 
+`nix build .#checks.x86_64-linux.mcp` boots the servers `hosts/virtual/mcp` enables in a VM and calls each from
+a client over the network, see `tests/mcp.nix`.
+
 ## Router (MikroTik)
 
 Everything that keeps the mcp VM apart is on the router, so it holds with root lost on the VM. The hypervisors
