@@ -1,0 +1,16 @@
+    "@project@": {
+      "command": "@rea@",
+      "args": ["mcp"],
+      "cwd": "/var/lib/rea/@project@/scratch",
+      "env": { "HOME": "/var/lib/rea/@project@/home" },
+      @tools@
+    },
+    // rizin and the other CLI tools in a REA of their own (config/rea-tools-cli.txt), beside Ghidra.
+    "@project@-cli": {
+      "path": "/@project@/cli",
+      "command": "@rea@",
+      "args": ["mcp"],
+      "cwd": "/var/lib/rea/@project@/scratch",
+      "env": { "HOME": "/var/lib/rea/@project@/home" },
+      "tools": @cliTools@,
+    },

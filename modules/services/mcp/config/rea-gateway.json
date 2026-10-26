@@ -1,0 +1,13 @@
+// Supergateway in front of REA: one stdio REA per MCP session, under /<project>/mcp.
+// mcpServers gets rea-gateway-project.json once per project. JSONC, so the trailing commas are fine.
+{
+  "host": "127.0.0.1",
+  "port": @port@,
+  "outputTransport": "streamableHttp",
+  "stateful": true,
+  // Idle sessions end, and their REA (and its Ghidra) with them.
+  "sessionTimeout": @sessionTimeout@,
+  "mcpServers": {
+@projects@
+  },
+}
