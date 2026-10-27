@@ -163,6 +163,9 @@ in
             "restricted.devices.gpu" = "allow";
             # USB passthrough (e.g. a front-panel hub into the Windows VM).
             "restricted.devices.usb" = "allow";
+            # raw.qemu, for the sound card in the windows profile. It also allows raw.apparmor, raw.idmap and the rest
+            # on any instance in the project, which can undo the isolation above.
+            "restricted.virtual-machines.lowlevel" = "allow";
           };
         }
       ];
@@ -199,6 +202,8 @@ in
           config = {
             "limits.cpu" = "4";
             "limits.memory" = "8GiB";
+            # Incus gives VMs no sound card. An HDA one playing into nothing, Parsec captures it in the guest.
+            "raw.qemu" = "-audiodev none,id=snd0 -device ich9-intel-hda,id=snd-hda -device hda-output,bus=snd-hda.0,audiodev=snd0";
           };
           devices = {
             root = {
