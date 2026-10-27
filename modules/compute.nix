@@ -159,6 +159,8 @@ in
             # vGPU slices (mdev), see services/vgpu/host.nix. There's no mdev-only key, this also allows passing the
             # whole card, which would take it from every vGPU guest.
             "restricted.devices.gpu" = "allow";
+            # USB passthrough (e.g. a front-panel hub into the Windows VM).
+            "restricted.devices.usb" = "allow";
           };
         }
       ];
