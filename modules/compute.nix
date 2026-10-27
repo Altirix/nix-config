@@ -15,7 +15,9 @@ let
   };
 
   # Instances that aren't hosts in this flake (Windows), instance -> labs address. They configure it themselves.
-  otherAddresses = { };
+  otherAddresses = {
+    Windows-11 = "10.100.2.10";
+  };
 
   # Virtual hosts with a static labs address, pinned to the incus instance of the same name.
   labsAddresses = otherAddresses // lib.filterAttrs (_: address: address != null)
