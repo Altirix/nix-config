@@ -15,7 +15,9 @@ let
   };
 
   # Instances that aren't hosts in this flake (Windows), instance -> labs address. They configure it themselves.
-  otherAddresses = { };
+  otherAddresses = {
+    Windows-11 = "10.100.2.10";
+  };
 
   # Virtual hosts with a static labs address, pinned to the incus instance of the same name.
   labsAddresses = otherAddresses // lib.filterAttrs (_: address: address != null)
@@ -159,6 +161,8 @@ in
             # vGPU slices (mdev), see services/vgpu/host.nix. There's no mdev-only key, this also allows passing the
             # whole card, which would take it from every vGPU guest.
             "restricted.devices.gpu" = "allow";
+            # USB passthrough (e.g. a front-panel hub into the Windows VM).
+            "restricted.devices.usb" = "allow";
           };
         }
       ];

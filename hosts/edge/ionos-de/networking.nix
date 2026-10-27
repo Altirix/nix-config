@@ -33,6 +33,8 @@
 
     # Public port -> anything the router routes, e.g. a lab VM. Also reachable from peers on the public IP.
     forwards = [
+      # Parsec host ports on the Windows VM, it's reached on this host's address since labs egresses here.
+      { proto = "udp"; port = "8000-8010"; to = "10.100.2.10"; }
       # { proto = "tcp"; port = 25565; to = "10.100.0.20"; }
       # { proto = "udp"; port = "27015-27030"; to = "10.100.0.21"; }
       # { proto = "tcp"; port = 2222; to = "10.100.0.22"; toPort = 22; }
