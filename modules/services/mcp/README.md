@@ -168,6 +168,37 @@ curl -s https://auth.peacocks.me/oauth2/token -d client_id=mcp-cli -d scope=open
   --data-urlencode subject_token="$KANIDM_API_TOKEN" | jq -r .access_token
 ```
 
+## Usage
+
+Two views, both in VictoriaLogs (`hosts/virtual/logs`):
+
+- **Every client, per request**: the edge's access log (`SYSLOG_IDENTIFIER:nginx-access`) has the user, path,
+  status and duration of each request through `mcp.peacocks.me`. It can't see inside them (which tool, with what).
+- **Claude Code, per tool call**: Claude Code's own OpenTelemetry export has a `claude_code.tool_result` event for
+  every tool it calls, MCP or not, with the tool, its MCP server, success, error and duration, and with
+  `OTEL_LOG_TOOL_DETAILS=1` its parameters (which can hold secrets). VictoriaLogs takes OTLP directly. In
+  `~/.claude/settings.json` on each machine that should report (one that reaches the logs VM, `labs: logs in`), not
+  this repo's `.claude/settings.json`, which cloud sessions also read and couldn't send from:
+
+  ```json
+  {
+    "env": {
+      "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+      "OTEL_LOGS_EXPORTER": "otlp",
+      "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
+      "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://10.100.1.14:9428/insert/opentelemetry/v1/logs",
+      "OTEL_LOG_TOOL_DETAILS": "1"
+    }
+  }
+  ```
+
+  ```
+  claude_code.tool_result mcp_server_name:* | stats by (mcp_server_name, mcp_tool_name, success) count()
+  claude_code.tool_result success:false | fields _time, mcp_tool_name, error, tool_parameters
+  ```
+
+Claude's connectors (claude.ai, the apps) only show up in the access log, they export nothing.
+
 ## rea (8101)
 
 Decompiles with Ghidra, reads APKs with JADX, runs samples and unpacks firmware. It only runs on

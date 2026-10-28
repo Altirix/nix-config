@@ -29,6 +29,14 @@ add chain=forward action=accept connection-state=new in-interface=wg-vpn src-add
 1. Point an A record for `auth.peacocks.me` at the VPS.
 2. Install the VM ([hosts/README.md](../../README.md#add-a-vm)), deploy it, then the hypervisors so they pin
    `10.100.1.13`. Add the router rule.
+   Pin its certificate on the edge (ionos-de warns while it's missing, and then doesn't check what answers):
+
+   ```sh
+   ssh admin@auth sudo cat /var/lib/kanidm-cert/chain.pem > hosts/virtual/auth/tls.pem   # commit it
+   ```
+
+   It's good for ten years. To replace it, delete `/var/lib/kanidm-cert/*.pem` on the VM, run
+   `systemctl restart kanidm-cert kanidm`, copy it again and deploy ionos-de.
 3. Deploy `ionos-de` with `auth.nix` only (comment out `mcp.nix` until step 5), so ACME gets the certificate.
 4. Give yourself a credential. `idm_admin`'s password is reset on the VM, then a one-time link sets up the person.
    Every start of `kanidm.service` (deploys, reboots) resets it again for provisioning, so recover it right

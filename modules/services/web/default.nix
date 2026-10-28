@@ -13,6 +13,16 @@ let
     in { server = lib.elemAt m 0; path = lib.elemAt m 1; };
   upstreamName = name: prefix: "${name}${lib.replaceStrings [ "/" "." ] [ "_" "_" ] (lib.removeSuffix "/" prefix)}";
 
+  # config/<file> with @name@ placeholders filled in.
+  snippet = file: vars: builtins.replaceStrings (map (n: "@${n}@") (lib.attrNames vars)) (lib.attrValues vars)
+    (builtins.readFile ./config/${file});
+
+  # What every proxied location carries in place of nixpkgs' recommended headers.
+  proxied = {
+    recommendedProxySettings = false;
+    extraConfig = builtins.readFile ./config/proxy-headers.conf;
+  };
+
   site = types.submodule {
     options = {
       root = mkOption {
@@ -22,6 +32,12 @@ let
       # e.g. http://10.100.0.20:8080
       upstream = mkOption {
         type = types.nullOr types.str;
+        default = null;
+      };
+      # An https `upstream`'s own (self-signed) certificate, the only one accepted, issued for the site's first
+      # domain. null doesn't check it.
+      upstreamCertificate = mkOption {
+        type = types.nullOr types.path;
         default = null;
       };
       # More path prefixes, each proxied to its own upstream with the prefix swapped for the upstream's path:
@@ -107,8 +123,8 @@ in
   config = lib.mkIf cfg.enable {
     assertions = lib.mapAttrsToList (name: s: {
       assertion = (s.root == null || s.upstream == null) && (s.https -> s.domains != [ ] && s.address == null)
-        && (s.oauth -> s.https);
-      message = "web: site ${name} has both root and upstream, https without domains on every address, or oauth without https";
+        && (s.oauth -> s.https) && (s.upstreamCertificate != null -> s.upstream != null && s.domains != [ ]);
+      message = "web: site ${name} has both root and upstream, https without domains on every address, oauth without https, or upstreamCertificate without an upstream and domains";
     }) cfg.sites;
 
     # No account email: Let's Encrypt no longer sends expiry mail, and it would end up in the nix store.
@@ -118,7 +134,6 @@ in
       enable = true;
       recommendedOptimisation = true;
       recommendedGzipSettings = true;
-      recommendedProxySettings = true;
       recommendedTlsSettings = true;
 
       virtualHosts = lib.mapAttrs (name: s: {
@@ -132,20 +147,21 @@ in
         enableACME = s.https;
         forceSSL = s.https;
         locations = {
-          "/" = if s.upstream != null then {
+          "/" = if s.upstream != null then lib.recursiveUpdate proxied {
             proxyPass = s.upstream;
             proxyWebsockets = true;
+            extraConfig = proxied.extraConfig + lib.optionalString (s.upstreamCertificate != null)
+              (snippet "upstream-tls.conf" { certificate = "${s.upstreamCertificate}"; domain = lib.head s.domains; });
           } else if s.root != null then {
             tryFiles = "$uri $uri/ =404";
           } else {
             return = "404";
           };
-        } // lib.mapAttrs (prefix: url: {
+        } // lib.mapAttrs (prefix: url: proxied // {
           proxyPass = "http://${upstreamName name prefix}${(parse url).path}";
-          extraConfig = lib.optionalString s.oauth
-            (builtins.replaceStrings [ "@prefix@" ] [ prefix ] (builtins.readFile ./config/oauth-check.conf))
-            + builtins.replaceStrings [ "@path@" "@prefix@" ] [ (parse url).path prefix ]
-              (builtins.readFile ./config/proxy-location.conf);
+          extraConfig = proxied.extraConfig
+            + lib.optionalString s.oauth (snippet "oauth-check.conf" { inherit prefix; })
+            + snippet "proxy-location.conf" { inherit prefix; inherit (parse url) path; };
         }) s.locations
         # Each location's RFC 9728 metadata, the resource is the location itself.
         // lib.optionalAttrs s.oauth (lib.mapAttrs' (prefix: _:
@@ -161,9 +177,11 @@ in
             '';
           }) s.locations);
         extraConfig = lib.optionalString s.oauth ("access_log /var/log/nginx/access.log oauth;\n"
-            + builtins.replaceStrings [ "@proxy@" "@domain@" "@scopes@" ]
-              [ config.services.oauth2-proxy.httpAddress (lib.head s.domains) (lib.concatStringsSep " " cfg.oauth.scopes) ]
-              (builtins.readFile ./config/oauth-server.conf))
+            + snippet "oauth-server.conf" {
+              proxy = config.services.oauth2-proxy.httpAddress;
+              domain = lib.head s.domains;
+              scopes = lib.concatStringsSep " " cfg.oauth.scopes;
+            })
           + lib.optionalString (s.maxBodySize != null) "client_max_body_size ${s.maxBodySize};\n";
       }) cfg.sites;
 
@@ -178,6 +196,9 @@ in
         log_format oauth '$remote_addr $oauth_user [$time_local] "$request" $status $body_bytes_sent $request_time';
       '';
     };
+
+    # Into the journal and on to the logs VM (modules/system/logs.nix).
+    homelab.logs.files.nginx-access = { path = "/var/log/nginx/access.log"; group = "nginx"; };
 
     services.oauth2-proxy = lib.mkIf oauth {
       enable = true;

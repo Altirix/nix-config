@@ -1,4 +1,4 @@
-{ config, pkgs, ... }:
+{ pkgs, ... }:
 
 # Kanidm, SSO for the lab at https://auth.peacocks.me (through the edge, hosts/edge/ionos-de/auth.nix). Groups,
 # persons and OAuth2 clients are provisioned from here, credentials are each person's own (README.md).
@@ -63,19 +63,27 @@
     };
   };
 
-  # kanidmd won't start without TLS. Its own CA and a certificate for the origin's name, made once (kept after
-  # that); the edge doesn't check them. cert-generate refuses to run before the database directory exists.
+  # kanidmd won't start without TLS: a self-signed certificate for the origin's name, made once and good for ten
+  # years. The edge accepts only this one (tls.pem next to this file, README.md). Not `kanidmd cert-generate`, its
+  # certificate expires after five days.
   systemd.services.kanidm-cert = {
     requiredBy = [ "kanidm.service" ];
     before = [ "kanidm.service" ];
+    path = [ pkgs.openssl ];
+    script = ''
+      [ -e key.pem ] && [ -e chain.pem ] && exit 0
+      openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3650 \
+        -subj /CN=auth.peacocks.me -addext subjectAltName=DNS:auth.peacocks.me -keyout key.pem -out chain.pem
+    '';
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
       User = "kanidm";
       Group = "kanidm";
-      StateDirectory = [ "kanidm-cert" "kanidm" ];
+      UMask = "0077";
+      StateDirectory = "kanidm-cert";
       StateDirectoryMode = "0700";
-      ExecStart = "${config.services.kanidm.package}/bin/kanidmd cert-generate -c /etc/kanidm/server.toml";
+      WorkingDirectory = "/var/lib/kanidm-cert";
     };
   };
 

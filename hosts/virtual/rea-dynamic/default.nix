@@ -25,5 +25,8 @@
   # In no sops group (.sops.yaml) and no secrets.yaml of its own, so it holds nothing to decrypt. Samples run here.
   sops.secrets = lib.mkForce { };
 
+  # It opens no connections (the router drops them), so it ships no logs either.
+  homelab.logs.server = null;
+
   system.stateVersion = "26.05";
 }

@@ -9,7 +9,8 @@ virtual.nix              incus VMs
 edge.nix                 public-facing hosts: wireguard, egress NAT, port forwards, static sites, ssh
 printer.nix              3D printers: klipper, moonraker, mainsail, mDNS
 desktop.nix, desktop/    not wired up yet
-system/                  ssh (admin keys in keys/admin/*.pub), secrets, boot (grub across mirrored ESPs)
+system/                  ssh (admin keys in keys/admin/*.pub), secrets, boot (grub across mirrored ESPs),
+                         logs (journal upload to the logs VM, log files into the journal)
 hardware/                rock5c.nix (U-Boot + RK3582 unlock patches from Armbian, extlinux, panthor shader mask, AIC8800 wifi)
 disks/                   disko.nix (homelab.storage -> disko.devices), zfs.nix
 networking/              lan (VLAN trunk), mesh, frr, wifi (wpa_supplicant, SSID/PSK from sops),
