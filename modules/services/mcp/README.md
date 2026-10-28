@@ -118,7 +118,7 @@ snapshot reset), so a leaked token lands in a dead-end sandbox. That rests on `l
 
 Set it up: Kanidm first ([its README](../../../hosts/virtual/auth/README.md#set-up)), point an A record for
 `mcp.peacocks.me` at the VPS (ACME needs it before the first deploy), add the router rules (Router), deploy `mcp`,
-then `ionos-de`. ionos-de doesn't build without `kanidm-mcp-secret` and `oauth2-proxy-cookie-secret` in its
+then `ionos-de`. ionos-de doesn't build without `kanidm-web-secret` and `oauth2-proxy-cookie-secret` in its
 `secrets.yaml`. Revoke a person by removing them from `mcp_users` (or Kanidm) and destroying their sessions: their
 access token lasts at most 15 more minutes, no refresh after that.
 

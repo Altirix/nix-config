@@ -16,6 +16,7 @@ edge/ionos-de/             public-facing VPS
   services.nix             web sites
   auth.nix                 auth.peacocks.me, proxy to the auth VM
   mcp.nix                  mcp.peacocks.me, OAuth-gated proxy to the mcp VM
+  logs.nix                 logs.peacocks.me, the logs VM's UI behind Kanidm sign-in
 printer/<name>/            Klipper on ROCK 5C Lites, see printer/README.md
 virtual/auth/              Kanidm, SSO at auth.peacocks.me via the edge (see virtual/auth/README.md)
 virtual/dls/               FastAPI-DLS, licenses vGPU guests over labs-mesh

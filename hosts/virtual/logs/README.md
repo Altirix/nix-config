@@ -12,7 +12,8 @@ VictoriaLogs only listens on loopback. nginx on the VM serves `/insert/` alone o
 lines). There's no disk-usage limit on purpose, a flood can't push old days out: a full volume stops new lines
 instead, watch it.
 
-Web UI: `http://10.100.0.11:9427/select/vmui`. Queries are [LogsQL](https://docs.victoriametrics.com/victorialogs/logsql/):
+Web UI: `https://logs.peacocks.me` after Kanidm sign-in (members of `web_users`, `hosts/edge/ionos-de/logs.nix`), or
+`http://10.100.0.11:9427/select/vmui` from home. Queries are [LogsQL](https://docs.victoriametrics.com/victorialogs/logsql/):
 
 ```
 _HOSTNAME:ionos-de _SYSTEMD_UNIT:sshd.service                    # ssh on the edge
@@ -38,6 +39,7 @@ add list=log-senders address=10.100.0.0/16 comment="labs"
 /ip firewall filter
 add chain=forward action=accept connection-state=new src-address-list=log-senders src-address=!10.100.1.12 dst-address=10.100.0.11 protocol=tcp dst-port=9428 comment="labs: logs in" place-before=0
 add chain=forward action=accept connection-state=new in-interface="VLAN 10 HomeNet" dst-address=10.100.0.11 protocol=tcp dst-port=9427 comment="labs: home reads logs" place-before=[find comment="labs: only home and tunnel in"]
+add chain=forward action=accept connection-state=new in-interface=wg-vpn src-address=10.0.0.1 dst-address=10.100.0.11 protocol=tcp dst-port=9427 comment="labs: edge reads logs" place-before=[find comment="labs: only home and tunnel in"]
 ```
 
 Anyone on home can read every log (MCP calls' arguments included). Narrow `labs: home reads logs` to the
@@ -56,5 +58,6 @@ machines that need it if that's too wide.
    ssh admin@logs 'sudo mkfs.ext4 -L logs-data /dev/sdb && sudo systemctl restart victorialogs'
    ```
 
-3. Deploy the other hosts, they start uploading. A host deployed before the VM exists keeps retrying and sends
-   its backlog once it can.
+3. Point an A record for `logs.peacocks.me` at the VPS, deploy `auth` (it learns the site's callback), then the
+   other hosts, they start uploading. A host deployed before the VM exists keeps retrying and sends its backlog
+   once it can.

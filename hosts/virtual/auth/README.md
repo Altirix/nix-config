@@ -10,8 +10,9 @@ Kanidm's database.
 |---|---|---|
 | `mcp` | Claude's connectors (claude.ai, the apps), confidential | `https://claude.ai/api/mcp/auth_callback` |
 | `mcp-cli` | Claude Code, public (PKCE, no secret) | any `http://localhost:<port>/...` |
+| `web` | oauth2-proxy on the edge, browser sign-in for its `sso` sites (logs.peacocks.me), confidential | `https://<site>/oauth2/callback` for each, from the edge's config |
 
-Both only hand tokens to members of `mcp_users`. Access tokens are ES256 JWTs (`iss`
+`mcp` and `mcp-cli` only hand tokens to members of `mcp_users`, `web` only signs in members of `web_users`. Access tokens are ES256 JWTs (`iss`
 `https://auth.peacocks.me/oauth2/openid/<client>`, `aud` the client) valid for 15 minutes; clients refresh them.
 How the MCP servers check them: [modules/services/mcp/README.md](../../../modules/services/mcp/README.md#from-outside).
 
@@ -37,7 +38,8 @@ add chain=forward action=accept connection-state=new in-interface=wg-vpn src-add
 
    It's good for ten years. To replace it, delete `/var/lib/kanidm-cert/*.pem` on the VM, run
    `systemctl restart kanidm-cert kanidm`, copy it again and deploy ionos-de.
-3. Deploy `ionos-de` with `auth.nix` only (comment out `mcp.nix` until step 5), so ACME gets the certificate.
+3. Deploy `ionos-de` with `auth.nix` only (comment out `mcp.nix` and `logs.nix` until step 5, and the
+   `homelab.web.oauth` block in `auth.nix`), so ACME gets the certificate.
 4. Give yourself a credential. `idm_admin`'s password is reset on the VM, then a one-time link sets up the person.
    Every start of `kanidm.service` (deploys, reboots) resets it again for provisioning, so recover it right
    before each admin session:
@@ -50,16 +52,25 @@ add chain=forward action=accept connection-state=new in-interface=wg-vpn src-add
 
    Open the link it prints and add a passkey.
 
-5. Copy the `mcp` client's secret (Kanidm made it) into ionos-de's secrets alongside a cookie secret, then
-   deploy `ionos-de` with `mcp.nix`:
+5. Copy the `web` client's secret (Kanidm made it) into ionos-de's secrets alongside a cookie secret, then
+   deploy `ionos-de` with everything. The `mcp` client's secret only goes into Claude's connector settings, the
+   edge never needs it:
 
    ```sh
-   kanidm system oauth2 show-basic-secret mcp -H https://auth.peacocks.me -D idm_admin
-   sops hosts/edge/ionos-de/secrets.yaml   # kanidm-mcp-secret: <secret>, oauth2-proxy-cookie-secret: <openssl rand -hex 16>
+   kanidm system oauth2 show-basic-secret web -H https://auth.peacocks.me -D idm_admin
+   sops hosts/edge/ionos-de/secrets.yaml   # kanidm-web-secret: <secret>, oauth2-proxy-cookie-secret: <openssl rand -hex 16>
    ```
 
    Deploy `auth` before `ionos-de` whenever a client is added: oauth2-proxy looks each issuer up when it
    starts, and one that isn't there yet stays unverifiable until it restarts.
+
+## Sites behind sign-in
+
+`sso = true` on a `homelab.web` site of the edge (`hosts/edge/ionos-de`) puts Kanidm sign-in in front of all of it,
+for anything without its own login: no session, the browser goes to Kanidm and back. Deploy `auth` first (the
+`web` client gets the site's callback from the edge's config), then `ionos-de`. Only the session cookie counts
+there, an MCP client's token doesn't open it, the upstream gets `X-Forwarded-User`, and the access log names the
+user. Sessions are renewed every 15 minutes, so removing someone from `web_users` signs them out at the next renewal.
 
 ## People
 

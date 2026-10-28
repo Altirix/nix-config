@@ -1,4 +1,4 @@
-{ config, lib, ... }:
+{ lib, ... }:
 
 # The mcp VM's low-risk MCP servers at https://mcp.peacocks.me/<server>/mcp (streamable HTTP, no SSE), behind
 # OAuth: clients sign in to Kanidm (auth.nix, hosts/virtual/auth) and every request needs its access token, checked
@@ -37,16 +37,13 @@ in
     oauth = true;
   };
 
+  # Clients are sent to the mcp client's issuer, tokens of either client count. oauth2-proxy itself (and its secrets)
+  # is set up in auth.nix.
   homelab.web.oauth = {
-    issuer = issuer "mcp";
-    clientId = "mcp";
-    extraIssuers.${issuer "mcp-cli"} = "mcp-cli";
-    clientSecretFile = config.sops.secrets.kanidm-mcp-secret.path;
-    cookieSecretFile = config.sops.secrets.oauth2-proxy-cookie-secret.path;
+    resourceIssuer = issuer "mcp";
+    extraIssuers = {
+      ${issuer "mcp"} = "mcp";
+      ${issuer "mcp-cli"} = "mcp-cli";
+    };
   };
-
-  # From the host's secrets.yaml (sops.defaultSopsFile), only this host can read them.
-  sops.secrets = lib.genAttrs [ "kanidm-mcp-secret" "oauth2-proxy-cookie-secret" ] (_: {
-    restartUnits = [ "oauth2-proxy.service" ];
-  });
 }

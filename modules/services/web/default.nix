@@ -19,6 +19,8 @@ let
   snippet = file: vars: builtins.replaceStrings (map (n: "@${n}@") (lib.attrNames vars)) (lib.attrValues vars)
     (builtins.readFile ./config/${file});
 
+  ssoCheck = s: lib.optionalString s.sso (builtins.readFile ./config/sso-check.conf);
+
   # What every proxied location carries in place of nixpkgs' recommended headers (the http-level rest of
   # recommendedProxySettings, HTTP/1.1 to upstreams and timeouts, still applies).
   proxied = {
@@ -57,6 +59,13 @@ let
         type = types.bool;
         default = false;
       };
+      # Browser sign-in in front of the whole site (`/` and `locations`), for sites without their own login: no
+      # session, the browser is sent to the issuer (`oauth.issuer`) and back. Who may sign in is the issuer's call.
+      # Only the session cookie counts, bearer tokens don't. The access log names the user.
+      sso = mkOption {
+        type = types.bool;
+        default = false;
+      };
 
       # nginx's client_max_body_size for the site, e.g. "1g" for `locations` that take uploads.
       maxBodySize = mkOption {
@@ -90,6 +99,9 @@ let
 
   https = lib.any (s: s.https) (lib.attrValues cfg.sites);
   oauth = lib.any (s: s.oauth) (lib.attrValues cfg.sites);
+  sso = lib.any (s: s.sso) (lib.attrValues cfg.sites);
+  # Sites oauth2-proxy answers for, one way or the other.
+  proxy = oauth || sso;
 in
 {
   options.homelab.web = {
@@ -100,34 +112,39 @@ in
       default = { };
     };
 
-    # oauth2-proxy on loopback, checking the bearer tokens of sites with `oauth`: signature, issuer, audience
-    # (the client id) and expiry, offline against the issuer's keys. Who gets a token is the issuer's call.
+    # oauth2-proxy on loopback. It signs browsers in for `sso` sites with its own client, and checks the bearer
+    # tokens of `oauth` sites: signature, issuer, audience (the client id) and expiry, offline against the issuer's
+    # keys. Who gets a session or a token is the issuer's call.
     oauth = {
-      # The issuer sites advertise, and its client, e.g. Kanidm's https://auth.example.com/oauth2/openid/<client>.
+      # oauth2-proxy's own client (browser sign-in), e.g. Kanidm's https://auth.example.com/oauth2/openid/<client>.
       issuer = mkOption { type = types.str; };
       clientId = mkOption { type = types.str; };
-      # Scopes clients ask for.
+      # sops secrets: the client's secret, and a 32 character secret the session cookies are sealed with.
+      clientSecretFile = mkOption { type = types.str; };
+      cookieSecretFile = mkOption { type = types.str; };
+      # The issuer `oauth` sites send clients to (RFC 9728), and the scopes they ask for.
+      resourceIssuer = mkOption {
+        type = types.str;
+        default = cfg.oauth.issuer;
+      };
       scopes = mkOption {
         type = types.listOf types.str;
         default = [ "openid" ];
       };
-      # More clients whose tokens count, issuer -> client id.
+      # More clients whose bearer tokens count, issuer -> client id (resourceIssuer's among them).
       extraIssuers = mkOption {
         type = types.attrsOf types.str;
         default = { };
       };
-      # sops secrets: the client's secret and a 32 character cookie secret. Neither is used (no cookie logins),
-      # oauth2-proxy won't start without them.
-      clientSecretFile = mkOption { type = types.str; };
-      cookieSecretFile = mkOption { type = types.str; };
     };
   };
 
   config = lib.mkIf cfg.enable {
     assertions = lib.mapAttrsToList (name: s: {
       assertion = (s.root == null || s.upstream == null) && (s.https -> s.domains != [ ] && s.address == null)
-        && (s.oauth -> s.https) && (s.upstreamCertificate != null -> s.upstream != null && lib.hasPrefix "https://" s.upstream && s.domains != [ ]);
-      message = "web: site ${name} has both root and upstream, https without domains on every address, oauth without https, or upstreamCertificate without an https upstream and domains";
+        && (s.oauth || s.sso -> s.https) && !(s.oauth && s.sso)
+        && (s.upstreamCertificate != null -> s.upstream != null && lib.hasPrefix "https://" s.upstream && s.domains != [ ]);
+      message = "web: site ${name} has both root and upstream, https without domains on every address, oauth or sso without https (or both), or upstreamCertificate without an https upstream and domains";
     }) cfg.sites;
 
     # No account email: Let's Encrypt no longer sends expiry mail, and it would end up in the nix store.
@@ -154,7 +171,7 @@ in
           "/" = if s.upstream != null then proxied // {
             proxyPass = s.upstream;
             proxyWebsockets = true;
-            extraConfig = proxied.extraConfig + lib.optionalString (s.upstreamCertificate != null)
+            extraConfig = proxied.extraConfig + ssoCheck s + lib.optionalString (s.upstreamCertificate != null)
               (snippet "upstream-tls.conf" { certificate = "${s.upstreamCertificate}"; domain = lib.head s.domains; });
           } else if s.root != null then {
             tryFiles = "$uri $uri/ =404";
@@ -163,7 +180,7 @@ in
           };
         } // lib.mapAttrs (prefix: url: proxied // {
           proxyPass = "http://${upstreamName name prefix}${(parse url).path}";
-          extraConfig = proxied.extraConfig
+          extraConfig = proxied.extraConfig + ssoCheck s
             + lib.optionalString s.oauth (snippet "oauth-check.conf" { inherit prefix; })
             + snippet "proxy-location.conf" { inherit prefix; inherit (parse url) path; };
         }) s.locations
@@ -174,18 +191,19 @@ in
               default_type application/json;
               return 200 '${builtins.toJSON {
                 resource = "https://${lib.head s.domains}${prefix}";
-                authorization_servers = [ cfg.oauth.issuer ];
+                authorization_servers = [ cfg.oauth.resourceIssuer ];
                 scopes_supported = cfg.oauth.scopes;
                 bearer_methods_supported = [ "header" ];
               }}';
             '';
           }) s.locations);
-        extraConfig = lib.optionalString s.oauth ("access_log ${accessLog} oauth;\n"
-            + snippet "oauth-server.conf" {
+        extraConfig = lib.optionalString (s.oauth || s.sso) "access_log ${accessLog} user;\n"
+          + lib.optionalString s.oauth (snippet "oauth-server.conf" {
               proxy = config.services.oauth2-proxy.httpAddress;
               domain = lib.head s.domains;
               scopes = lib.concatStringsSep " " cfg.oauth.scopes;
             })
+          + lib.optionalString s.sso (snippet "sso-server.conf" { proxy = config.services.oauth2-proxy.httpAddress; })
           + lib.optionalString (s.maxBodySize != null) "client_max_body_size ${s.maxBodySize};\n";
       }) cfg.sites;
 
@@ -195,22 +213,30 @@ in
           extraConfig = "keepalive 8;";
         }) s.locations) cfg.sites);
 
-      # Access log lines of oauth sites name the user (the token's sub).
-      # Access logs go to the journal (SYSLOG_IDENTIFIER=nginx_access) and on to the logs VM, not a file.
+      # Access logs go to the journal (SYSLOG_IDENTIFIER=nginx_access) and on to the logs VM, not a file. On oauth
+      # and sso sites they name the user (the token's sub, the session's preferred_username).
       commonHttpConfig = ''
         access_log ${accessLog};
-      '' + lib.optionalString oauth ''
-        log_format oauth '$remote_addr $oauth_user [$time_local] "$request" $status $body_bytes_sent $request_time';
+      '' + lib.optionalString proxy ''
+        log_format user '$remote_addr $web_user [$time_local] "$request" $status $body_bytes_sent $request_time';
       '';
     };
 
-    services.oauth2-proxy = lib.mkIf oauth {
+    services.oauth2-proxy = lib.mkIf proxy {
       enable = true;
       provider = "oidc";
       oidcIssuerUrl = cfg.oauth.issuer;
       clientID = cfg.oauth.clientId;
       inherit (cfg.oauth) clientSecretFile;
-      cookie.secretFile = cfg.oauth.cookieSecretFile;
+      scope = "openid profile";
+      # Kanidm asks for consent itself, once per client.
+      approvalPrompt = "auto";
+      cookie = {
+        secretFile = cfg.oauth.cookieSecretFile;
+        # Sessions are renewed with the refresh token this often, someone removed from the issuer's group (or
+        # signed out there) loses theirs at the next renewal instead of when the cookie runs out.
+        refresh = "15m";
+      };
       email.domains = [ "*" ];
       setXauthrequest = true;
       reverseProxy = true;
@@ -222,11 +248,16 @@ in
         extra-jwt-issuers = lib.mapAttrsToList (issuer: client: "${issuer}=${client}") cfg.oauth.extraIssuers;
         # Access tokens carry no email, without this it asks the userinfo endpoint and fails.
         skip-claims-from-profile-url = true;
+        # Kanidm sends no email for people without one, the session is named after the user instead.
+        oidc-email-claim = "preferred_username";
+        # Kanidm requires PKCE.
+        code-challenge-method = "S256";
+        cookie-samesite = "lax";
       };
     };
 
     # It exits while the issuer is unreachable (discovery at start), don't hit the start limit waiting for it.
-    systemd.services.oauth2-proxy.serviceConfig.RestartSec = lib.mkIf oauth 5;
+    systemd.services.oauth2-proxy.serviceConfig.RestartSec = lib.mkIf proxy 5;
 
     systemd.tmpfiles.rules = lib.mapAttrsToList (_: s: "d ${s.root} 0755 admin users -")
       (lib.filterAttrs (_: s: s.root != null) cfg.sites);

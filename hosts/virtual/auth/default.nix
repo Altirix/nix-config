@@ -1,7 +1,10 @@
-{ pkgs, ... }:
+{ lib, pkgs, nodes, ... }:
 
 # Kanidm, SSO for the lab at https://auth.peacocks.me (through the edge, hosts/edge/ionos-de/auth.nix). Groups,
 # persons and OAuth2 clients are provisioned from here, credentials are each person's own (README.md).
+let
+  ssoSites = lib.attrValues (lib.filterAttrs (_: s: s.sso) nodes.ionos-de.config.homelab.web.sites);
+in
 {
   imports = [
     ../../../modules/virtual.nix
@@ -34,15 +37,26 @@
     provision = {
       enable = true;
 
-      # Who may sign in to the MCP servers (hosts/edge/ionos-de/mcp.nix).
+      # Who may sign in to the MCP servers (hosts/edge/ionos-de/mcp.nix), and to the edge's sso sites (logs.peacocks.me).
       groups.mcp_users = { };
+      groups.web_users = { };
 
       persons.altirix = {
         displayName = "Altirix";
-        groups = [ "mcp_users" ];
+        groups = [ "mcp_users" "web_users" ];
       };
 
       systems.oauth2 = {
+        # oauth2-proxy on the edge, signing browsers in for every `sso` site there (one callback each). Its secret
+        # is Kanidm's own, see README.md.
+        web = {
+          displayName = "Lab sites";
+          originUrl = map (s: "https://${lib.head s.domains}/oauth2/callback") ssoSites;
+          originLanding = "https://${lib.head (lib.head ssoSites).domains}/";
+          scopeMaps.web_users = [ "openid" "profile" ];
+          # preferred_username "altirix" instead of "altirix@auth.peacocks.me", it names the user in the edge's logs.
+          preferShortUsername = true;
+        };
         # Claude's connectors (claude.ai, the apps). Its secret is Kanidm's own, see README.md.
         mcp = {
           displayName = "MCP";
@@ -66,7 +80,7 @@
   # kanidmd won't start without TLS: a self-signed certificate for the origin's name, good for ten years and remade
   # only within 30 days of expiring (or if it's missing). The edge accepts only this one (tls.pem next to this
   # file, README.md), so a new one needs pinning again. Not `kanidmd cert-generate`, its certificate expires after
-  # five days.
+  # five days. A leaf (CA:FALSE, serverAuth): Rust clients like the kanidm CLI refuse a CA certificate as the server's.
   systemd.services.kanidm-cert = {
     requiredBy = [ "kanidm.service" ];
     before = [ "kanidm.service" ];
@@ -74,7 +88,9 @@
     script = ''
       [ -e key.pem ] && [ -e chain.pem ] && openssl x509 -checkend 2592000 -noout -in chain.pem && exit 0
       openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3650 \
-        -subj /CN=auth.peacocks.me -addext subjectAltName=DNS:auth.peacocks.me -keyout key.pem -out chain.pem
+        -subj /CN=auth.peacocks.me -addext subjectAltName=DNS:auth.peacocks.me \
+        -addext basicConstraints=critical,CA:FALSE -addext keyUsage=critical,digitalSignature \
+        -addext extendedKeyUsage=serverAuth -keyout key.pem -out chain.pem
     '';
     serviceConfig = {
       Type = "oneshot";

@@ -40,6 +40,7 @@
       query = {
         listen = [{ addr = "0.0.0.0"; port = 9427; }];
         locations."/select/".proxyPass = "http://127.0.0.1:9429";
+        locations."= /".return = "302 /select/vmui/";
         locations."/".return = "404";
       };
     };

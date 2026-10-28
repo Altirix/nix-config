@@ -8,8 +8,9 @@
     ./storage.nix
     ./networking.nix
     ./services.nix
-    ./auth.nix  # needs auth.peacocks.me pointed here
-    ./mcp.nix   # needs kanidm-mcp-secret, oauth2-proxy-cookie-secret in secrets.yaml and mcp.peacocks.me pointed here
+    ./auth.nix  # needs kanidm-web-secret, oauth2-proxy-cookie-secret in secrets.yaml and auth.peacocks.me pointed here
+    ./mcp.nix   # needs mcp.peacocks.me pointed here
+    ./logs.nix  # needs logs.peacocks.me pointed here
   ];
 
   system.stateVersion = "26.05";
