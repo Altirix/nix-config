@@ -1,3 +1,3 @@
 {
-  homelab.labs.address = "10.100.1.13";
+  homelab.labs.address = "10.100.0.10";
 }

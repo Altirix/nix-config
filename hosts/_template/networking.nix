@@ -2,5 +2,5 @@
 # live services set one and the hypervisors pin it to this instance.
 # Hosts on a VLAN trunk use homelab.lan instead, see hosts/compute/*/networking.nix.
 {
-  # homelab.labs.address = "10.100.1.20";
+  # homelab.labs.address = "10.100.2.20";   # pick the zone: modules/networking/README.md
 }

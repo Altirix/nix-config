@@ -11,7 +11,7 @@ in
     # VictoriaLogs, null ships nothing (rea-dynamic: it may not open connections).
     server = mkOption {
       type = types.nullOr types.str;
-      default = "http://10.100.1.14:9428";
+      default = "http://10.100.0.11:9428";
     };
 
     # Files followed into the journal as SYSLOG_IDENTIFIER=<name>, read with `group`'s permissions.

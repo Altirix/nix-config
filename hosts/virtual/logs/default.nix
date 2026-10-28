@@ -1,6 +1,6 @@
 { ... }:
 
-# VictoriaLogs, every host's journal (modules/system/logs.nix) at http://10.100.1.14:9428, with its web UI at
+# VictoriaLogs, every host's journal (modules/system/logs.nix) at http://10.100.0.11:9428, with its web UI at
 # /select/vmui. Who may send and query is the router's call (README.md). Hosts can only add lines, nothing they
 # send changes or removes what's stored.
 {

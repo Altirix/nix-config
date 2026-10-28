@@ -6,11 +6,28 @@ Where incus instances live. labs only reaches the router: instance ports are iso
 (`security.port_isolation`), VMs talk to each other through the router or directly over labs-mesh. The
 hypervisors never talk to or route for it (`services/incus/config/instance-isolation.nft`).
 
-| Range | For |
-|---|---|
-| `10.100.0.0/24` | infra (`10.100.0.1` is the router) |
-| `10.100.1.0/24`-`10.100.254.0/24` | services, static |
-| `10.100.255.0/24` | the router's DHCP pool, only for setup |
+Every address is a pinned /32 routed through the router, so the /24 a VM sits in is its trust zone: router
+rules name zones, not hosts. Same VLAN, same bridge, a zone is only an address range.
+
+| Range | Zone | For |
+|---|---|---|
+| `10.100.0.0/24` | shared | the router (`10.100.0.1`) and what every VM may reach on its ports: auth `.10`, logs `.11`. They open nothing themselves |
+| `10.100.1.0/24` | agents | MCP and agent VMs, untrusted: mcp `.11`, rea-dynamic `.12` (modules/services/mcp/README.md, Router) |
+| `10.100.2.0/24` | apps | everything else serving something: partdb `.10` |
+| `10.100.3.0/24`-`10.100.254.0/24` | | free, e.g. Kubernetes nodes |
+| `10.100.255.0/24` | setup | the router's DHCP pool, only for setup |
+
+The shared zone's VMs open nothing, so one that's taken can't reach the internet, the router, home or another
+VM. Their deploys push the whole closure (no `--use-substitutes`). At the top; the holes into them
+(`labs: logs in`, `labs: edge to auth`) are added after, so they sit above:
+
+```routeros
+/ip firewall filter
+add chain=input action=drop connection-state=new src-address=10.100.0.2-10.100.0.254 comment="labs: shared opens nothing" place-before=0
+add chain=forward action=drop connection-state=new src-address=10.100.0.2-10.100.0.254 comment="labs: shared opens nothing" place-before=0
+```
+
+Their journals still reach logs: `labs: logs in` sits above this.
 
 A VM that serves something sets `homelab.labs.address` (a /32 with the router on-link). The hypervisors then
 pin that IP to the incus instance of the same name (profile `<name>`, `security.ipv4_filtering`), so no other

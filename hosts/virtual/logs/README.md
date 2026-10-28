@@ -1,6 +1,6 @@
 # logs
 
-VictoriaLogs at `http://10.100.1.14:9428`, the lab's logs in one place. Every host ships its journal to it
+VictoriaLogs at `http://10.100.0.11:9428`, the lab's logs in one place. Every host ships its journal to it
 (`modules/system/logs.nix`, `systemd-journal-upload`, which resumes where it stopped after an outage), log files
 that bypass the journal are followed into it first (`homelab.logs.files`, e.g. `nginx-access` on the edge), and
 Claude Code sends its tool calls over OpenTelemetry ([MCP usage](../../../modules/services/mcp/README.md#usage)).
@@ -9,7 +9,7 @@ Claude Code sends its tool calls over OpenTelemetry ([MCP usage](../../../module
 Hosts can only add lines. What's stored is only changed or removed on this VM, so a compromised host can't clean up
 after itself, but it can flood or forge its own lines.
 
-Web UI: `http://10.100.1.14:9428/select/vmui`. Queries are [LogsQL](https://docs.victoriametrics.com/victorialogs/logsql/):
+Web UI: `http://10.100.0.11:9428/select/vmui`. Queries are [LogsQL](https://docs.victoriametrics.com/victorialogs/logsql/):
 
 ```
 _HOSTNAME:ionos-de _SYSTEMD_UNIT:sshd.service                    # ssh on the edge
@@ -20,20 +20,20 @@ _HOSTNAME:* | stats by (_HOSTNAME) count()                         # who's sendi
 
 ## Router (MikroTik)
 
-Senders: the edge's tunnel address, mgmt (hypervisors), home (printers, Claude Code, the UI) and the labs VMs that
-ship, never `rea-dynamic` (`10.100.1.12`). At the top, ahead of `labs: mcp to the internet only` (mcp's journal
-goes to a private address) and `labs: only home and tunnel in`:
+Senders: the edge's tunnel address, mgmt (hypervisors), home (printers, Claude Code, the UI) and every labs zone
+(modules/networking/README.md), never `rea-dynamic` (`10.100.1.12`, excluded in the rule itself). At the top, ahead
+of `labs: rea-dynamic opens nothing`, `labs: mcp to the internet only` (mcp's journal goes to a private address)
+and `labs: only home and tunnel in`:
 
 ```routeros
 /ip firewall address-list
 add list=log-senders address=10.0.0.1 comment="edge"
 add list=log-senders address=10.90.0.0/24 comment="mgmt"
 add list=log-senders address=10.10.0.0/24 comment="home"
-add list=log-senders address=10.100.1.10-10.100.1.11 comment="partdb, mcp"
-add list=log-senders address=10.100.1.13 comment="auth"
+add list=log-senders address=10.100.0.0/16 comment="labs"
 
 /ip firewall filter
-add chain=forward action=accept connection-state=new src-address-list=log-senders dst-address=10.100.1.14 protocol=tcp dst-port=9428 comment="labs: logs in" place-before=0
+add chain=forward action=accept connection-state=new src-address-list=log-senders src-address=!10.100.1.12 dst-address=10.100.0.11 protocol=tcp dst-port=9428 comment="labs: logs in" place-before=0
 ```
 
 The same port serves queries, so anyone on home can read every log (MCP calls' arguments included). Narrow
@@ -42,7 +42,7 @@ The same port serves queries, so anyone on home can read every log (MCP calls' a
 ## Set up
 
 1. Install the VM ([hosts/README.md](../../README.md#add-a-vm)), deploy it, then the hypervisors so they pin
-   `10.100.1.14`. Add the router rules.
+   `10.100.0.11`. Add the router rules.
 2. Give it a data volume (VictoriaLogs won't start without it):
 
    ```sh

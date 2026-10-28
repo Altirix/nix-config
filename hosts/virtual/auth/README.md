@@ -1,6 +1,6 @@
 # auth
 
-Kanidm at `https://auth.peacocks.me`, SSO for the lab. The VM (`10.100.1.13`) serves it on `8443` with its own
+Kanidm at `https://auth.peacocks.me`, SSO for the lab. The VM (`10.100.0.10`) serves it on `8443` with its own
 self-signed certificate (`kanidm-cert.service`), ionos-de terminates TLS for the name and proxies over the tunnel
 (`hosts/edge/ionos-de/auth.nix`). Groups, persons and OAuth2 clients are provisioned from `default.nix` on every
 deploy (`kanidm.service` post-start), credentials (passkeys, passwords, TOTP) are each person's own and live only in
@@ -21,14 +21,14 @@ Only the edge gets in, before `labs: only home and tunnel in`:
 
 ```routeros
 /ip firewall filter
-add chain=forward action=accept connection-state=new in-interface=wg-vpn src-address=10.0.0.1 dst-address=10.100.1.13 protocol=tcp dst-port=8443 comment="labs: edge to auth" place-before=[find comment="labs: only home and tunnel in"]
+add chain=forward action=accept connection-state=new in-interface=wg-vpn src-address=10.0.0.1 dst-address=10.100.0.10 protocol=tcp dst-port=8443 comment="labs: edge to auth" place-before=[find comment="labs: only home and tunnel in"]
 ```
 
 ## Set up
 
 1. Point an A record for `auth.peacocks.me` at the VPS.
 2. Install the VM ([hosts/README.md](../../README.md#add-a-vm)), deploy it, then the hypervisors so they pin
-   `10.100.1.13`. Add the router rule.
+   `10.100.0.10`. Add the router rule.
    Pin its certificate on the edge (ionos-de warns while it's missing, and then doesn't check what answers):
 
    ```sh

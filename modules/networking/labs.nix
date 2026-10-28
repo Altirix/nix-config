@@ -10,7 +10,7 @@ let
 in
 {
   options.homelab.labs = {
-    # Bare IP, e.g. 10.100.1.20, always a /32. null takes a DHCP lease from the setup pool.
+    # Bare IP, e.g. 10.100.2.20, always a /32, its /24 is its trust zone (README.md). null takes a DHCP lease from the setup pool.
     address = mkOption {
       type = types.nullOr types.str;
       default = null;

@@ -186,7 +186,7 @@ Two views, both in VictoriaLogs (`hosts/virtual/logs`):
       "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
       "OTEL_LOGS_EXPORTER": "otlp",
       "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
-      "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://10.100.1.14:9428/insert/opentelemetry/v1/logs",
+      "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://10.100.0.11:9428/insert/opentelemetry/v1/logs",
       "OTEL_LOG_TOOL_DETAILS": "1"
     }
   }
