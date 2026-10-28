@@ -13,11 +13,14 @@ let
     in { server = lib.elemAt m 0; path = lib.elemAt m 1; };
   upstreamName = name: prefix: "${name}${lib.replaceStrings [ "/" "." ] [ "_" "_" ] (lib.removeSuffix "/" prefix)}";
 
+  accessLog = "syslog:server=unix:/dev/log,tag=nginx_access,nohostname";
+
   # config/<file> with @name@ placeholders filled in.
   snippet = file: vars: builtins.replaceStrings (map (n: "@${n}@") (lib.attrNames vars)) (lib.attrValues vars)
     (builtins.readFile ./config/${file});
 
-  # What every proxied location carries in place of nixpkgs' recommended headers.
+  # What every proxied location carries in place of nixpkgs' recommended headers (the http-level rest of
+  # recommendedProxySettings, HTTP/1.1 to upstreams and timeouts, still applies).
   proxied = {
     recommendedProxySettings = false;
     extraConfig = builtins.readFile ./config/proxy-headers.conf;
@@ -123,8 +126,8 @@ in
   config = lib.mkIf cfg.enable {
     assertions = lib.mapAttrsToList (name: s: {
       assertion = (s.root == null || s.upstream == null) && (s.https -> s.domains != [ ] && s.address == null)
-        && (s.oauth -> s.https) && (s.upstreamCertificate != null -> s.upstream != null && s.domains != [ ]);
-      message = "web: site ${name} has both root and upstream, https without domains on every address, oauth without https, or upstreamCertificate without an upstream and domains";
+        && (s.oauth -> s.https) && (s.upstreamCertificate != null -> s.upstream != null && lib.hasPrefix "https://" s.upstream && s.domains != [ ]);
+      message = "web: site ${name} has both root and upstream, https without domains on every address, oauth without https, or upstreamCertificate without an https upstream and domains";
     }) cfg.sites;
 
     # No account email: Let's Encrypt no longer sends expiry mail, and it would end up in the nix store.
@@ -135,6 +138,7 @@ in
       recommendedOptimisation = true;
       recommendedGzipSettings = true;
       recommendedTlsSettings = true;
+      recommendedProxySettings = true;
 
       virtualHosts = lib.mapAttrs (name: s: {
         inherit (s) root default;
@@ -147,7 +151,7 @@ in
         enableACME = s.https;
         forceSSL = s.https;
         locations = {
-          "/" = if s.upstream != null then lib.recursiveUpdate proxied {
+          "/" = if s.upstream != null then proxied // {
             proxyPass = s.upstream;
             proxyWebsockets = true;
             extraConfig = proxied.extraConfig + lib.optionalString (s.upstreamCertificate != null)
@@ -176,7 +180,7 @@ in
               }}';
             '';
           }) s.locations);
-        extraConfig = lib.optionalString s.oauth ("access_log /var/log/nginx/access.log oauth;\n"
+        extraConfig = lib.optionalString s.oauth ("access_log ${accessLog} oauth;\n"
             + snippet "oauth-server.conf" {
               proxy = config.services.oauth2-proxy.httpAddress;
               domain = lib.head s.domains;
@@ -192,13 +196,13 @@ in
         }) s.locations) cfg.sites);
 
       # Access log lines of oauth sites name the user (the token's sub).
-      commonHttpConfig = lib.optionalString oauth ''
+      # Access logs go to the journal (SYSLOG_IDENTIFIER=nginx_access) and on to the logs VM, not a file.
+      commonHttpConfig = ''
+        access_log ${accessLog};
+      '' + lib.optionalString oauth ''
         log_format oauth '$remote_addr $oauth_user [$time_local] "$request" $status $body_bytes_sent $request_time';
       '';
     };
-
-    # Into the journal and on to the logs VM (modules/system/logs.nix).
-    homelab.logs.files.nginx-access = { path = "/var/log/nginx/access.log"; group = "nginx"; };
 
     services.oauth2-proxy = lib.mkIf oauth {
       enable = true;

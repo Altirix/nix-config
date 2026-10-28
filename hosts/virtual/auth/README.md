@@ -27,8 +27,8 @@ add chain=forward action=accept connection-state=new in-interface=wg-vpn src-add
 ## Set up
 
 1. Point an A record for `auth.peacocks.me` at the VPS.
-2. Install the VM ([hosts/README.md](../../README.md#add-a-vm)), deploy it, then the hypervisors so they pin
-   `10.100.0.10`. Add the router rule.
+2. Deploy the hypervisors so they pin `10.100.0.10` (the VM has no network until then), then install the VM
+   ([hosts/README.md](../../README.md#add-a-vm)). Add the router rule.
    Pin its certificate on the edge (ionos-de warns while it's missing, and then doesn't check what answers):
 
    ```sh

@@ -30,14 +30,16 @@ The work zone, home in on every port (the rest of labs only gets ssh and RDP):
 add chain=forward action=accept connection-state=new in-interface="VLAN 10 HomeNet" dst-address=10.100.3.0/24 comment="labs: home to work" place-before=[find comment="labs: only home and tunnel in"]
 ```
 
-The shared zone's VMs open nothing, so one that's taken can't reach the internet, the router, home or another
-VM. Their deploys push the whole closure (no `--use-substitutes`). At the top; the holes into them
-(`labs: logs in`, `labs: edge to auth`) are added after, so they sit above:
+The shared zone's VMs open nothing but NTP (`networking.timeServers` in `modules/virtual.nix`, by address so it needs
+no DNS: Kanidm's tokens and passkeys depend on the clock), so one that's taken can't reach the internet, the router,
+home or another VM. Their deploys push the whole closure (no `--use-substitutes`). At the top; the holes
+(`labs: shared time`, `labs: logs in`, `labs: edge to auth`) are added after, so they sit above:
 
 ```routeros
 /ip firewall filter
 add chain=input action=drop connection-state=new src-address=10.100.0.2-10.100.0.254 comment="labs: shared opens nothing" place-before=0
 add chain=forward action=drop connection-state=new src-address=10.100.0.2-10.100.0.254 comment="labs: shared opens nothing" place-before=0
+add chain=forward action=accept connection-state=new src-address=10.100.0.2-10.100.0.254 dst-address=162.159.200.1,162.159.200.123 protocol=udp dst-port=123 comment="labs: shared time" place-before=0
 ```
 
 Their journals still reach logs: `labs: logs in` sits above this.

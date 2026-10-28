@@ -63,15 +63,16 @@
     };
   };
 
-  # kanidmd won't start without TLS: a self-signed certificate for the origin's name, made once and good for ten
-  # years. The edge accepts only this one (tls.pem next to this file, README.md). Not `kanidmd cert-generate`, its
-  # certificate expires after five days.
+  # kanidmd won't start without TLS: a self-signed certificate for the origin's name, good for ten years and remade
+  # only within 30 days of expiring (or if it's missing). The edge accepts only this one (tls.pem next to this
+  # file, README.md), so a new one needs pinning again. Not `kanidmd cert-generate`, its certificate expires after
+  # five days.
   systemd.services.kanidm-cert = {
     requiredBy = [ "kanidm.service" ];
     before = [ "kanidm.service" ];
     path = [ pkgs.openssl ];
     script = ''
-      [ -e key.pem ] && [ -e chain.pem ] && exit 0
+      [ -e key.pem ] && [ -e chain.pem ] && openssl x509 -checkend 2592000 -noout -in chain.pem && exit 0
       openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3650 \
         -subj /CN=auth.peacocks.me -addext subjectAltName=DNS:auth.peacocks.me -keyout key.pem -out chain.pem
     '';

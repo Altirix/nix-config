@@ -18,6 +18,10 @@
     dns = [ "1.1.1.1" "1.0.0.1" ];
   };
 
+  # time.cloudflare.com by address, so time needs no DNS: the router lets the shared zone (no other connections)
+  # reach exactly these (networking/README.md), tokens and passkeys there depend on the clock.
+  networking.timeServers = [ "162.159.200.1" "162.159.200.123" ];
+
   virtualisation.incus.agent.enable = lib.mkDefault true;
 
   networking.nftables.enable = true;

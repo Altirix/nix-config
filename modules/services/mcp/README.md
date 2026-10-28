@@ -172,7 +172,7 @@ curl -s https://auth.peacocks.me/oauth2/token -d client_id=mcp-cli -d scope=open
 
 Two views, both in VictoriaLogs (`hosts/virtual/logs`):
 
-- **Every client, per request**: the edge's access log (`SYSLOG_IDENTIFIER:nginx-access`) has the user, path,
+- **Every client, per request**: the edge's access log (`SYSLOG_IDENTIFIER:nginx_access`) has the user, path,
   status and duration of each request through `mcp.peacocks.me`. It can't see inside them (which tool, with what).
 - **Claude Code, per tool call**: Claude Code's own OpenTelemetry export has a `claude_code.tool_result` event for
   every tool it calls, MCP or not, with the tool, its MCP server, success, error and duration, and with
