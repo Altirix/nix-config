@@ -25,7 +25,7 @@ virtual/partdb/            Part-DB, electronic parts inventory (labs only, no SS
 virtual/rea-dynamic/       REA per project and session, dynamic analysis, no egress, reset from a snapshot (see modules/services/mcp/README.md)
 ```
 
-The template is an incus VM (`modules/virtual.nix`, one ext4 disk, DHCP). `modules/compute.nix`
+The template is an incus VM (`modules/virtual.nix`, one ext4 disk, a pinned labs address). `modules/compute.nix`
 is only for the three hypervisors; their `storage.nix`/`networking.nix` show zfs
 roots, ceph disks, VLAN trunks and the mesh.
 
@@ -37,10 +37,14 @@ nixos-generate-config --show-hardware-config > hosts/virtual/<name>/hardware-con
 ls -l /dev/disk/by-id/   # fill in storage.nix
 ```
 
+Pick its address in a zone ([modules/networking/README.md](../modules/networking/README.md)) and set it in
+`networking.nix`, deploy the hypervisors so they pin it (an instance without a pin can't send anything on labs).
 Install it from the hypervisor it runs on, over vsock (works before it has a network, see
-[modules/services/incus/README.md](../modules/services/incus/README.md)):
+[modules/services/incus/README.md](../modules/services/incus/README.md)). The installer doesn't know its address,
+give it the same one by hand first so it can fetch what it needs:
 
 ```sh
+ssh root@incus-<name> 'ip addr add <address>/32 dev enp5s0 && ip route add 10.100.0.1 dev enp5s0 && ip route add default via 10.100.0.1'
 nixos-anywhere --flake .#<name> --target-host root@incus-<name> --extra-files <dir with etc/ssh/ssh_host_ed25519_key>
 ```
 

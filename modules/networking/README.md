@@ -14,8 +14,21 @@ rules name zones, not hosts. Same VLAN, same bridge, a zone is only an address r
 | `10.100.0.0/24` | shared | the router (`10.100.0.1`) and what every VM may reach on its ports: auth `.10`, logs `.11`. They open nothing themselves |
 | `10.100.1.0/24` | agents | MCP and agent VMs, untrusted: mcp `.11`, rea-dynamic `.12` (modules/services/mcp/README.md, Router) |
 | `10.100.2.0/24` | apps | everything else serving something: partdb `.10` |
-| `10.100.3.0/24`-`10.100.254.0/24` | | free, e.g. Kubernetes nodes |
-| `10.100.255.0/24` | setup | the router's DHCP pool, only for setup |
+| `10.100.3.0/24` | work | VMs you work in (Windows, vGPU guests, dev boxes), home reaches every port |
+| `10.100.4.0/24`-`10.100.254.0/24` | | free, e.g. Kubernetes nodes |
+| `10.100.255.0/24` | | unused: the router's old DHCP pool, nothing on labs can take a lease (below) |
+
+A zone only means something if a VM can't pick its address. Every labs NIC filters what it sends to the address
+pinned to its instance (`security.ipv4_filtering`/`ipv6_filtering`, `labsNic` in `modules/compute.nix`), and labs
+has no DHCP in incus, so an instance without a pin can't send IPv4 or IPv6 at all. Changing the address inside a
+VM, root or not, only cuts it off. Turn the router's DHCP server for VLAN 100 off, nothing can use it.
+
+The work zone, home in on every port (the rest of labs only gets ssh and RDP):
+
+```routeros
+/ip firewall filter
+add chain=forward action=accept connection-state=new in-interface="VLAN 10 HomeNet" dst-address=10.100.3.0/24 comment="labs: home to work" place-before=[find comment="labs: only home and tunnel in"]
+```
 
 The shared zone's VMs open nothing, so one that's taken can't reach the internet, the router, home or another
 VM. Their deploys push the whole closure (no `--use-substitutes`). At the top; the holes into them
@@ -29,10 +42,10 @@ add chain=forward action=drop connection-state=new src-address=10.100.0.2-10.100
 
 Their journals still reach logs: `labs: logs in` sits above this.
 
-A VM that serves something sets `homelab.labs.address` (a /32 with the router on-link). The hypervisors then
-pin that IP to the incus instance of the same name (profile `<name>`, `security.ipv4_filtering`), so no other
-instance can take it. Deploy the VM, then the hypervisors. Instances that aren't hosts of this flake (Windows)
-go in `otherAddresses` in `modules/compute.nix` and set the address themselves.
+Every VM that needs a network sets `homelab.labs.address` (a /32 with the router on-link). The hypervisors then
+pin that IP to the incus instance of the same name (profile `<name>`), the only address it can send from. Deploy
+the hypervisors, then the VM (until then it has no network). Instances that aren't hosts of this flake (Windows,
+vGPU guests) go in `otherAddresses` in `modules/compute.nix` and set the address themselves.
 
 The router routes VM to VM back out VLAN 100 (no ICMP redirects) and the switch isolates the
 hypervisor ports from each other (protected ports), otherwise VMs on different hosts still share L2.
