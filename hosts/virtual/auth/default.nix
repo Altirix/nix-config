@@ -37,7 +37,7 @@ in
     provision = {
       enable = true;
 
-      # Who may sign in to the MCP servers (hosts/edge/ionos-de/mcp.nix), and to the edge's sso sites (logs.peacocks.me).
+      # Who may sign in to the MCP servers (hosts/edge/ionos-de/mcp.nix), and to the edge's sso sites (logs, parts).
       groups.mcp_users = { };
       groups.web_users = { };
 

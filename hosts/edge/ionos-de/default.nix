@@ -11,6 +11,7 @@
     ./auth.nix  # needs kanidm-web-secret, oauth2-proxy-cookie-secret in secrets.yaml and auth.peacocks.me pointed here
     ./mcp.nix   # needs mcp.peacocks.me pointed here
     ./logs.nix  # needs logs.peacocks.me pointed here
+    ./partdb.nix  # needs parts.peacocks.me pointed here
   ];
 
   system.stateVersion = "26.05";
