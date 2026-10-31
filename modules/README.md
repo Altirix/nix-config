@@ -7,7 +7,8 @@ compute/                 incus certificates
 storage.nix              HDD storage nodes
 virtual.nix              incus VMs
 edge.nix                 public-facing hosts: wireguard, egress NAT, port forwards, static sites, ssh
-printer.nix              3D printers: klipper, moonraker, mainsail, mDNS
+sbc.nix                  SBCs: shared Wi-Fi secrets, DHCP, SSH, mDNS and storage defaults
+printer.nix              printer SBCs: sbc.nix + klipper, moonraker, mainsail
 desktop.nix, desktop/    not wired up yet
 system/                  ssh (admin keys in keys/admin/*.pub), secrets, boot (grub across mirrored ESPs)
 hardware/                rock5c.nix + rock5c/ (U-Boot + RK3582 unlock patches from Armbian, extlinux, panthor shader mask, AIC8800 wifi)
