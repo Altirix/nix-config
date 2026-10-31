@@ -15,6 +15,7 @@
     ./networking/wifi.nix
     ./disks/zfs.nix
     ./hardware/rock5c.nix
+    ./hardware/tomato.nix
   ];
 
   # --- Boot ---
