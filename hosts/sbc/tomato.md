@@ -109,9 +109,11 @@ eMMC. Derive its public age recipient in the installer with:
 
 Only the public `age1...` recipient belongs in `.sops.yaml`; keep the private
 SSH key on the board. The copy steps below preserve that key during installation.
-Do not install the SOPS-enabled configuration until its key has been authorized.
-An already-built USB image still contains its original prebuilt Colluvium system;
-rebuild the system closure or installer to pick up this configuration.
+The USB image always ships the SOPS-enabled Colluvium system. Until this key is
+authorized, the first installation boots with wired networking but secret
+decryption fails during activation and Wi-Fi stays down. After authorizing the
+key, update the installed host with `nixos-rebuild` (below), or rebuild the
+installer image to get a prebuilt system that decrypts on first boot.
 
 ## Install to eMMC
 
