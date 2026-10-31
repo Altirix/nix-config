@@ -3,7 +3,7 @@
 # Radxa ROCK 5C / 5C Lite. The Lite is an RK3582: an RK3588S with blocks marked bad in OTP
 # (ip-state). U-Boot fails those nodes in the device tree it hands the kernel.
 #
-# patches/ are from Armbian (armbian/build patch/u-boot/v2026.01/board_radxa-e52c, 17853b9):
+# rock5c/patches/ are from Armbian (armbian/build patch/u-boot/v2026.01/board_radxa-e52c, 17853b9):
 # - uboot-rk3582-support.patch: RK3582 ip-state fixup, plus the vendor policy of always
 #   failing two big cores, the GPU and one rkvdec/rkvenc core.
 # - uboot-rk3582-unlock.patch: drops that policy, only blocks this chip's OTP marks bad are
@@ -21,9 +21,9 @@ let
   # U-Boot needs the DDR init blob from rkbin, it is the only unfree package let through.
   uboot = pkgs.buildUBoot {
     defconfig = "rock-5c-rk3588s_defconfig";
-    extraPatches = [ ./patches/uboot-rk3582-support.patch ]
-      ++ lib.optional cfg.unlocked ./patches/uboot-rk3582-unlock.patch
-      ++ lib.optional (cfg.gpuShaderMask != null) ./patches/uboot-rk3582-keep-gpu.patch;
+    extraPatches = [ ./rock5c/patches/uboot-rk3582-support.patch ]
+      ++ lib.optional cfg.unlocked ./rock5c/patches/uboot-rk3582-unlock.patch
+      ++ lib.optional (cfg.gpuShaderMask != null) ./rock5c/patches/uboot-rk3582-keep-gpu.patch;
     # Runs the ip-state fixup on the FDT extlinux boots.
     extraConfig = ''
       CONFIG_OF_SYSTEM_SETUP=y
@@ -40,7 +40,7 @@ let
     name = "rock5c-install-uboot";
     runtimeInputs = [ pkgs.coreutils ];
     text = builtins.replaceStrings [ "@uboot@" ] [ "${uboot}/u-boot-rockchip.bin" ]
-      (builtins.readFile ./scripts/rock5c-install-uboot.sh);
+      (builtins.readFile ./rock5c/scripts/rock5c-install-uboot.sh);
   };
 
   # Only the Mali CSF firmware out of linux-firmware.
@@ -119,14 +119,14 @@ in
       message = "rock5c: gpuShaderMask needs unlocked, the vendor policy always fails the GPU";
     } ];
 
-    boot.extraModulePackages = [ (config.boot.kernelPackages.callPackage ./panthor-shader-mask.nix { }) ];
+    boot.extraModulePackages = [ (config.boot.kernelPackages.callPackage ./rock5c/panthor-shader-mask.nix { }) ];
     boot.kernelParams = [ "panthor.shader_mask=${cfg.gpuShaderMask}" ];
 
     environment.systemPackages = [ pkgs.glmark2 ];
   })
 
   (lib.mkIf cfg.wifi {
-    boot.extraModulePackages = [ (config.boot.kernelPackages.callPackage ./aic8800.nix { }) ];
+    boot.extraModulePackages = [ (config.boot.kernelPackages.callPackage ./rock5c/aic8800.nix { }) ];
     hardware.bluetooth.enable = true;
   }) ]);
 }
