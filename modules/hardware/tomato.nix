@@ -9,10 +9,30 @@ in
   options.homelab.hardware.tomato = {
     enable = lib.mkEnableOption "headless Google Tomato (MT8195) with stock Depthcharge";
     wifi = lib.mkEnableOption "Intel AX200 Wi-Fi firmware";
-    kernelPartition = lib.mkOption {
-      type = lib.types.str;
-      default = "/dev/disk/by-partlabel/tomato-kernel";
-      description = "Raw ChromeOS kernel partition updated by nixos-install and nixos-rebuild.";
+    # See hosts/sbc/tomato.md for the eMMC layout and how the slots fall back.
+    kernelSlots = {
+      a = lib.mkOption {
+        type = lib.types.str;
+        default = "/dev/disk/by-partlabel/tomato-kern-a";
+        description = "Kernel slot A, alternated with B by nixos-install and nixos-rebuild.";
+      };
+      b = lib.mkOption {
+        type = lib.types.str;
+        default = "/dev/disk/by-partlabel/tomato-kern-b";
+        description = "Kernel slot B, alternated with A by nixos-install and nixos-rebuild.";
+      };
+    };
+    recovery = {
+      kernel = lib.mkOption {
+        type = lib.types.str;
+        default = "/dev/disk/by-partlabel/tomato-kern-r";
+        description = "Recovery kernel slot, booted when A and B both fail. Never written by nixos-rebuild.";
+      };
+      root = lib.mkOption {
+        type = lib.types.str;
+        default = "/dev/disk/by-partlabel/tomato-recovery";
+        description = "Recovery root filesystem partition.";
+      };
     };
   };
 
@@ -44,10 +64,35 @@ in
         installHook = pkgs.writeShellScript "install-tomato-kernel" ''
           exec ${tools.install}/bin/tomato-install-kernel \
             ${tools.pack}/bin/tomato-pack-kernel \
-            ${lib.escapeShellArg cfg.kernelPartition} "$@"
+            ${lib.escapeShellArg cfg.kernelSlots.a} ${lib.escapeShellArg cfg.kernelSlots.b} "$@"
         '';
       };
     };
+
+    # A new kernel gets one trial boot. Confirm it once the system, including
+    # sshd, is up; otherwise the next reset boots the previous slot.
+    systemd.services.tomato-mark-good = {
+      description = "Confirm the booted Tomato kernel slot";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "multi-user.target" "sshd.service" ];
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = "${tools.markGood}/bin/tomato-mark-good ${lib.escapeShellArg cfg.kernelSlots.a} ${lib.escapeShellArg cfg.kernelSlots.b}";
+      };
+    };
+    # A trial kernel that panics or hangs must reset for Depthcharge to fall back.
+    systemd.settings.Manager.RuntimeWatchdogSec = lib.mkDefault "30s";
+
+    environment.systemPackages = [
+      (pkgs.writeShellScriptBin "tomato-install-recovery" ''
+        if [ $# != 1 ]; then
+          echo 'usage: tomato-install-recovery RECOVERY' >&2
+          exit 2
+        fi
+        exec ${tools.writeRecovery}/bin/tomato-write-recovery \
+          ${lib.escapeShellArg cfg.recovery.kernel} ${lib.escapeShellArg cfg.recovery.root} "$1"
+      '')
+    ];
 
     hardware.deviceTree = {
       enable = true;
@@ -61,7 +106,7 @@ in
       "mediatek-drm" "mtk_dp" "phy-mtk-dp"
       "cros-ec-typec" "cros-ec-spi"
     ];
-    boot.kernelParams = [ "console=ttyS0,115200n8" "console=tty1" "rootwait" ];
+    boot.kernelParams = [ "console=ttyS0,115200n8" "console=tty1" "rootwait" "panic=10" ];
 
     # Build-time image generation is separate from the runtime install hook,
     # avoiding a cycle through the NixOS system closure.

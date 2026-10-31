@@ -1,37 +1,18 @@
 # Host-side format/boot-contract checks; these do not emulate Tomato hardware.
 { self, pkgs, cross }:
 let
-  tools = pkgs.callPackage ../modules/hardware/tomato/tools.nix { };
+  fixtures = import ./tomato-fixture.nix { inherit pkgs; };
+  inherit (fixtures) tools kernelImage;
+  fixture = fixtures.system;
   installed = self.nixosConfigurations.colluvium.config;
   installer = self.nixosConfigurations.tomato-installer.config;
-  fixture = pkgs.runCommand "tomato-boot-fixture" { nativeBuildInputs = [ pkgs.dtc ]; } ''
-    mkdir -p $out/dtbs/mediatek
-    printf 'test ARM64 kernel payload\n' > $out/kernel
-    printf 'test initramfs payload\n' > $out/initrd
-    printf 'root=LABEL=TOMATO-USB rootwait console=ttyS0,115200n8' > $out/kernel-params
-    for rev in 1 2 3; do
-      compat="\"google,tomato-rev$rev\", \"google,tomato\", \"mediatek,mt8195\""
-      if [ "$rev" = 3 ]; then
-        compat="\"google,tomato-rev4\", $compat"
-      fi
-      printf '/dts-v1/; / { compatible = %s; };\n' "$compat" > board.dts
-      dtc -I dts -O dtb board.dts -o "$out/dtbs/mediatek/mt8195-cherry-tomato-r$rev.dtb"
-    done
-  '';
+  recovery = self.nixosConfigurations.tomato-recovery.config;
   earlyModules = pkgs.makeModulesClosure {
     kernel = installed.boot.kernelPackages.kernel.modules;
     rootModules = installed.boot.initrd.availableKernelModules ++ installed.boot.initrd.kernelModules;
     firmware = pkgs.runCommand "empty-tomato-test-firmware" { } "mkdir -p $out";
   };
-  kernelImage = pkgs.runCommand "tomato-test-kernel.bin" { nativeBuildInputs = [ tools.pack ]; } ''
-    tomato-pack-kernel ${fixture} $out
-  '';
-  rootfsImage = pkgs.runCommand "tomato-test-root.img" { nativeBuildInputs = [ pkgs.e2fsprogs ]; } ''
-    truncate -s 16M $out
-    mkdir files
-    echo tomato-root-payload > files/marker
-    mkfs.ext4 -L TOMATO-USB -d files $out
-  '';
+  rootfsImage = fixtures.rootfs "TOMATO-USB";
   image = import ../modules/hardware/tomato/usb-image.nix { inherit pkgs kernelImage rootfsImage; rootExtraSpaceMiB = 16; };
 in
 # These builders previously required aarch64-linux on the x86 package output.
@@ -40,6 +21,8 @@ assert cross.installed.system.build.toplevel.system == "x86_64-linux";
 assert cross.installer.system.build.toplevel.system == "x86_64-linux";
 assert cross.installer.hardware.deviceTree.package.system == "x86_64-linux";
 assert cross.installer.system.build.tomatoKernel.system == "x86_64-linux";
+assert cross.recovery.system.build.tomatoRecovery.system == "x86_64-linux";
+assert cross.recovery.nixpkgs.hostPlatform.system == "aarch64-linux";
 assert cross.installed.nixpkgs.hostPlatform.system == "aarch64-linux";
 assert cross.installer.nixpkgs.hostPlatform.system == "aarch64-linux";
 assert !installer.services.xserver.enable;
@@ -66,6 +49,15 @@ assert installer.fileSystems."/".device == "/dev/disk/by-label/TOMATO-USB";
 assert !installer.services.openssh.settings.PasswordAuthentication;
 assert installer.users.users.admin.openssh.authorizedKeys.keyFiles != [ ];
 assert installer.environment.etc."tomato-system".source == installed.system.build.toplevel;
+assert installer.environment.etc."tomato-recovery".source == recovery.system.build.tomatoRecovery;
+assert recovery.fileSystems."/".device == "/dev/disk/by-label/tomato-recovery";
+assert recovery.networking.hostName == "tomato-recovery";
+assert !recovery.services.openssh.settings.PasswordAuthentication;
+# Live systems must never rewrite the eMMC kernel slots.
+assert installer.boot.loader.external.installHook != installed.boot.loader.external.installHook;
+assert recovery.boot.loader.external.installHook != installed.boot.loader.external.installHook;
+assert builtins.elem "multi-user.target" installed.systemd.services.tomato-mark-good.wantedBy;
+assert builtins.elem "panic=10" installed.boot.kernelParams;
 pkgs.runCommand "tomato-boot-contract" {
   nativeBuildInputs = [ tools.pack tools.install pkgs.vboot-utils pkgs.ubootTools pkgs.dtc pkgs.gptfdisk pkgs.e2fsprogs ];
 } ''
@@ -111,7 +103,7 @@ pkgs.runCommand "tomato-boot-contract" {
   rm incomplete/dtbs/mediatek/mt8195-cherry-tomato-r2.dtb
   if tomato-pack-kernel incomplete broken.bin; then exit 1; fi
   # The update hook must reject regular files, before any disk write.
-  if tomato-install-kernel tomato-pack-kernel ${rootfsImage} ${fixture}; then exit 1; fi
+  if tomato-install-kernel tomato-pack-kernel ${rootfsImage} ${rootfsImage} ${fixture}; then exit 1; fi
 
   image=${image}/tomato-installer.img
   sgdisk -v "$image" | tee gpt-check

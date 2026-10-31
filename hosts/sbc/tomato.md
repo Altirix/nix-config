@@ -63,11 +63,13 @@ and `packages.aarch64-linux.tomato-installer-image` respectively.
 If using a Git checkout, add the new files to Git before building (flakes omit
 untracked files). The output is `result/tomato-installer.img`: a GPT disk with a
 128 MiB ChromeOS kernel partition containing the signed kernel/initrd/FIT and an
-ext4 installer root. The image includes the `colluvium` system closure and a source
-snapshot, so the first eMMC installation can be offline. The USB root is writable
+ext4 installer root. The image includes the `colluvium` system closure, the
+recovery system (`/etc/tomato-recovery`) and a source snapshot, so the first eMMC
+installation can be offline. The USB root is writable
 and persistent; use a stick large enough for the image. It does not expand to fill
 the stick automatically. It reserves an extra 1 GiB of filesystem space and
-inodes for first-boot activation and interactive use; use an 8 GB or larger stick.
+inodes for first-boot activation and interactive use. Check the image size with
+`ls -lh result/tomato-installer.img` and use a stick with room to spare (8 GB or larger).
 
 **Writing erases the selected USB device.** Identify it using `lsblk` and unmount
 its mounted partitions first. Write to the whole disk, not a partition:
@@ -115,6 +117,40 @@ decryption fails during activation and Wi-Fi stays down. After authorizing the
 key, update the installed host with `nixos-rebuild` (below), or rebuild the
 installer image to get a prebuilt system that decrypts on first boot.
 
+## eMMC layout and boot slots
+
+| # | Partition label | Size | Contents |
+|---|---|---|---|
+| 1 | `tomato-kern-a` | 128 MiB | kernel slot A |
+| 2 | `tomato-kern-b` | 128 MiB | kernel slot B |
+| 3 | `tomato-kern-r` | 128 MiB | recovery kernel (R) |
+| 4 | `tomato-recovery` | 4 GiB | recovery root, ext4 label `tomato-recovery` |
+| 5 | `tomato-root` | rest | Colluvium root, ext4 label `tomato-root` |
+
+Depthcharge boots the highest-priority ChromeOS kernel partition that is either
+confirmed (`successful`) or still has tries left, and gives up on an unconfirmed
+slot once its tries reach zero:
+
+| Priority | Slot |
+|---|---|
+| 3 | the newly written kernel, one trial boot (`tries=1`, `successful=0`) |
+| 2 | the previously booted, confirmed kernel |
+| 1 | recovery, always confirmed; never written by `nixos-rebuild` |
+
+Each `nixos-install`/`nixos-rebuild` writes the slot that is **not** running
+(slot A when booted from USB or recovery), so the running kernel remains the
+fallback. `tomato-mark-good.service` confirms the booted slot after
+`multi-user.target` and sshd are up. A new kernel that panics (`panic=10`), hangs
+userspace (systemd's 30 s hardware watchdog) or never reaches that service is
+not confirmed, and the next reset boots the previous slot, which carries the
+previous generation's `init=`. If A and B both fail, the firmware boots recovery.
+A kernel that hangs before systemd starts its watchdog needs a power cycle to fall back.
+
+The hook refuses to update while the booted slot is still unconfirmed, so the only
+known-good slot is never overwritten; wait for `tomato-mark-good.service` and retry.
+There is no generation menu: A/B gives the current and previous generations, and
+recovery can reinstall any generation (below).
+
 ## Install to eMMC
 
 **This erases ChromeOS and all data on the selected eMMC.** Back up anything needed
@@ -133,12 +169,16 @@ test "$(cat /sys/class/block/$name/device/type)" = MMC
 test "$(lsblk -nro PKNAME "$(findmnt -nro SOURCE /)")" != "$name"
 
 sudo sgdisk --zap-all \
-  --new=1:2048:+128M --typecode=1:7F00 --change-name=1:tomato-kernel \
-  --new=2:0:0 --typecode=2:8300 --change-name=2:tomato-root "$disk"
+  --new=1:2048:+128M --typecode=1:7F00 --change-name=1:tomato-kern-a \
+  --new=2:0:+128M --typecode=2:7F00 --change-name=2:tomato-kern-b \
+  --new=3:0:+128M --typecode=3:7F00 --change-name=3:tomato-kern-r \
+  --new=4:0:+4G --typecode=4:8300 --change-name=4:tomato-recovery \
+  --new=5:0:0 --typecode=5:8300 --change-name=5:tomato-root "$disk"
 sudo partprobe "$disk"
 sudo udevadm settle
-sudo mkfs.ext4 -L tomato-root "${disk}p2"
-sudo mount "${disk}p2" /mnt
+sudo tomato-install-recovery /etc/tomato-recovery
+sudo mkfs.ext4 -L tomato-root "${disk}p5"
+sudo mount "${disk}p5" /mnt
 sudo mkdir -p /mnt/etc/nixos
 sudo cp -r /etc/tomato-flake/. /mnt/etc/nixos/
 sudo chmod -R u+w /mnt/etc/nixos
@@ -152,31 +192,98 @@ sudo umount /mnt
 sudo poweroff
 ```
 
-The install hook writes the signed installed kernel to the raw `tomato-kernel`
-partition and marks it bootable in the GPT. There is no ESP, GRUB or systemd-boot.
-Remove the USB and boot the internal disk; SSH as `admin` to its DHCP address.
+`tomato-install-recovery` writes the recovery kernel to `tomato-kern-r` (priority 1,
+confirmed) and the recovery root to `tomato-recovery`, grown to fill it. The
+`nixos-install` hook writes Colluvium's signed kernel to slot A on its trial boot;
+slot B stays empty until the first update. There is no ESP, GRUB or systemd-boot.
+Remove the USB and boot the internal disk; SSH as `admin` to its DHCP address and
+check that the slot was confirmed:
+
+```sh
+systemctl status tomato-mark-good
+sudo cgpt show /dev/mmcblk0
+```
+
 The source snapshot in `/etc/nixos` has no Git metadata; clone your repository
 separately when you want to work in a Git checkout.
 
-For later updates from a repository checkout on an ARM64 builder:
+## Updates and rollback
+
+From a repository checkout on an ARM64 builder:
 
 ```sh
 nixos-rebuild switch --flake .#colluvium --target-host admin@<colluvium-ip> --sudo
 ```
 
 `nixos-rebuild` repacks the selected generation's matching kernel, initrd, DTBs and
-`init=` path and writes the raw kernel partition. This first layout has **one kernel
-slot**, with no firmware generation menu or automatic rollback. The hook checks
-partition type and capacity before writing, then invalidates the slot until the
-write completes. Keep the installer USB: an interrupted write or an unbootable new
-kernel needs USB recovery. To reinstall a known generation's kernel from recovery,
-mount the eMMC root and run that generation's
-`/nix/var/nix/profiles/system-N-link/bin/switch-to-configuration boot` (replace `N`
-with its generation number) inside `nixos-enter --root /mnt`.
+`init=` path into the inactive slot. The hook checks partition types, disk and
+capacity before writing, and invalidates the slot until the write completes.
+`switch` activates the new generation immediately, but the new kernel is only
+tried on the next reboot; reboot to confirm it:
 
-The installer filesystem label (`TOMATO-USB`) and the eMMC root label
-(`tomato-root`) differ, so a connected installer cannot become the installed root.
-Do not attach another disk using the same eMMC partition/root labels during updates.
+```sh
+ssh admin@<colluvium-ip> sudo systemctl reboot
+```
+
+After a fallback, `cgpt show` lists the failed slot with priority 3, `tries=0` and
+`successful=0`; the next update overwrites it.
+
+## Recovery
+
+Recovery is a separate NixOS system (`nixosConfigurations.tomato-recovery`) with its
+own root partition, so a broken Colluvium root does not affect it. It has the
+installer's tools, a text console, wired DHCP and key-only SSH as `admin`. It
+generates its own SSH host key on first boot, so expect a host-key warning. It does
+not have Colluvium's key and cannot decrypt SOPS secrets.
+
+Reinstall a known generation's kernel into slot A from recovery (replace `N` with
+the generation number):
+
+```sh
+sudo mount /dev/disk/by-label/tomato-root /mnt
+ls -l /mnt/nix/var/nix/profiles/
+sudo nixos-enter --root /mnt -- /nix/var/nix/profiles/system-N-link/bin/switch-to-configuration boot
+```
+
+Or push a new build from the builder. Writing the eMMC store needs root, so stream
+the closure through `sudo` onto the mounted eMMC root, then install it in recovery:
+
+```sh
+nix build .#nixosConfigurations.colluvium.config.system.build.toplevel
+```
+
+```sh
+nix-store --export $(nix-store -qR ./result) | ssh admin@<recovery-ip> sudo nix-store --store /mnt --import
+```
+
+```sh
+ssh admin@<recovery-ip> sudo nixos-enter --root /mnt -- nix-env -p /nix/var/nix/profiles/system --set "$(readlink -f result)"
+```
+
+```sh
+ssh admin@<recovery-ip> sudo nixos-enter --root /mnt -- /nix/var/nix/profiles/system/bin/switch-to-configuration boot
+```
+
+To refresh recovery itself, build it and install it from the running Colluvium
+system (not from recovery, whose root is mounted):
+
+```sh
+nix build .#packages.aarch64-linux.tomato-recovery
+```
+
+```sh
+nix copy --to ssh://admin@<colluvium-ip> ./result
+```
+
+```sh
+ssh admin@<colluvium-ip> sudo tomato-install-recovery "$(readlink -f result)"
+```
+
+The installer filesystem label (`TOMATO-USB`), the recovery root (`tomato-recovery`)
+and the eMMC root (`tomato-root`) differ, so neither a connected installer nor
+recovery can become the installed root. Do not attach another disk using the same
+eMMC partition/root labels during updates. Keep the installer USB for when
+recovery fails too.
 
 ## Validation
 
@@ -184,11 +291,20 @@ Do not attach another disk using the same eMMC partition/root labels during upda
 nix build .#checks.x86_64-linux.tomato
 ```
 
+```sh
+nix build .#checks.x86_64-linux.tomato-slots
+```
+
 This host-side test verifies the configuration contracts, real pinned Tomato DTBs
 and early storage/USB module closure, developer-key signatures, packed kernel and
 initrd contents, kernel command line, GPT layout and partition payloads. It also
-checks rejection of missing DTBs and non-block install destinations. It does not
-boot a Tomato board. USB boot and the USB-C/HDMI text console have been verified
+checks rejection of missing DTBs and non-block install destinations. The
+`tomato-slots` VM test partitions a virtual disk with the eMMC layout and checks
+the A/B/R priority, tries and successful flags across install, confirm and update,
+the refusals (unconfirmed slot, non-kernel partitions, mounted or oversized
+recovery root) and the written payloads. Depthcharge's `kern_guid` is faked through
+`TOMATO_CMDLINE`. Neither test boots a Tomato board, and Depthcharge's
+fallback behaviour and the hardware watchdog are untested. USB boot and the USB-C/HDMI text console have been verified
 on hardware with an earlier installer image. The complete cross-compiled image,
-SSH access, AX200 Wi-Fi, eMMC installation and rebooting from eMMC still need
-validation on the board.
+SSH access, AX200 Wi-Fi, eMMC installation, recovery, slot fallback and
+rebooting from eMMC still need validation on the board.
