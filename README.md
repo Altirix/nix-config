@@ -23,6 +23,7 @@ tests/         NixOS VM tests, flake checks
 
 | Read | For |
 |---|---|
+| [hosts/sbc/tomato.md](hosts/sbc/tomato.md) | Google Tomato USB installer and eMMC installation |
 | [hosts/README.md](hosts/README.md) | the hosts, adding one, installing a VM |
 | [modules/README.md](modules/README.md) | what each module does |
 | [modules/networking/README.md](modules/networking/README.md) | labs (VLAN 100), address pinning, labs-mesh, the router |

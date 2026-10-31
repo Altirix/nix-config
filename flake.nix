@@ -59,9 +59,51 @@
             }
           ];
         };
+      crossColluvium = self.nixosConfigurations.colluvium.extendModules {
+        modules = [ { nixpkgs.buildPlatform = "x86_64-linux"; } ];
+      };
+      crossInstaller = lib.nixosSystem {
+        modules = [
+          ./installers/tomato.nix
+          {
+            nixpkgs.buildPlatform = "x86_64-linux";
+            environment.etc."tomato-system".source = crossColluvium.config.system.build.toplevel;
+            environment.etc."tomato-flake".source = lib.cleanSource self.outPath;
+          }
+        ];
+      };
     in
     {
-      nixosConfigurations = lib.listToAttrs (map (host: lib.nameValuePair host.name (mkHost host)) hosts);
+      nixosConfigurations = lib.listToAttrs (map (host: lib.nameValuePair host.name (mkHost host)) hosts) // {
+        tomato-installer = lib.nixosSystem {
+          modules = [
+            ./installers/tomato.nix
+            {
+              # Include the installed closure for an offline first installation.
+              environment.etc."tomato-system".source = self.nixosConfigurations.colluvium.config.system.build.toplevel;
+              environment.etc."tomato-flake".source = lib.cleanSource self.outPath;
+            }
+          ];
+        };
+      };
+
+      packages.aarch64-linux.tomato-installer-image =
+        self.nixosConfigurations.tomato-installer.config.system.build.tomatoDepthchargeImage;
+
+      # Both the installer and its offline installed closure are cross-compiled.
+      packages.x86_64-linux.tomato-installer-image =
+        crossInstaller.config.system.build.tomatoDepthchargeImage;
+
+      checks.x86_64-linux.tomato = import ./tests/tomato.nix {
+        inherit self;
+        pkgs = nixpkgs.legacyPackages.x86_64-linux;
+        cross = {
+          installed = crossColluvium.config;
+          installer = crossInstaller.config;
+          installedPkgs = crossColluvium.pkgs;
+          installerPkgs = crossInstaller.pkgs;
+        };
+      };
 
       # VM tests in tests/, `nix build .#checks.x86_64-linux.<name>`.
       checks.x86_64-linux.mcp = nixpkgs.legacyPackages.x86_64-linux.testers.runNixOSTest (import ./tests/mcp.nix self);
