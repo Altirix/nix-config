@@ -4,6 +4,7 @@
 # Depthcharge's kern_guid faked through CHROMEBOOK_CMDLINE. Does not emulate Depthcharge.
 let
   fixtures = import ./chromebook-fixture.nix { inherit pkgs; };
+  layout = import ../modules/hardware/chromebook/layout.nix;
 in
 {
   name = "chromebook-slots";
@@ -16,7 +17,9 @@ in
 
   # The script reads these values; the rest is in chromebook-slots.py.
   testScript = ''
-    layout = ${builtins.toJSON (import ../modules/hardware/chromebook/layout.nix)}
+    labels = ${builtins.toJSON { inherit (layout) kernelA kernelB kernelR recovery; }}
+    kernel_size_mib = ${toString layout.kernelSizeMiB}
+    recovery_size_mib = ${toString layout.recoverySizeMiB}
     system = "${fixtures.system}"
     recovery = "${fixtures.recovery}"
     devkeys = "${pkgs.vboot-utils}/share/vboot/devkeys"

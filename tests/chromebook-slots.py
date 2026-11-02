@@ -1,7 +1,7 @@
 disk = "/dev/vdb"
 label = "/dev/disk/by-partlabel/"
-a, b, r = (label + layout[k] for k in ("kernelA", "kernelB", "kernelR"))
-rroot = label + layout["recovery"]
+a, b, r = (label + labels[k] for k in ("kernelA", "kernelB", "kernelR"))
+rroot = label + labels["recovery"]
 env = "CHROMEBOOK_CMDLINE=/tmp/cmdline"
 install = f"{env} chromebook-install-kernel {system}"
 mark = f"{env} chromebook-mark-good"
@@ -43,9 +43,9 @@ with subtest("partitioning creates the layout"):
     machine.succeed(f"chromebook-partition {disk}")
     for i in (1, 2, 3):
         assert machine.succeed(f"cgpt show -i {i} -t {disk}").strip().upper() == "FE3A2A5D-4F32-41A7-B725-ACCC3285A309"
-        assert int(machine.succeed(f"cgpt show -i {i} -s {disk}")) * 512 == layout["kernelSizeMiB"] * MiB
+        assert int(machine.succeed(f"cgpt show -i {i} -s {disk}")) * 512 == kernel_size_mib * MiB
         assert attrs(i) == (0, 0, 0), attrs(i)
-    assert int(machine.succeed(f"cgpt show -i 4 -s {disk}")) * 512 == layout["recoverySizeMiB"] * MiB
+    assert int(machine.succeed(f"cgpt show -i 4 -s {disk}")) * 512 == recovery_size_mib * MiB
 
 with subtest("first install from the USB installer writes A on trial"):
     boot_from("0e3e5ff2-6fb5-4e43-8f4c-6f1b3c1c0b55")
@@ -93,7 +93,7 @@ with subtest("recovery writes R at the lowest priority and grows its root"):
     assert attrs(3) == (1, 1, 0), attrs(3)
     verify(r)
     machine.succeed(f"debugfs -R 'cat /marker' {rroot} | grep -Fx chromebook-root-payload")
-    assert fs_size(rroot) == layout["recoverySizeMiB"] * MiB, fs_size(rroot)
+    assert fs_size(rroot) == recovery_size_mib * MiB, fs_size(rroot)
     assert attrs(1) == (3, 0, 1) and attrs(2) == (2, 1, 0)
 
 with subtest("recovery refuses a mounted root and oversized payloads, leaving R bootable"):
@@ -102,9 +102,9 @@ with subtest("recovery refuses a mounted root and oversized payloads, leaving R 
     machine.succeed("umount /mnt")
     machine.succeed(
         f"cp -r {recovery} /tmp/bigroot && chmod -R u+w /tmp/bigroot",
-        f"echo {(layout['recoverySizeMiB'] + 1) * MiB} > /tmp/bigroot/rootfs-size",
+        f"echo {(recovery_size_mib + 1) * MiB} > /tmp/bigroot/rootfs-size",
         f"cp -r {recovery} /tmp/bigkernel && chmod -R u+w /tmp/bigkernel",
-        f"truncate -s {layout['kernelSizeMiB'] + 1}M /tmp/bigkernel/kernel.bin",
+        f"truncate -s {kernel_size_mib + 1}M /tmp/bigkernel/kernel.bin",
     )
     machine.fail("chromebook-install-recovery /tmp/bigroot")
     machine.fail("chromebook-install-recovery /tmp/bigkernel")

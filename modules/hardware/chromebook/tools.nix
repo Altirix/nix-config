@@ -14,6 +14,8 @@ let
   tool = name: scripts: runtimeInputs: writeShellApplication {
     inherit name runtimeInputs;
     text = substitute (lib.concatMapStrings builtins.readFile scripts);
+    # common.sh is a shared library: each script calls only some of its functions.
+    excludeShellChecks = [ "SC2329" ];
   };
   slotInputs = [ coreutils util-linux vboot ];
   pack = tool "chromebook-pack-kernel" [ ./pack-kernel.sh ] [ coreutils dtc ubootTools vboot ];
@@ -23,6 +25,6 @@ in
   install = tool "chromebook-install-kernel" [ ./common.sh ./install-kernel.sh ] (slotInputs ++ [ pack ]);
   markGood = tool "chromebook-mark-good" [ ./common.sh ./mark-good.sh ] slotInputs;
   installRecovery = tool "chromebook-install-recovery" [ ./common.sh ./write-recovery.sh ] (slotInputs ++ [ e2fsprogs zstd ]);
-  partition = tool "chromebook-partition" [ ./common.sh ./partition.sh ] (slotInputs ++ [ gptfdisk ]);
+  partition = tool "chromebook-partition" [ ./partition.sh ] [ coreutils util-linux gptfdisk ];
   waitOnline = tool "chromebook-wait-online" [ ./wait-online.sh ] [ coreutils iproute2 ];
 }
