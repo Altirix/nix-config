@@ -59,60 +59,58 @@
             }
           ];
         };
-      # Tomato installer and recovery systems, native on aarch64 or cross-compiled from x86_64.
-      # The installer carries the Colluvium and recovery systems for an offline first installation.
-      tomato = buildPlatform:
+      # Chromebook boards booting from stock Depthcharge, see modules/hardware/chromebook/README.md.
+      # Each gets a USB installer carrying its host's system and a recovery system, natively
+      # on aarch64 or cross-compiled from x86_64.
+      # `board` is the modules enabling the board in the live systems; the host enables it itself.
+      chromebooks.tomato = {
+        host = "colluvium";
+        board = [ ./modules/hardware/tomato.nix { homelab.hardware.tomato = { enable = true; wifi = true; }; } ];
+      };
+      chromebook = name: { host, board }: buildPlatform:
         let
-          cross = { nixpkgs = lib.optionalAttrs (buildPlatform != null) { inherit buildPlatform; }; };
-          colluvium = if buildPlatform == null then self.nixosConfigurations.colluvium
-            else self.nixosConfigurations.colluvium.extendModules { modules = [ cross ]; };
-          recovery = lib.nixosSystem { modules = [ ./installers/tomato-recovery.nix cross ]; };
-          installer = lib.nixosSystem {
-            modules = [
-              ./installers/tomato.nix
-              cross
-              {
-                environment.etc."tomato-system".source = colluvium.config.system.build.toplevel;
-                environment.etc."tomato-recovery".source = recovery.config.system.build.tomatoRecovery;
-                environment.etc."tomato-flake".source = lib.cleanSource self.outPath;
-              }
-            ];
+          platform = { nixpkgs = lib.optionalAttrs (buildPlatform != null) { inherit buildPlatform; }; };
+          installed = if buildPlatform == null then self.nixosConfigurations.${host}
+            else self.nixosConfigurations.${host}.extendModules { modules = [ platform ]; };
+          live = role: extra: lib.nixosSystem {
+            modules = board ++ [ ./installers/chromebook/${role}.nix platform
+              { networking.hostName = "${name}-${role}"; } extra ];
+          };
+          recovery = live "recovery" { };
+          installer = live "installer" {
+            environment.etc."chromebook-system".source = installed.config.system.build.toplevel;
+            environment.etc."chromebook-recovery".source = recovery.config.system.build.chromebookRecovery;
+            environment.etc."chromebook-flake".source = lib.cleanSource self.outPath;
           };
         in
-        { inherit colluvium recovery installer; };
-      tomatoNative = tomato null;
-      tomatoCross = tomato "x86_64-linux";
+        { inherit installed recovery installer; };
+      chromebooksNative = lib.mapAttrs (name: cb: chromebook name cb null) chromebooks;
+      chromebooksCross = lib.mapAttrs (name: cb: chromebook name cb "x86_64-linux") chromebooks;
+      chromebookPackages = systems: lib.concatMapAttrs (name: cb: {
+        "${name}-installer-image" = cb.installer.config.system.build.chromebookUsbImage;
+        "${name}-recovery" = cb.recovery.config.system.build.chromebookRecovery;
+      }) systems;
     in
     {
-      nixosConfigurations = lib.listToAttrs (map (host: lib.nameValuePair host.name (mkHost host)) hosts) // {
-        tomato-installer = tomatoNative.installer;
-        tomato-recovery = tomatoNative.recovery;
-      };
+      nixosConfigurations = lib.listToAttrs (map (host: lib.nameValuePair host.name (mkHost host)) hosts)
+        // lib.concatMapAttrs (name: cb: {
+          "${name}-installer" = cb.installer;
+          "${name}-recovery" = cb.recovery;
+        }) chromebooksNative;
 
-      packages.aarch64-linux = {
-        tomato-installer-image = tomatoNative.installer.config.system.build.tomatoDepthchargeImage;
-        tomato-recovery = tomatoNative.recovery.config.system.build.tomatoRecovery;
-      };
+      packages.aarch64-linux = chromebookPackages chromebooksNative;
       # Both the installer and the systems it carries are cross-compiled.
-      packages.x86_64-linux = {
-        tomato-installer-image = tomatoCross.installer.config.system.build.tomatoDepthchargeImage;
-        tomato-recovery = tomatoCross.recovery.config.system.build.tomatoRecovery;
-      };
+      packages.x86_64-linux = chromebookPackages chromebooksCross;
 
+      checks.x86_64-linux.chromebook = import ./tests/chromebook.nix { pkgs = nixpkgs.legacyPackages.x86_64-linux; };
       checks.x86_64-linux.tomato = import ./tests/tomato.nix {
         inherit self;
         pkgs = nixpkgs.legacyPackages.x86_64-linux;
-        cross = {
-          installed = tomatoCross.colluvium.config;
-          installer = tomatoCross.installer.config;
-          recovery = tomatoCross.recovery.config;
-          installedPkgs = tomatoCross.colluvium.pkgs;
-          installerPkgs = tomatoCross.installer.pkgs;
-        };
+        cross = chromebooksCross.tomato;
       };
 
       # VM tests in tests/, `nix build .#checks.x86_64-linux.<name>`.
-      checks.x86_64-linux.tomato-slots = nixpkgs.legacyPackages.x86_64-linux.testers.runNixOSTest (import ./tests/tomato-slots.nix);
+      checks.x86_64-linux.chromebook-slots = nixpkgs.legacyPackages.x86_64-linux.testers.runNixOSTest (import ./tests/chromebook-slots.nix);
       checks.x86_64-linux.mcp = nixpkgs.legacyPackages.x86_64-linux.testers.runNixOSTest (import ./tests/mcp.nix self);
       checks.x86_64-linux.rea = nixpkgs.legacyPackages.x86_64-linux.testers.runNixOSTest (import ./tests/rea.nix self);
     };

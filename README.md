@@ -23,7 +23,8 @@ tests/         NixOS VM tests, flake checks
 
 | Read | For |
 |---|---|
-| [hosts/sbc/tomato.md](hosts/sbc/tomato.md) | Google Tomato USB installer and eMMC installation |
+| [modules/hardware/chromebook/README.md](modules/hardware/chromebook/README.md) | Chromebooks on stock firmware: USB installer, install, A/B updates, recovery |
+| [hosts/sbc/tomato.md](hosts/sbc/tomato.md) | the Google Tomato board and Colluvium |
 | [hosts/README.md](hosts/README.md) | the hosts, adding one, installing a VM |
 | [modules/README.md](modules/README.md) | what each module does |
 | [modules/networking/README.md](modules/networking/README.md) | labs (VLAN 100), address pinning, labs-mesh, the router |

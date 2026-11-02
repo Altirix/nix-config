@@ -1,13 +1,21 @@
-# Shared by the Tomato slot scripts. A/B kernel slots plus a recovery slot (R):
-# priority 3 is a new kernel on trial, 2 the confirmed previous one, 1 recovery.
+# Shared by the slot scripts. Slots A and B alternate between updates; R holds
+# recovery. Priority 3 is a new kernel on trial, 2 the confirmed previous one, 1 R.
 kernel_type=FE3A2A5D-4F32-41A7-B725-ACCC3285A309
-cmdline=${TOMATO_CMDLINE:-/proc/cmdline}
+# Each script uses only some of these paths.
+# shellcheck disable=SC2034
+{
+  slot_a=/dev/disk/by-partlabel/@kernelA@
+  slot_b=/dev/disk/by-partlabel/@kernelB@
+  slot_r=/dev/disk/by-partlabel/@kernelR@
+  recovery_root=/dev/disk/by-partlabel/@recovery@
+}
+cmdline=${CHROMEBOOK_CMDLINE:-/proc/cmdline}
 
 # Sets part_dev, part_disk and part_index for a partition path.
 resolve_partition() {
   part_dev=$(readlink -f "$1")
   if [[ ! -b "$part_dev" ]]; then
-    echo "Not a block device: $part_dev" >&2
+    echo "Not a block device: $1" >&2
     exit 1
   fi
   local name
@@ -42,11 +50,15 @@ partition_guid() {
   cgpt show -i "$part_index" -u "$part_disk" | tr '[:lower:]' '[:upper:]'
 }
 
-# Write a file to a raw partition, refusing anything larger than it.
-write_raw() {
-  if (( $(stat -c %s "$1") > $(blockdev --getsize64 "$2") )); then
-    echo "$1 does not fit $2" >&2
+# Run before changing any GPT attributes, so a payload that does not fit
+# leaves the existing slot bootable.
+require_fits() {
+  if (( $1 > $(blockdev --getsize64 "$2") )); then
+    echo "$3 does not fit $2" >&2
     exit 1
   fi
+}
+
+write_raw() {
   dd if="$1" of="$2" bs=4M conv=fsync,notrunc status=none
 }

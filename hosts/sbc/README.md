@@ -1,7 +1,7 @@
 # SBC hosts
 
 - [ROCK 5C / 5C Lite](rock5c.md): `alluvium` and `basidium`, running Klipper.
-- [Google Tomato](tomato.md): `colluvium`, headless MT8195, booting a USB installer and installing to eMMC with A/B kernel slots and a recovery system.
+- [Google Tomato](tomato.md): `colluvium`, headless MT8195 Chromebook board on stock firmware; installing, A/B updates and recovery are in [modules/hardware/chromebook](../../modules/hardware/chromebook/README.md).
 
 The host group describes the board form factor. Common defaults and shared Wi-Fi
 secrets live in `modules/sbc.nix` and `secrets/sbc.yaml`.
