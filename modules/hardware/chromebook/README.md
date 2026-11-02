@@ -117,13 +117,16 @@ areas, partitions and the disk holding the running root, and `chromebook-install
 asks for confirmation:
 
 ```sh
-sudo chromebook-install /dev/mmcblk0
+sudo chromebook-install /dev/mmcblk0 /tmp/host_key
 ```
 
 It partitions the disk, writes the recovery kernel and root, creates the NixOS
-root with a copy of the flake in `/etc/nixos` (no Git metadata), keeps the
-installer's SSH host key, and runs `nixos-install`, whose hook writes slot A on
-its trial boot. Power off, remove the USB stick, boot the internal disk and check
+root with a copy of the flake in `/etc/nixos` (no Git metadata), installs the
+given SSH host key (without one, the installer's own), and runs `nixos-install`,
+whose hook writes slot A on its trial boot. It prints the key's SOPS recipient
+before erasing anything. To have the host decrypt its secrets on first boot,
+generate that key off the board and authorise its recipient before building the
+installer; see the host's docs. Power off, remove the USB stick, boot the internal disk and check
 that the slot was confirmed:
 
 ```sh

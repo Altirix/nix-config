@@ -57,25 +57,41 @@ Colluvium imports `modules/sbc.nix`, which enables `homelab.wifi`: Intel AX200
 firmware (`homelab.hardware.tomato.wifi`) and `wifi-ssid` / `wifi-psk` from
 `secrets/sbc.yaml` through wpa_supplicant. The live systems use NetworkManager.
 
-`chromebook-install` keeps the installer's Ed25519 SSH host key, so Colluvium's
-SOPS recipient can be derived in the installer before installing:
+Colluvium decrypts them with its SSH host key. Generate that key on your own
+machine, outside the repository, so it can be authorised before the installer is
+built and Colluvium decrypts on its first boot:
 
 ```sh
-/etc/chromebook-system/sw/bin/ssh-to-age < /etc/ssh/ssh_host_ed25519_key.pub
+ssh-keygen -t ed25519 -N '' -C colluvium -f colluvium_host_key
 ```
 
-Add that public `age1...` recipient to `.sops.yaml` and its `sbc` group, then
-re-encrypt with an existing authorized identity:
+```sh
+nix run nixpkgs#ssh-to-age -- < colluvium_host_key.pub
+```
+
+Add that public `age1...` recipient to `.sops.yaml` as `host_colluvium` and to its
+`sbc` group, then re-encrypt with an existing authorised identity:
 
 ```sh
 sops updatekeys secrets/sbc.yaml
 ```
 
-The installer always ships the SOPS-enabled Colluvium system. Until the key is
-authorized, the first installation boots with wired networking but secret
-decryption fails during activation and Wi-Fi stays down. After authorizing it,
-update with `nixos-rebuild`, or rebuild the installer to get a system that
-decrypts on first boot.
+Build and boot the installer, copy the private key to it, and install with it.
+`chromebook-install` prints the recipient again before erasing anything; check it
+matches:
+
+```sh
+scp colluvium_host_key admin@<installer-ip>:/tmp/host_key
+```
+
+```sh
+ssh -t admin@<installer-ip> 'sudo chromebook-install /dev/mmcblk0 /tmp/host_key && rm /tmp/host_key'
+```
+
+The private key never enters the Nix store or the repository; keep your copy
+somewhere safe or delete it. Without a key argument Colluvium gets the installer's
+own key, whose recipient you would then authorise and deploy with `nixos-rebuild`;
+until then Wi-Fi stays down.
 
 ## Validation
 

@@ -1,8 +1,9 @@
 # First installation from the USB installer: erases DISK, writes recovery and
-# installs the carried host system, keeping this installer's SSH host key so the
-# host's SOPS recipient stays the one derived here.
-if [[ $# != 1 ]]; then
-  echo 'usage: chromebook-install DISK' >&2
+# installs the carried host system. The host's SSH host key, and so its SOPS
+# recipient, is HOST-KEY (generated off the board and already authorised), or
+# else this installer's own key.
+if [[ $# != 1 && $# != 2 ]]; then
+  echo 'usage: chromebook-install DISK [HOST-KEY]' >&2
   exit 2
 fi
 if (( EUID != 0 )); then
@@ -10,6 +11,11 @@ if (( EUID != 0 )); then
   exit 1
 fi
 disk=$1
+key=${2:-/etc/ssh/ssh_host_ed25519_key}
+# Fails on anything but an unencrypted private key, before the disk is touched.
+public=$(ssh-keygen -y -f "$key")
+echo "Host SSH key: $key"
+echo "SOPS recipient: $(ssh-to-age <<< "$public")"
 lsblk -o PATH,SIZE,TYPE,TRAN,MODEL "$disk"
 read -rp "Erase $disk and install NixOS? Type yes: " answer
 if [[ $answer != yes ]]; then
@@ -28,8 +34,8 @@ trap 'umount "$mnt"' EXIT
 mkdir -p "$mnt/etc/nixos" "$mnt/etc/ssh"
 cp -r /etc/chromebook-flake/. "$mnt/etc/nixos/"
 chmod -R u+w "$mnt/etc/nixos"
-install -m 600 /etc/ssh/ssh_host_ed25519_key "$mnt/etc/ssh/"
-install -m 644 /etc/ssh/ssh_host_ed25519_key.pub "$mnt/etc/ssh/"
+install -m 600 "$key" "$mnt/etc/ssh/ssh_host_ed25519_key"
+echo "$public" > "$mnt/etc/ssh/ssh_host_ed25519_key.pub"
 nixos-install --root "$mnt" --system "$(readlink -f /etc/chromebook-system)" \
   --no-channel-copy --no-root-password
 sync
