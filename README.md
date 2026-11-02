@@ -16,7 +16,7 @@ Flake for the homelab hosts.
 flake.nix      discovers hosts/<group>/<name>/default.nix, adds modules/default.nix
 modules/       building blocks and host types
 hosts/         one directory per machine, grouped by type
-installers/    live installer and recovery systems (installers/chromebook: per host)
+installers/    live installer and recovery systems (installers/chromebook: per board)
 secrets/       sops files shared by a host type (common.yaml by every host)
 docs/          design notes
 tests/         NixOS VM tests, flake checks (listed in tests/default.nix)
@@ -25,6 +25,7 @@ tests/         NixOS VM tests, flake checks (listed in tests/default.nix)
 | Read | For |
 |---|---|
 | [modules/hardware/chromebook/README.md](modules/hardware/chromebook/README.md) | Chromebooks on stock firmware: USB installer, install, A/B updates, recovery |
+| [hosts/sbc/tomato.md](hosts/sbc/tomato.md) | the Google Tomato board and Colluvium |
 | [hosts/README.md](hosts/README.md) | the hosts, adding one, installing a VM |
 | [modules/README.md](modules/README.md) | what each module does |
 | [modules/networking/README.md](modules/networking/README.md) | labs (VLAN 100), address pinning, labs-mesh, the router |

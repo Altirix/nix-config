@@ -16,6 +16,7 @@ edge/ionos-de/             public-facing VPS
   services.nix             web sites
   mcp.nix                  mcp.peacocks.me, token-gated proxy to the mcp VM
 sbc/{alluvium,basidium}/   Klipper on ROCK 5C Lites, see sbc/rock5c.md
+sbc/colluvium/               headless MT8195 Tomato, USB installer -> eMMC (see sbc/tomato.md)
 virtual/dls/               FastAPI-DLS, licenses vGPU guests over labs-mesh
 virtual/mcp/               MCP servers for agents (labs, low-risk ones via the edge, see modules/services/mcp/README.md)
 virtual/partdb/            Part-DB, electronic parts inventory (labs only, no SSO yet)

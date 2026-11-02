@@ -16,6 +16,7 @@
     ./disks/zfs.nix
     ./hardware/rock5c.nix
     ./hardware/chromebook
+    ./hardware/tomato.nix
   ];
 
   # --- Boot ---

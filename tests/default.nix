@@ -6,6 +6,7 @@ in
 {
   chromebook = import ./chromebook.nix { inherit pkgs; };
   chromebook-slots = vmTest ./chromebook-slots.nix;
+  tomato = import ./tomato.nix { inherit self pkgs; cross = chromebooks.cross.colluvium; };
   mcp = vmTest (import ./mcp.nix self);
   rea = vmTest (import ./rea.nix self);
 }
