@@ -19,7 +19,9 @@ in
       dtbs = map (rev: "mediatek/mt8195-cherry-tomato-r${toString rev}.dtb") [ 1 2 3 ];
     };
     hardware.deviceTree.filter = "mt8195-cherry-tomato-r*.dtb";
-    hardware.firmware = lib.optional cfg.wifi (pkgs.callPackage ./tomato/ax200-firmware.nix { });
+    # AX200 uses the in-tree iwlwifi driver.
+    hardware.firmware = lib.optional cfg.wifi
+      (import ./firmware-subset.nix { inherit pkgs; } "ax200-firmware" [ "iwlwifi-cc-a0-*.ucode" ]);
 
     boot.initrd.availableKernelModules = [
       "mtk-sd" "mtu3" "xhci-mtk-hcd" "phy-mtk-tphy"

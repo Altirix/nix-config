@@ -44,10 +44,7 @@ let
   };
 
   # Only the Mali CSF firmware out of linux-firmware.
-  maliFirmware = pkgs.runCommand "mali-csffw" { } ''
-    mkdir -p $out/lib/firmware/arm
-    cp -rL ${pkgs.linux-firmware}/lib/firmware/arm/mali $out/lib/firmware/arm/
-  '';
+  maliFirmware = import ./firmware-subset.nix { inherit pkgs; } "mali-csffw" [ "arm/mali" ];
 in
 {
   options.homelab.hardware.rock5c = {
@@ -103,6 +100,8 @@ in
 
     # Raw sectors from 32K hold the loader, the ESP starts after it.
     homelab.storage.boot.espStart = lib.mkDefault "16M";
+    # eMMC / SD root: compressed, checksummed, no out-of-tree module.
+    homelab.storage.boot.filesystem = lib.mkDefault "btrfs";
 
     environment.systemPackages = [ installUboot pkgs.stress-ng ];
   }

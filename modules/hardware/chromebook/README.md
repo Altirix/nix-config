@@ -216,9 +216,9 @@ Keep the installer USB for when recovery fails too.
    `homelab.hardware.chromebook` with the board's `dtbs`, and add its device-tree
    filter, early drivers, consoles and firmware. Import it in `modules/default.nix`.
 2. Add a host that enables the board (the root filesystem comes from this module).
-3. Add an entry to `chromebooks` in `flake.nix`: the host, and the modules that
-   enable the board in the live systems. That produces `<board>-installer`,
-   `<board>-recovery` and `<board>-installer-image`.
+3. Add `boards.<board> = "<host>";` to `installers/chromebook/default.nix`. The
+   live systems take the host's `homelab.hardware.<board>` settings, and you get
+   `<board>-installer`, `<board>-recovery` and `<board>-installer-image`.
 
 ## Validation
 

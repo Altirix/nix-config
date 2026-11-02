@@ -33,10 +33,7 @@ in
     # Headless installs use USB Ethernet; some RTL8152/8153/8156 adapters need
     # firmware. Keep only their blobs, not the complete firmware collection.
     nixpkgs.config.allowUnfreePredicate = pkg: lib.getName pkg == "linux-firmware";
-    hardware.firmware = [ (pkgs.runCommand "usb-ethernet-firmware" { } ''
-      mkdir -p $out/lib/firmware
-      cp -r ${pkgs.linux-firmware}/lib/firmware/rtl_nic $out/lib/firmware/
-    '') ];
+    hardware.firmware = [ (import ../firmware-subset.nix { inherit pkgs; } "usb-ethernet-firmware" [ "rtl_nic" ]) ];
 
     boot.loader = {
       grub.enable = false;

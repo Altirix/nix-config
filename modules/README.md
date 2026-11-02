@@ -13,7 +13,8 @@ desktop.nix, desktop/    not wired up yet
 system/                  ssh (admin keys in keys/admin/*.pub), secrets, boot (grub across mirrored ESPs)
 hardware/                rock5c.nix + rock5c/ (U-Boot + RK3582 unlock patches from Armbian, extlinux, panthor shader mask, AIC8800 wifi)
                          chromebook/ (stock-firmware Depthcharge boot: signed A/B + recovery kernel slots, installer images)
-                         tomato.nix + tomato/ (Google Tomato MT8195 board on chromebook/)
+                         tomato.nix (Google Tomato MT8195 board on chromebook/)
+                         firmware-subset.nix (a few blobs out of linux-firmware)
 disks/                   disko.nix (homelab.storage -> disko.devices), zfs.nix
 networking/              lan (VLAN trunk), mesh, frr, wifi (wpa_supplicant, SSID/PSK from sops),
                          labs (an incus VM's address on VLAN 100, pinned by the hypervisors), labs-mesh (its static address on the overlay)
