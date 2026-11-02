@@ -22,10 +22,13 @@ def guid(i):
 
 
 def verify(dev):
+    # Writes make udev re-probe a partition and briefly drop its links.
+    machine.succeed("udevadm settle")
     machine.succeed(f"vbutil_kernel --verify {dev} --signpubkey {devkeys}/kernel_subkey.vbpubk")
 
 
 def fs_size(dev):
+    machine.succeed("udevadm settle")
     out = machine.succeed(f"dumpe2fs -h {dev} 2>/dev/null")
     field = {k.strip(): v.strip() for k, v in (l.split(":", 1) for l in out.splitlines() if ":" in l)}
     return int(field["Block count"]) * int(field["Block size"])

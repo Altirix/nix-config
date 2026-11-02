@@ -17,7 +17,7 @@ let
     # common.sh is a shared library: each script calls only some of its functions.
     excludeShellChecks = [ "SC2329" ];
   };
-  slotInputs = [ coreutils util-linux vboot ];
+  slotInputs = [ coreutils systemd util-linux vboot ];
   pack = tool "chromebook-pack-kernel" [ ./pack-kernel.sh ] [ coreutils dtc ubootTools vboot ];
 in
 {

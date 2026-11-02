@@ -19,7 +19,8 @@ fi
 chromebook-partition "$disk"
 chromebook-install-recovery /etc/chromebook-recovery
 
-root=/dev/disk/by-partlabel/@root@
+udevadm settle --timeout=60
+root=$(readlink -f /dev/disk/by-partlabel/@root@)
 mkfs.ext4 -F -L @root@ "$root"
 mnt=$(mktemp -d)
 mount "$root" "$mnt"

@@ -11,8 +11,11 @@ kernel_type=FE3A2A5D-4F32-41A7-B725-ACCC3285A309
 }
 cmdline=${CHROMEBOOK_CMDLINE:-/proc/cmdline}
 
-# Sets part_dev, part_disk and part_index for a partition path.
+# Sets part_dev, part_disk and part_index for a partition path. udev briefly
+# drops a partition's links while re-probing it after a write, so let it finish
+# first. Best effort: inside nixos-enter udev may not be reachable.
 resolve_partition() {
+  udevadm settle --timeout=60 2> /dev/null || true
   part_dev=$(readlink -f "$1")
   if [[ ! -b "$part_dev" ]]; then
     echo "Not a block device: $1" >&2

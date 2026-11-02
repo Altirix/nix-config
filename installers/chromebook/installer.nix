@@ -7,7 +7,7 @@ let
   install = pkgs.writeShellApplication {
     name = "chromebook-install";
     runtimeInputs = [
-      pkgs.coreutils pkgs.util-linux pkgs.e2fsprogs config.system.build.nixos-install
+      pkgs.coreutils pkgs.util-linux pkgs.e2fsprogs config.systemd.package config.system.build.nixos-install
       config.system.build.chromebookTools.partition config.system.build.chromebookTools.installRecovery
     ];
     text = builtins.replaceStrings [ "@root@" ] [ layout.root ] (builtins.readFile ./install.sh);
