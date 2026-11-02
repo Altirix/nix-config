@@ -18,6 +18,7 @@ keys:
 
   - &host_alluvium age1rcvhed74d0w4lcyvc23wcgk9yf4xpa5ng3vmkvresxc5gzwsudkqucrdm3 # Printer 1
   - &host_basidium age18p60jx786w797ju365683h94red5a3tg993tzrxfx03uk0dl2eaq7kyxa7 # Printer 2
+  - &host_colluvium age1c3qk0yhdx6mh3qs8ts02dq6shjs772kgwlmsmszwt453dpa5gg5qjh6xkj # Printer 3
 
 # VM Keys
 
@@ -35,8 +36,10 @@ groups:
     - *host_ionos_de
     - *host_alluvium
     - *host_basidium
+    - *host_colluvium
     - *host_dls
     - *host_mcp
+    - *host_rea_dynamic
 
   compute: &compute
     - *admin
@@ -52,6 +55,7 @@ groups:
     - *admin
     - *host_alluvium
     - *host_basidium
+    - *host_colluvium
 
   virtual: &virtual
     - *admin
