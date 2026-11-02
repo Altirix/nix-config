@@ -18,7 +18,7 @@ modules/       building blocks and host types
 hosts/         one directory per machine, grouped by type
 secrets/       sops files shared by a host type (common.yaml by every host)
 docs/          design notes
-tests/         NixOS VM tests, flake checks
+tests/         NixOS VM tests, flake checks (listed in tests/default.nix)
 ```
 
 | Read | For |
