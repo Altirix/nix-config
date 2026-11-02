@@ -44,10 +44,7 @@ let
   };
 
   # Only the Mali CSF firmware out of linux-firmware.
-  maliFirmware = pkgs.runCommand "mali-csffw" { } ''
-    mkdir -p $out/lib/firmware/arm
-    cp -rL ${pkgs.linux-firmware}/lib/firmware/arm/mali $out/lib/firmware/arm/
-  '';
+  maliFirmware = import ./firmware-subset.nix { inherit pkgs; } "mali-csffw" [ "arm/mali" ];
 in
 {
   options.homelab.hardware.rock5c = {
