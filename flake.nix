@@ -59,10 +59,16 @@
             }
           ];
         };
+
+      hostConfigs = lib.listToAttrs (map (host: lib.nameValuePair host.name (mkHost host)) hosts);
+      # Installer and recovery systems for the hosts that need them.
+      chromebooks = import ./installers/chromebook { inherit self lib; hosts = hostConfigs; };
     in
     {
-      nixosConfigurations = lib.listToAttrs (map (host: lib.nameValuePair host.name (mkHost host)) hosts);
+      nixosConfigurations = hostConfigs // chromebooks.nixosConfigurations;
 
-      checks.x86_64-linux = import ./tests { inherit self; pkgs = nixpkgs.legacyPackages.x86_64-linux; };
+      inherit (chromebooks) packages;
+
+      checks.x86_64-linux = import ./tests { inherit self chromebooks; pkgs = nixpkgs.legacyPackages.x86_64-linux; };
     };
 }
