@@ -29,7 +29,7 @@ tests/         NixOS VM tests, flake checks
 | [modules/services/incus/README.md](modules/services/incus/README.md) | ssh into VMs, Windows VMs, vGPU |
 | [modules/services/mcp/README.md](modules/services/mcp/README.md) | MCP servers for agents, presets, who can reach them |
 | [modules/disks/README.md](modules/disks/README.md) | `homelab.storage`, partition labels |
-| [hosts/printer/README.md](hosts/printer/README.md) | the ROCK 5C Klipper hosts |
+| [hosts/sbc/rock5c.md](hosts/sbc/rock5c.md) | the ROCK 5C Klipper hosts |
 | [docs/scope-usability.md](docs/scope-usability.md) | what host-driven config covers |
 
 ## Secrets
@@ -51,4 +51,4 @@ nixos-rebuild switch --flake .#<name> --target-host admin@<name> --sudo
 ```
 
 VMs and the printers install differently, see [hosts/README.md](hosts/README.md) and
-[hosts/printer/README.md](hosts/printer/README.md).
+[hosts/sbc/rock5c.md](hosts/sbc/rock5c.md).

@@ -103,6 +103,8 @@ in
 
     # Raw sectors from 32K hold the loader, the ESP starts after it.
     homelab.storage.boot.espStart = lib.mkDefault "16M";
+    # eMMC / SD root: compressed, checksummed, no out-of-tree module.
+    homelab.storage.boot.filesystem = lib.mkDefault "btrfs";
 
     environment.systemPackages = [ installUboot pkgs.stress-ng ];
   }

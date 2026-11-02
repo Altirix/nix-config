@@ -14,7 +14,7 @@ keys:
 
   - &host_ionos_de age1ckwdnfk73f5xdlcasvhhray6e4katzfhr5zzxhcpgfh8httuls5ssum87p # IONOS DE Node 1
 
-# Printer Keys
+# SBC Keys
 
   - &host_alluvium age1rcvhed74d0w4lcyvc23wcgk9yf4xpa5ng3vmkvresxc5gzwsudkqucrdm3 # Printer 1
   - &host_basidium age18p60jx786w797ju365683h94red5a3tg993tzrxfx03uk0dl2eaq7kyxa7 # Printer 2
@@ -48,7 +48,7 @@ groups:
     - *admin
     - *host_ionos_de
 
-  printer: &printer
+  sbc: &sbc
     - *admin
     - *host_alluvium
     - *host_basidium
@@ -104,9 +104,9 @@ creation_rules:
     key_groups:
       - age: *edge
 
-  - path_regex: ^secrets[\\/]printer\.yaml$
+  - path_regex: ^secrets[\\/]sbc\.yaml$
     key_groups:
-      - age: *printer
+      - age: *sbc
 
   - path_regex: ^secrets[\\/]standalone\.yaml$
     key_groups:

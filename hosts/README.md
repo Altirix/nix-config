@@ -1,7 +1,7 @@
 # Hosts
 
-Every `hosts/<group>/<name>/default.nix` is a host. The group directory (`compute/`, `edge/`, `printer/`,
-`virtual/`) is only for layout, and a host with an empty `default.nix` is a placeholder and not built.
+Every `hosts/<group>/<name>/default.nix` is a host. The group directory (`compute/`, `edge/`,
+`virtual/`, `sbc/`) is only for layout, and a host with an empty `default.nix` is a placeholder and not built.
 
 ```
 _template/                 a VM, copy this for a new host
@@ -15,7 +15,7 @@ edge/ionos-de/             public-facing VPS
   networking.nix           wireguard interface + peers, port forwards
   services.nix             web sites
   mcp.nix                  mcp.peacocks.me, token-gated proxy to the mcp VM
-printer/<name>/            Klipper on ROCK 5C Lites, see printer/README.md
+sbc/{alluvium,basidium}/   Klipper on ROCK 5C Lites, see sbc/rock5c.md
 virtual/dls/               FastAPI-DLS, licenses vGPU guests over labs-mesh
 virtual/mcp/               MCP servers for agents (labs, low-risk ones via the edge, see modules/services/mcp/README.md)
 virtual/partdb/            Part-DB, electronic parts inventory (labs only, no SSO yet)
