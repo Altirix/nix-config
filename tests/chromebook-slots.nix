@@ -12,7 +12,7 @@ in
   nodes.machine = {
     virtualisation.emptyDiskImages = [ 5120 ];
     environment.systemPackages = with fixtures.tools; [ pack install markGood installRecovery partition waitOnline ]
-      ++ [ pkgs.vboot-utils pkgs.e2fsprogs ];
+      ++ [ pkgs.vboot-utils pkgs.e2fsprogs pkgs.gptfdisk ];
   };
 
   # The script reads these values; the rest is in chromebook-slots.py.

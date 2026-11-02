@@ -32,12 +32,12 @@ sgdisk --zap-all \
   --new=3:0:$kernel --typecode=3:7F00 --change-name=3:@kernelR@ \
   --new=4:0:+@recoverySizeMiB@M --typecode=4:8300 --change-name=4:@recovery@ \
   --new=5:0:0 --typecode=5:8300 --change-name=5:@root@ "$disk"
-# sgdisk has the kernel re-read the table; wait for udev's by-partlabel links.
-for (( i = 0; i < 30; i++ )); do
-  if [[ -e /dev/disk/by-partlabel/@root@ ]]; then
-    exit 0
+# sgdisk has the kernel re-read the table. udev then re-creates the partitions'
+# by-partlabel links, briefly removing them, so wait for it to finish.
+udevadm settle --timeout=120
+for label in @kernelA@ @kernelB@ @kernelR@ @recovery@ @root@; do
+  if [[ ! -e /dev/disk/by-partlabel/$label ]]; then
+    echo "Partitions were created, but /dev/disk/by-partlabel/$label did not appear" >&2
+    exit 1
   fi
-  sleep 1
 done
-echo 'Partitions were created, but /dev/disk/by-partlabel links did not appear' >&2
-exit 1
