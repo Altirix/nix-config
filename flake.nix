@@ -60,11 +60,12 @@
           ];
         };
 
-      chromebooks = import ./installers/chromebook { inherit self lib; };
+      hostConfigs = lib.listToAttrs (map (host: lib.nameValuePair host.name (mkHost host)) hosts);
+      # Installer and recovery systems for the hosts that need them.
+      chromebooks = import ./installers/chromebook { inherit self lib; hosts = hostConfigs; };
     in
     {
-      nixosConfigurations = lib.listToAttrs (map (host: lib.nameValuePair host.name (mkHost host)) hosts)
-        // chromebooks.nixosConfigurations;
+      nixosConfigurations = hostConfigs // chromebooks.nixosConfigurations;
 
       inherit (chromebooks) packages;
 

@@ -4,13 +4,13 @@
 let
   layout = import ../modules/hardware/chromebook/layout.nix;
   installed = self.nixosConfigurations.colluvium.config;
-  installer = self.nixosConfigurations.tomato-installer.config;
-  recovery = self.nixosConfigurations.tomato-recovery.config;
+  installer = self.nixosConfigurations.colluvium-installer.config;
+  recovery = self.nixosConfigurations.colluvium-recovery.config;
   kernel = installed.boot.kernelPackages.kernel;
   markGood = installed.systemd.services.chromebook-mark-good;
 in
 # These builders previously required aarch64-linux on the x86 package output.
-assert self.packages.x86_64-linux.tomato-installer-image.system == "x86_64-linux";
+assert self.packages.x86_64-linux.colluvium-installer-image.system == "x86_64-linux";
 assert cross.installed.config.system.build.toplevel.system == "x86_64-linux";
 assert cross.installer.config.system.build.toplevel.system == "x86_64-linux";
 assert cross.installer.config.hardware.deviceTree.package.system == "x86_64-linux";
@@ -23,6 +23,7 @@ assert builtins.elem "ARCH=arm64" cross.installer.pkgs.vboot-utils.makeFlags;
 assert builtins.elem "ARCH=arm64" cross.installed.pkgs.vboot-utils.makeFlags;
 assert !(builtins.elem "ARCH=arm64" cross.installer.pkgs.buildPackages.vboot-utils.makeFlags);
 
+assert installed.homelab.hardware.chromebook.board == "tomato";
 assert installed.homelab.hardware.chromebook.dtbs == installer.homelab.hardware.chromebook.dtbs;
 assert installed.homelab.wifi.enable;
 assert installed.homelab.wifi.secretsFile == ../secrets/sbc.yaml;
@@ -46,7 +47,7 @@ assert installer.services.getty.autologinUser == "nixos";
 assert installer.boot.consoleLogLevel == 7;
 assert installer.fileSystems."/".device == "/dev/disk/by-label/${layout.usbRoot}";
 assert recovery.fileSystems."/".device == "/dev/disk/by-label/${layout.recovery}";
-assert recovery.networking.hostName == "tomato-recovery";
+assert recovery.networking.hostName == "colluvium-recovery";
 assert !installer.services.openssh.settings.PasswordAuthentication;
 assert !recovery.services.openssh.settings.PasswordAuthentication;
 assert installer.users.users.admin.openssh.authorizedKeys.keyFiles != [ ];

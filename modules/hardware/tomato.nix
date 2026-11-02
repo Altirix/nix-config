@@ -15,6 +15,7 @@ in
   config = lib.mkIf cfg.enable {
     homelab.hardware.chromebook = {
       enable = true;
+      board = "tomato";
       # The rev3 DTB also matches rev4.
       dtbs = map (rev: "mediatek/mt8195-cherry-tomato-r${toString rev}.dtb") [ 1 2 3 ];
     };

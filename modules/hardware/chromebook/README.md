@@ -80,7 +80,7 @@ generations, and recovery can reinstall any generation.
 From an x86_64 Linux machine (cross-compiled) or an ARM64 one (native):
 
 ```sh
-nix build .#<board>-installer-image
+nix build .#<host>-installer-image
 ```
 
 The first cross-build may compile dependencies that are not in the binary cache.
@@ -154,7 +154,7 @@ After a fallback, `cgpt show` lists the failed slot with priority 3, `tries=0` a
 
 ## Recovery
 
-Recovery is a separate NixOS system (`nixosConfigurations.<board>-recovery`) on
+Recovery is a separate NixOS system (`nixosConfigurations.<host>-recovery`) on
 its own root partition, so a broken NixOS root does not affect it. It has the
 installer's tools, wired DHCP and key-only SSH as `admin`. It generates its own SSH
 host key on first boot (expect a host-key warning) and cannot decrypt the host's
@@ -197,7 +197,7 @@ To refresh recovery itself, install it from the running host (not from recovery,
 whose root is mounted):
 
 ```sh
-nix build .#packages.aarch64-linux.<board>-recovery
+nix build .#packages.aarch64-linux.<host>-recovery
 ```
 
 ```sh
@@ -213,12 +213,13 @@ Keep the installer USB for when recovery fails too.
 ## Adding a board
 
 1. Write `modules/hardware/<board>.nix`: import `./chromebook`, enable
-   `homelab.hardware.chromebook` with the board's `dtbs`, and add its device-tree
-   filter, early drivers, consoles and firmware. Import it in `modules/default.nix`.
+   `homelab.hardware.chromebook` with `board = "<board>"` and the board's `dtbs`,
+   and add its device-tree filter, early drivers, consoles and firmware. Import it
+   in `modules/default.nix`.
 2. Add a host that enables the board (the root filesystem comes from this module).
-3. Add `boards.<board> = "<host>";` to `installers/chromebook/default.nix`. The
-   live systems take the host's `homelab.hardware.<board>` settings, and you get
-   `<board>-installer`, `<board>-recovery` and `<board>-installer-image`.
+   `installers/chromebook` finds every host with `homelab.hardware.chromebook`
+   enabled and builds `<host>-installer`, `<host>-recovery` and
+   `<host>-installer-image`, using the host's settings for its board.
 
 ## Validation
 

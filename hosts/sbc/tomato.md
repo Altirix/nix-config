@@ -13,10 +13,10 @@ and suspend are outside this setup.
 ## Build the installer
 
 ```sh
-nix build .#tomato-installer-image
+nix build .#colluvium-installer-image
 ```
 
-It carries the prebuilt `colluvium` system and `tomato-recovery`. Write and boot it
+It carries the prebuilt `colluvium` system and `colluvium-recovery`. Write and boot it
 as described in the Chromebook README, then check early hardware over SSH:
 
 ```sh

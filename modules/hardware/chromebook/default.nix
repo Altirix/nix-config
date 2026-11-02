@@ -12,6 +12,11 @@ in
 {
   options.homelab.hardware.chromebook = {
     enable = lib.mkEnableOption "booting NixOS from stock Chromebook firmware (Depthcharge)";
+    board = lib.mkOption {
+      type = lib.types.str;
+      example = "tomato";
+      description = "The board module, modules/hardware/<board>.nix, which the installer and recovery systems also use.";
+    };
     dtbs = lib.mkOption {
       type = lib.types.nonEmptyListOf lib.types.str;
       example = [ "mediatek/mt8195-cherry-tomato-r1.dtb" ];
