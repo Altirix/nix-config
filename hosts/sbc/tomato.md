@@ -42,7 +42,8 @@ EC Type-C/SPI drivers, so a working display can show early boot diagnostics;
 `console=tty1` is the primary console. The tested adapter displayed the installer
 console; others are untested. A blank display can be a display-path failure while
 Linux is running: check the wired DHCP lease and SSH before concluding that boot
-failed. `root=fstab` is expected: the initrd mounts the root from `fileSystems."/"`.
+failed. The display has stayed black once with a known-good image and come up after
+a reboot, so retry (or replug the adapter) before debugging further. `root=fstab` is expected: the initrd mounts the root from `fileSystems."/"`.
 
 ## Serial
 
