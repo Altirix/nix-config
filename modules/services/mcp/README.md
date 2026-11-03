@@ -43,7 +43,7 @@ add list=mcp-vms address=10.100.1.11 comment="mcp"
 add list=mcp-vms address=10.100.1.12 comment="rea-dynamic"
 
 /ip firewall filter
-add chain=forward action=accept connection-state=new in-interface=wg-vpn src-address=10.0.0.1 dst-address=10.100.1.11 protocol=tcp dst-port=8102,8104-8107,8109 comment="labs: edge to mcp" place-before=[find comment="labs: only home and tunnel in"]
+add chain=forward action=accept connection-state=new in-interface=wg-vpn src-address=10.0.0.1 dst-address=10.100.1.11 protocol=tcp dst-port=8102,8104-8107,8109-8110 comment="labs: edge to mcp" place-before=[find comment="labs: only home and tunnel in"]
 add chain=forward action=accept connection-state=new in-interface=wg-vpn src-address=10.0.0.1 dst-address=10.100.1.12 protocol=tcp dst-port=8101 comment="labs: edge to rea-dynamic" place-before=[find comment="labs: only home and tunnel in"]
 add chain=forward action=drop connection-state=new in-interface=wg-vpn dst-address-list=mcp-vms comment="labs: tunnel to mcp vms, nothing else" place-before=[find comment="labs: only home and tunnel in"]
 ```
@@ -91,7 +91,7 @@ ever masquerades into labs, the edge arrives as `10.100.0.1` instead of `10.0.0.
 
 ## From outside
 
-`hosts/edge/ionos-de/mcp.nix` serves nixos, context7, fetch, time, memory and markitdown at
+`hosts/edge/ionos-de/mcp.nix` serves nixos, context7, fetch, time, memory, markitdown and fdfdb at
 `https://mcp.peacocks.me/<server>/mcp`, proxied over the tunnel (streamable
 HTTP only, SSE is deprecated). playwright runs code, github holds a token, they get no route. Every
 request needs `Authorization: Bearer <token>`, one token per client in `hosts/edge/ionos-de/secrets.yaml` so each
@@ -276,6 +276,15 @@ it. The host doesn't build with it enabled and no token.
 ```sh
 sops hosts/virtual/mcp/secrets.yaml   # github-mcp-token: github_pat_...
 ```
+
+## fdfdb (8110)
+
+NAND flash by part number or by the ID its READ ID returns, with the controllers that support it, from
+[iTXTech/fdfdb](https://github.com/iTXTech/fdfdb) (CC BY-NC-SA 4.0): the flash tables of Silicon Motion, Phison,
+Maxio, JMicron, Innostor, YEESTOR, ChipsBank, Alcor, FirstChip and SandForce tools. `packages/fdfdb-mcp.py` reads
+them into one index at build time, so a table whose format changed fails the build. Part numbers keep each
+table's spelling (package and mode suffixes), so searches match on substrings and IDs on shared prefixes. Bump
+`rev` and `hash` in `packages/fdfdb.nix` for new tables.
 
 ## context7 (8104)
 

@@ -19,6 +19,7 @@ let
     memory = "read_graph";
     playwright = "browser_navigate";
     markitdown = "convert_to_markdown";
+    fdfdb = "search_part_number";
   };
 
   page = pkgs.writeTextDir "index.html" "<html><head><title>mcp-test</title></head><body><h1>Hello from client</h1></body></html>";
@@ -79,6 +80,10 @@ in
         ],
         "fetch": [("fetch", {"url": "http://client/"}, "Hello from client")],
         "markitdown": [("convert_to_markdown", {"uri": "http://client/"}, "Hello from client")],
+        "fdfdb": [
+            ("search_part_number", {"part_number": "MT29F512G08EEHAF"}, "2CA40832A100"),
+            ("search_flash_id", {"flash_id": "2C A4 08 32 A1 00"}, "MT29F512G08EEHAF"),
+        ],
         "playwright": [("browser_navigate", {"url": "http://client/"}, "mcp-test")],
     }
 

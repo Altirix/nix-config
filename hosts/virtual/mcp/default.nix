@@ -18,6 +18,7 @@
   homelab.mcp.servers.memory.enable = true;
   homelab.mcp.servers.playwright.enable = true;
   homelab.mcp.servers.markitdown.enable = true;
+  homelab.mcp.servers.fdfdb.enable = true;
 
   system.stateVersion = "26.05";
 }

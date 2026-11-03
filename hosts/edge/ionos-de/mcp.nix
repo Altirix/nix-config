@@ -22,6 +22,7 @@ let
     time = 8106;
     memory = 8107;
     markitdown = 8109;
+    fdfdb = 8110;
   };
 
   secret = client: "mcp-token-${client}";
