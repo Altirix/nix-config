@@ -99,10 +99,18 @@ and write the whole disk:
 sudo dd if=result/installer.img of=/dev/sdX bs=4M conv=fsync status=progress
 ```
 
-Boot it through external developer boot. Use a USB Ethernet adapter and wired DHCP
-(Realtek adapter firmware is included). The installer autologins as `nixos` on the
-display console and accepts the repository's admin SSH keys as `admin`, with
-passwordless sudo:
+Boot it through external developer boot. The installer autologins as `nixos` on
+the display console. For the network, use wired DHCP over a USB Ethernet adapter
+(Realtek adapter firmware is included), or join Wi-Fi from that console if the
+board's Wi-Fi firmware is included:
+
+```sh
+sudo nmcli device wifi connect '<ssid>' password '<psk>'
+```
+
+NetworkManager saves that profile, password included, on the USB stick; remove it
+with `sudo nmcli connection delete '<ssid>'` when done. The installer accepts the
+repository's admin SSH keys as `admin`, with passwordless sudo:
 
 ```sh
 ssh admin@<installer-ip>
