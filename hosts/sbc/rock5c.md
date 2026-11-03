@@ -1,6 +1,6 @@
 # Printers (ROCK 5C / 5C Lite)
 
-`hosts/printer/alluvium` and `hosts/printer/basidium` are Klipper hosts on ROCK 5C Lites (RK3582). With
+`hosts/sbc/alluvium` and `hosts/sbc/basidium` are Klipper hosts on ROCK 5C Lites (RK3582). With
 `homelab.hardware.rock5c.unlocked`, U-Boot only fails what the chip's OTP marks bad, not the
 vendor's fixed 2x A76 / no GPU. Usually most of the chip comes back, rarely all of it.
 
@@ -44,4 +44,4 @@ Mainsail is on `http://alluvium.local`. `printer.cfg` only seeds
 
 The on-board AIC8800D80 (USB Wi-Fi 6 / BT 5.4) has no mainline driver, `homelab.hardware.rock5c.wifi`
 builds Radxa's out of tree with its firmware. Check with `ip link` and `bluetoothctl list`.
-`homelab.wifi.enable` joins the network in `wifi-ssid` / `wifi-psk` of `secrets/printer.yaml`.
+`homelab.wifi.enable` joins the network in `wifi-ssid` / `wifi-psk` of `secrets/sbc.yaml`.

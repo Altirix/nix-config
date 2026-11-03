@@ -16,20 +16,23 @@ Flake for the homelab hosts.
 flake.nix      discovers hosts/<group>/<name>/default.nix, adds modules/default.nix
 modules/       building blocks and host types
 hosts/         one directory per machine, grouped by type
+installers/    live installer and recovery systems (installers/chromebook: per board)
 secrets/       sops files shared by a host type (common.yaml by every host)
 docs/          design notes
-tests/         NixOS VM tests, flake checks
+tests/         NixOS VM tests, flake checks (listed in tests/default.nix)
 ```
 
 | Read | For |
 |---|---|
+| [modules/hardware/chromebook/README.md](modules/hardware/chromebook/README.md) | Chromebooks on stock firmware: USB installer, install, A/B updates, recovery |
+| [hosts/sbc/tomato.md](hosts/sbc/tomato.md) | the Google Tomato board and Colluvium |
 | [hosts/README.md](hosts/README.md) | the hosts, adding one, installing a VM |
 | [modules/README.md](modules/README.md) | what each module does |
 | [modules/networking/README.md](modules/networking/README.md) | labs (VLAN 100), address pinning, labs-mesh, the router |
 | [modules/services/incus/README.md](modules/services/incus/README.md) | ssh into VMs, Windows VMs, vGPU |
 | [modules/services/mcp/README.md](modules/services/mcp/README.md) | MCP servers for agents, presets, who can reach them |
 | [modules/disks/README.md](modules/disks/README.md) | `homelab.storage`, partition labels |
-| [hosts/printer/README.md](hosts/printer/README.md) | the ROCK 5C Klipper hosts |
+| [hosts/sbc/rock5c.md](hosts/sbc/rock5c.md) | the ROCK 5C Klipper hosts |
 | [docs/scope-usability.md](docs/scope-usability.md) | what host-driven config covers |
 
 ## Secrets
@@ -51,4 +54,4 @@ nixos-rebuild switch --flake .#<name> --target-host admin@<name> --sudo
 ```
 
 VMs and the printers install differently, see [hosts/README.md](hosts/README.md) and
-[hosts/printer/README.md](hosts/printer/README.md).
+[hosts/sbc/rock5c.md](hosts/sbc/rock5c.md).

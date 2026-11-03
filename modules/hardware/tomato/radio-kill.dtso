@@ -1,0 +1,25 @@
+// The AX200's Wi-Fi and Bluetooth kill lines are active low and nothing in the
+// mainline device tree drives them, so they stay asserted (rfkill hard block).
+// Hold both released, as ChromeOS does. Pins are from pio's gpio-line-names.
+/dts-v1/;
+/plugin/;
+
+/ {
+	compatible = "google,tomato";
+};
+
+&pio {
+	wifi-kill-hog {
+		gpio-hog;
+		gpios = <61 0>;
+		output-high;
+		line-name = "WIFI_KILL_1V8_L";
+	};
+
+	bt-kill-hog {
+		gpio-hog;
+		gpios = <59 0>;
+		output-high;
+		line-name = "BT_KILL_1V8_L";
+	};
+};
