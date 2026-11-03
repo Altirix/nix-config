@@ -61,6 +61,7 @@ groups:
     - *admin
     - *host_dls
     - *host_mcp
+    - *host_rea_dynamic
 
 creation_rules:
 
