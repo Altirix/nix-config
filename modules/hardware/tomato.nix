@@ -20,6 +20,8 @@ in
       dtbs = map (rev: "mediatek/mt8195-cherry-tomato-r${toString rev}.dtb") [ 1 2 3 ];
     };
     hardware.deviceTree.filter = "mt8195-cherry-tomato-r*.dtb";
+    # Release the Wi-Fi and Bluetooth kill lines, which mainline leaves asserted.
+    hardware.deviceTree.overlays = [ { name = "tomato-radio-kill"; dtsFile = ./tomato/radio-kill.dtso; } ];
     # AX200 uses the in-tree iwlwifi driver.
     hardware.firmware = lib.optional cfg.wifi
       (import ./firmware-subset.nix { inherit pkgs; } "ax200-firmware" [ "iwlwifi-cc-a0-*.ucode" ]);

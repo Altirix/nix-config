@@ -40,6 +40,8 @@ assert installed.fileSystems."/".device == "/dev/disk/by-label/${layout.root}";
 # The display is the primary console, serial is kept for debugging.
 assert pkgs.lib.last (builtins.filter (pkgs.lib.hasPrefix "console=") installed.boot.kernelParams) == "console=tty1";
 assert builtins.elem "panic=10" installed.boot.kernelParams;
+assert map (o: o.name) installed.hardware.deviceTree.overlays == [ "tomato-radio-kill" ];
+assert map (o: o.name) installer.hardware.deviceTree.overlays == [ "tomato-radio-kill" ];
 assert markGood.enable && builtins.elem "sshd.service" markGood.requires;
 
 assert !installer.services.xserver.enable;
@@ -61,6 +63,7 @@ assert !recovery.systemd.services.chromebook-mark-good.enable;
 pkgs.runCommand "tomato-board" {
   inherit kernel;
   inherit (kernel) modDirVersion;
+  radioKill = ../modules/hardware/tomato/radio-kill.dtso;
   earlyModules = pkgs.makeModulesClosure {
     kernel = kernel.modules;
     rootModules = installed.boot.initrd.availableKernelModules ++ installed.boot.initrd.kernelModules;
