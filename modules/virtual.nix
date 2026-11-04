@@ -21,9 +21,9 @@
     dns = [ "1.1.1.1" "1.0.0.1" ];
   };
 
-  # time.cloudflare.com by address, so time needs no DNS: the router lets the shared zone (no other connections)
-  # reach exactly these (networking/README.md), tokens and passkeys there depend on the clock.
-  networking.timeServers = [ "162.159.200.1" "162.159.200.123" ];
+  # Time from the router's NTP server, the one thing labs may open on it (networking/README.md): every zone keeps
+  # its clock without reaching out, the shared zone included (Kanidm's tokens and passkeys depend on it).
+  networking.timeServers = [ config.homelab.labs.gateway ];
 
   virtualisation.incus.agent.enable = lib.mkDefault true;
 
