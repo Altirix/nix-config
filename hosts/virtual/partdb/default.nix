@@ -30,6 +30,17 @@
       # The edge's tunnel address: its X-Forwarded-* say https and the client's address (session cookies are Secure).
       TRUSTED_PROXIES = "10.0.0.1";
     };
+    # A worker stuck on a lock is killed instead of holding the pool forever.
+    poolConfig."request_terminate_timeout" = "60s";
+  };
+
+  # The module sets APP_SHARE_DIR here but never creates it, the parent is root owned (tmpfiles makes it for
+  # env.local). Without it the Symfony cache never saves and workers deadlock on its stampede flocks.
+  # Fixed upstream in nixpkgs b7dcd54f64 (master, not in 26.05), drop on 26.11.
+  systemd.tmpfiles.settings."10-part-db"."/var/lib/part-db/share".d = {
+    user = "part-db";
+    group = "part-db";
+    mode = "0750";
   };
 
   # Only on the labs bridge.
