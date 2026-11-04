@@ -22,6 +22,7 @@
 
   # The module sets APP_SHARE_DIR here but never creates it, the parent is root owned (tmpfiles makes it for
   # env.local). Without it the Symfony cache never saves and workers deadlock on its stampede flocks.
+  # Fixed upstream in nixpkgs b7dcd54f64 (master, not in 26.05), drop on 26.11.
   systemd.tmpfiles.settings."10-part-db"."/var/lib/part-db/share".d = {
     user = "part-db";
     group = "part-db";
