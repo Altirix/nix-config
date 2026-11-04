@@ -54,7 +54,9 @@ incus config device remove win11 unattend
 Set the password from the console, RDP needs it (NLA). Activate with your own key (`slmgr /ipk <key>`), the
 answer file only uses the generic one to pick Pro.
 
-For a fixed address add it to `otherAddresses` in `modules/compute.nix`, deploy the hypervisors, then in the
+It has no labs network until it has an address (the bridge drops what an unpinned instance sends). Add one to
+`otherAddresses` in `modules/compute.nix` (VMs you work in go in the work zone, `10.100.3.0/24`), deploy the
+hypervisors, then in the
 guest (a /32 with the router on-link, like the NixOS VMs). Windows doesn't order its NICs like incus, so pick
 the labs one by the MAC from `incus config get win11 volatile.eth0.hwaddr`:
 
