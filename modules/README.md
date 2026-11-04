@@ -10,7 +10,8 @@ edge.nix                 public-facing hosts: wireguard, egress NAT, port forwar
 sbc.nix                  SBCs: shared Wi-Fi secrets, DHCP, SSH, mDNS and storage defaults
 printer.nix              printer SBCs: sbc.nix + klipper, moonraker, mainsail
 desktop.nix, desktop/    not wired up yet
-system/                  ssh (admin keys in keys/admin/*.pub), secrets, boot (grub across mirrored ESPs)
+system/                  ssh (admin keys in keys/admin/*.pub), secrets, boot (grub across mirrored ESPs),
+                         logs (journal upload to the logs VM)
 hardware/                rock5c.nix + rock5c/ (U-Boot + RK3582 unlock patches from Armbian, extlinux, panthor shader mask, AIC8800 wifi)
                          chromebook/ (stock-firmware Depthcharge boot: signed A/B + recovery kernel slots, installer images)
                          tomato.nix + tomato/ (Google Tomato MT8195 board on chromebook/, radio kill-line overlay)

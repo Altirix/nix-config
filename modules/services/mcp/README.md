@@ -95,8 +95,8 @@ ever masquerades into labs, the edge arrives as `10.100.0.1` instead of `10.0.0.
 `https://mcp.peacocks.me/<server>/mcp`, proxied over the tunnel (streamable
 HTTP only, SSE is deprecated). playwright runs code, github holds a token, they get no route. Every
 request needs `Authorization: Bearer <token>`, one token per client in `hosts/edge/ionos-de/secrets.yaml` so each
-can be revoked, and the access log names the client. The router only lets the edge's tunnel
-address `10.0.0.1` in on the exposed servers' ports (`labs: edge to mcp`, Router), so a compromised edge still
+can be revoked, and the access log (the journal's `nginx_access`, on to the logs VM) names the client. The router only lets
+the edge's tunnel address `10.0.0.1` in on the exposed servers' ports (`labs: edge to mcp`, Router), so a compromised edge still
 doesn't reach the others. Never add a wireguard forward to `10.100.1.11` or `10.100.1.12`: forwards arrive from
 `10.0.0.1` too and would skip the token. Exposing another server takes both, `servers` in `mcp.nix` and its port
 in `labs: edge to mcp`.
@@ -156,6 +156,37 @@ and the token never reaches the session. Leave out the `headers` then. That the 
 isn't documented, so check after deploy that requests show up as `cloud` in `/var/log/nginx/access.log` on
 ionos-de. If they arrive as 401, set `MCP_TOKEN` as an environment variable of the environment instead and keep
 the `headers` (the session can then read the token).
+
+## Usage
+
+Two views, both in VictoriaLogs (`hosts/virtual/logs`):
+
+- **Every client, per request**: the edge's access log (`SYSLOG_IDENTIFIER:nginx_access`) has the client, path,
+  status and duration of each request through `mcp.peacocks.me`. It can't see inside them (which tool, with what).
+- **Claude Code, per tool call**: Claude Code's own OpenTelemetry export has a `claude_code.tool_result` event for
+  every tool it calls, MCP or not, with the tool, its MCP server, success, error and duration, and with
+  `OTEL_LOG_TOOL_DETAILS=1` its parameters (which can hold secrets). VictoriaLogs takes OTLP directly. In
+  `~/.claude/settings.json` on each machine that should report (one that reaches the logs VM, `labs: logs in`), not
+  this repo's `.claude/settings.json`, which cloud sessions also read and couldn't send from:
+
+  ```json
+  {
+    "env": {
+      "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+      "OTEL_LOGS_EXPORTER": "otlp",
+      "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
+      "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://10.100.0.11:9428/insert/opentelemetry/v1/logs",
+      "OTEL_LOG_TOOL_DETAILS": "1"
+    }
+  }
+  ```
+
+  ```
+  claude_code.tool_result mcp_server_name:* | stats by (mcp_server_name, mcp_tool_name, success) count()
+  claude_code.tool_result success:false | fields _time, mcp_tool_name, error, tool_parameters
+  ```
+
+Claude's connectors (claude.ai, the apps) only show up in the access log, they export nothing.
 
 ## rea (8101)
 

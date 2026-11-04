@@ -9,6 +9,7 @@
     inputs.sops-nix.nixosModules.sops
     ./system/ssh.nix
     ./system/secrets.nix
+    ./system/logs.nix
     ./disks/disko.nix
     ./system/boot.nix
     ./networking/lan.nix
