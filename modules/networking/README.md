@@ -11,7 +11,7 @@ rules name zones, not hosts. Same VLAN, same bridge, a zone is only an address r
 
 | Range | Zone | For |
 |---|---|---|
-| `10.100.0.0/24` | shared | the router (`10.100.0.1`) and what every VM may reach on its ports: logs `.11`. They open nothing themselves |
+| `10.100.0.0/24` | shared | the router (`10.100.0.1`) and what every VM may reach on its ports: auth `.10`, logs `.11`. They open nothing themselves |
 | `10.100.1.0/24` | agents | MCP and agent VMs, untrusted: mcp `.11`, rea-dynamic `.12` (modules/services/mcp/README.md, Router) |
 | `10.100.2.0/24` | apps | everything else serving something: partdb `.10` |
 | `10.100.3.0/24` | work | VMs you work in (Windows, vGPU guests, dev boxes), home reaches every port |
@@ -31,9 +31,9 @@ add chain=forward action=accept connection-state=new in-interface="VLAN 10 HomeN
 ```
 
 The shared zone's VMs open nothing but NTP (`networking.timeServers` in `modules/virtual.nix`, by address so it needs
-no DNS), so one that's taken can't reach the internet, the router,
+no DNS: Kanidm's tokens and passkeys depend on the clock), so one that's taken can't reach the internet, the router,
 home or another VM. Their deploys push the whole closure (no `--use-substitutes`). At the top; the holes
-(`labs: shared time`, `labs: logs in`) are added after, so they sit above:
+(`labs: shared time`, `labs: logs in`, `labs: edge to auth`) are added after, so they sit above:
 
 ```routeros
 /ip firewall filter

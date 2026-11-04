@@ -14,13 +14,17 @@ compute/<name>/            the three incus + ceph hypervisors
 edge/ionos-de/             public-facing VPS
   networking.nix           wireguard interface + peers, port forwards
   services.nix             web sites
+  auth.nix                 auth.peacocks.me, proxy to the auth VM
   mcp.nix                  mcp.peacocks.me, token-gated proxy to the mcp VM
+  logs.nix                 logs.peacocks.me, the logs VM's UI behind Kanidm sign-in
+  partdb.nix               parts.peacocks.me, Part-DB behind Kanidm sign-in
 sbc/{alluvium,basidium}/   Klipper on ROCK 5C Lites, see sbc/rock5c.md
 sbc/colluvium/               headless MT8195 Tomato, USB installer -> eMMC (see sbc/tomato.md)
+virtual/auth/              Kanidm, SSO at auth.peacocks.me via the edge (see virtual/auth/README.md)
 virtual/dls/               FastAPI-DLS, licenses vGPU guests over labs-mesh
 virtual/logs/              VictoriaLogs, every host's journal (see virtual/logs/README.md)
 virtual/mcp/               MCP servers for agents (labs, low-risk ones via the edge, see modules/services/mcp/README.md)
-virtual/partdb/            Part-DB, electronic parts inventory (labs only, no SSO yet)
+virtual/partdb/            Part-DB, electronic parts inventory (parts.peacocks.me, behind Kanidm sign-in)
 virtual/rea-dynamic/       REA per project and session, dynamic analysis, no egress, reset from a snapshot (see modules/services/mcp/README.md)
 ```
 

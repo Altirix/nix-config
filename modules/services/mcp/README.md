@@ -95,8 +95,10 @@ ever masquerades into labs, the edge arrives as `10.100.0.1` instead of `10.0.0.
 `https://mcp.peacocks.me/<server>/mcp`, proxied over the tunnel (streamable
 HTTP only, SSE is deprecated). playwright runs code, github holds a token, they get no route. Every
 request needs `Authorization: Bearer <token>`, one token per client in `hosts/edge/ionos-de/secrets.yaml` so each
-can be revoked, and the access log (the journal's `nginx_access`, on to the logs VM) names the client. The router only lets
-the edge's tunnel address `10.0.0.1` in on the exposed servers' ports (`labs: edge to mcp`, Router), so a compromised edge still
+can be revoked, and the access log (the journal's `nginx_access`, on to the logs VM) names the client. OAuth
+sign-in through Kanidm (`hosts/virtual/auth`) is ready to replace the tokens later (`oauth` in place of `tokens` on
+the site, its `mcp` and `mcp-cli` clients already exist), MCP doesn't use it yet. The router only lets the edge's tunnel
+address `10.0.0.1` in on the exposed servers' ports (`labs: edge to mcp`, Router), so a compromised edge still
 doesn't reach the others. Never add a wireguard forward to `10.100.1.11` or `10.100.1.12`: forwards arrive from
 `10.0.0.1` too and would skip the token. Exposing another server takes both, `servers` in `mcp.nix` and its port
 in `labs: edge to mcp`.
