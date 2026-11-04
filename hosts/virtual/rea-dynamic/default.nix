@@ -26,7 +26,7 @@
   sops.secrets = lib.mkForce { };
 
   # It opens no connections (the router drops them), so it ships no logs either.
-  homelab.logs.server = null;
+  homelab.logs.shipTo = null;
 
   system.stateVersion = "26.05";
 }

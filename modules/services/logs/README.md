@@ -1,7 +1,7 @@
 # logs
 
-VictoriaLogs on `10.100.0.11`, the lab's logs in one place. Every host ships its journal to it
-(`modules/system/logs.nix`, `systemd-journal-upload`, which resumes where it stopped after an outage; the edge's
+VictoriaLogs (`homelab.logs.collector`, `collector.nix`) on `hosts/virtual/logs` (`10.100.0.11`), the lab's logs in one place. Every host ships its journal to it
+(`homelab.logs.shipTo`, `systemd-journal-upload`, which resumes where it stopped after an outage; the edge's
 nginx access log goes to the journal as `nginx_access`), and Claude Code sends its tool calls over OpenTelemetry
 ([MCP usage](../../../modules/services/mcp/README.md#usage)). `rea-dynamic` ships nothing, it may not open
 connections. Kept 90 days.
@@ -12,7 +12,7 @@ VictoriaLogs only listens on loopback. nginx on the VM serves `/insert/` alone o
 lines). There's no disk-usage limit on purpose, a flood can't push old days out: a full volume stops new lines
 instead, watch it.
 
-Web UI: `https://logs.peacocks.me` after Kanidm sign-in (members of `web_users`, `hosts/edge/ionos-de/logs.nix`), or
+Web UI: `https://logs.peacocks.me` after Kanidm sign-in (members of `web_users`, the `logs` site in `hosts/edge/ionos-de/services.nix`), or
 `http://10.100.0.11:9427/select/vmui` from home. Queries are [LogsQL](https://docs.victoriametrics.com/victorialogs/logsql/):
 
 ```

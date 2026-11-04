@@ -34,8 +34,8 @@ hypervisors pin each VM to its address (`security.ipv4_filtering`, networking/RE
 VXLAN goes VM to VM past the router.
 
 Who gets in. These go before `labs: only home and tunnel in`, after `labs: home ssh, rdp` (ssh from home still
-reaches both for deploys). The edge is its tunnel address `10.0.0.1`, and only on the ports
-`hosts/edge/ionos-de/mcp.nix` routes:
+reaches both for deploys). The edge is its tunnel address `10.0.0.1`, and only on the public servers' ports
+(`public = true`, From outside):
 
 ```routeros
 /ip firewall address-list
@@ -91,17 +91,18 @@ ever masquerades into labs, the edge arrives as `10.100.0.1` instead of `10.0.0.
 
 ## From outside
 
-`hosts/edge/ionos-de/mcp.nix` serves nixos, context7, fetch, time, memory and markitdown at
-`https://mcp.peacocks.me/<server>/mcp`, proxied over the tunnel (streamable
+The servers `hosts/virtual/mcp` marks `public` (nixos, context7, fetch, time, memory, markitdown) are published
+(`homelab.publish`), and the edge's `mcp` site (`hosts/edge/ionos-de/services.nix`, `from = [ "mcp" "rea-dynamic" ]`)
+serves them at `https://mcp.peacocks.me/<server>/mcp`, proxied over the tunnel (streamable
 HTTP only, SSE is deprecated). playwright runs code, github holds a token, they get no route. Every
 request needs `Authorization: Bearer <token>`, one token per client in `hosts/edge/ionos-de/secrets.yaml` so each
 can be revoked, and the access log (the journal's `nginx_access`, on to the logs VM) names the client. OAuth
-sign-in through Kanidm (`hosts/virtual/auth`) is ready to replace the tokens later (`oauth` in place of `tokens` on
+sign-in through Kanidm (`modules/services/sso`) is ready to replace the tokens later (`oauth` in place of `tokens` on
 the site, its `mcp` and `mcp-cli` clients already exist), MCP doesn't use it yet. The router only lets the edge's tunnel
 address `10.0.0.1` in on the exposed servers' ports (`labs: edge to mcp`, Router), so a compromised edge still
 doesn't reach the others. Never add a wireguard forward to `10.100.1.11` or `10.100.1.12`: forwards arrive from
-`10.0.0.1` too and would skip the token. Exposing another server takes both, `servers` in `mcp.nix` and its port
-in `labs: edge to mcp`.
+`10.0.0.1` too and would skip the token. Exposing another server takes both, `public = true` on it and its
+port in `labs: edge to mcp`.
 
 REA is also routed, `https://mcp.peacocks.me/rea/` → its own VM's nginx `10.100.1.12:8101`, on the same
 token. It runs code a caller hands it but reaches nothing (no secrets, the router drops what it opens,
@@ -109,14 +110,14 @@ snapshot reset), so a leaked token lands in a dead-end sandbox. That rests on `l
 (Router) being live, and covering IPv6 too if labs carries it.
 
 Set it up: point an A record for `mcp.peacocks.me` at the VPS (ACME needs it before the first deploy), add a
-token per client named in `mcp.nix` (`openssl rand -hex 32`), add the router rules (Router), deploy `mcp`, then
+token per client named in the site's `tokens` (`openssl rand -hex 32`), add the router rules (Router), deploy `mcp`, then
 `ionos-de`. ionos-de doesn't build with the tokens missing.
 
 ```sh
 sops hosts/edge/ionos-de/secrets.yaml   # mcp-token-cloud: <hex>
 ```
 
-Revoke one by removing it from `clients` in `mcp.nix` and from `hosts/edge/ionos-de/secrets.yaml`, rotate one by
+Revoke one by removing it from the site's `tokens` and from `hosts/edge/ionos-de/secrets.yaml`, rotate one by
 editing the secret alone (nginx reloads on deploy). Check from anywhere:
 
 ```sh
@@ -161,7 +162,7 @@ the `headers` (the session can then read the token).
 
 ## Usage
 
-Two views, both in VictoriaLogs (`hosts/virtual/logs`):
+Two views, both in VictoriaLogs (`modules/services/logs`):
 
 - **Every client, per request**: the edge's access log (`SYSLOG_IDENTIFIER:nginx_access`) has the client, path,
   status and duration of each request through `mcp.peacocks.me`. It can't see inside them (which tool, with what).

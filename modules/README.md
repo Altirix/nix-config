@@ -10,8 +10,7 @@ edge.nix                 public-facing hosts: wireguard, egress NAT, port forwar
 sbc.nix                  SBCs: shared Wi-Fi secrets, DHCP, SSH, mDNS and storage defaults
 printer.nix              printer SBCs: sbc.nix + klipper, moonraker, mainsail
 desktop.nix, desktop/    not wired up yet
-system/                  ssh (admin keys in keys/admin/*.pub), secrets, boot (grub across mirrored ESPs),
-                         logs (journal upload to the logs VM)
+system/                  ssh (admin keys in keys/admin/*.pub), secrets, boot (grub across mirrored ESPs)
 hardware/                rock5c.nix + rock5c/ (U-Boot + RK3582 unlock patches from Armbian, extlinux, panthor shader mask, AIC8800 wifi)
                          chromebook/ (stock-firmware Depthcharge boot: signed A/B + recovery kernel slots, installer images)
                          tomato.nix + tomato/ (Google Tomato MT8195 board on chromebook/, radio kill-line overlay)
@@ -20,10 +19,12 @@ disks/                   disko.nix (homelab.storage -> disko.devices), zfs.nix
 networking/              lan (VLAN trunk), mesh, frr, wifi (wpa_supplicant, SSID/PSK from sops),
                          labs (an incus VM's address on VLAN 100, pinned by the hypervisors), labs-mesh (its static address on the overlay)
 services/                ceph/, incus/ (+ unattended Windows VMs), wireguard/ (+ egress NAT, port forwards),
-                         web/ (nginx: static or proxied sites, optional ACME, OAuth via oauth2-proxy), klipper/ (config/mainsail.cfg),
+                         web/ (nginx: static or proxied sites, sites `from` what other hosts publish, optional ACME, bearer tokens
+                         or Kanidm sign-in), klipper/ (config/mainsail.cfg),
                          vgpu/ (NVIDIA vGPU: host.nix on compute, guest.nix on virtual, releases.nix pins both)
                          mcp/ (MCP servers for agents, one sandboxed unit each, servers/: presets, packages/: what nixpkgs lacks,
-                         config/: REA's supergateway and nginx)
+                         config/: REA's supergateway and nginx), sso/ (Kanidm server + the gateway in front of it),
+                         logs/ (journal shipping on every host, collector.nix: VictoriaLogs), partdb/ (Part-DB)
 */config/                real config files (frr.conf, nftables tables, autounattend.xml) with @name@ placeholders
 */scripts/               bootstrap scripts, wrapped with writeShellApplication (shellcheck at build), and the
                          PowerShell that runs inside Windows VMs

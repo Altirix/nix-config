@@ -1,10 +1,15 @@
-# auth
+# sso
 
-Kanidm at `https://auth.peacocks.me`, SSO for the lab. The VM (`10.100.0.10`) serves it on `8443` with its own
-self-signed certificate (`kanidm-cert.service`), ionos-de terminates TLS for the name and proxies over the tunnel
-(`hosts/edge/ionos-de/auth.nix`). Groups, persons and OAuth2 clients are provisioned from `default.nix` on every
-deploy (`kanidm.service` post-start), credentials (passkeys, passwords, TOTP) are each person's own and live only in
-Kanidm's database.
+Kanidm, SSO for the lab, in two halves:
+
+- `server.nix` (`homelab.sso.server`) runs Kanidm on a host, `hosts/virtual/auth` (`10.100.0.10`) at
+  `auth.peacocks.me`. It serves `8443` with its own self-signed certificate (`kanidm-cert.service`) and provisions
+  groups, people (`people`) and OAuth2 clients on every start (`kanidm.service` post-start). Credentials (passkeys,
+  passwords, TOTP) are each person's own and live only in Kanidm's database.
+- `gateway.nix` (`homelab.sso.gateway`) makes a host its front door, ionos-de (`hosts/edge/ionos-de/services.nix`):
+  it serves the server's domain over the tunnel, accepting only the server's certificate, and runs oauth2-proxy
+  for that host's `sso` sites. Sites attach with `sso = true` like forwards attach to the WireGuard exit, the server
+  picks up their callbacks from the gateway's config.
 
 | Client | For | Redirect |
 |---|---|---|
@@ -34,13 +39,13 @@ add chain=forward action=accept connection-state=new in-interface=wg-vpn src-add
    Pin its certificate on the edge (ionos-de warns while it's missing, and then doesn't check what answers):
 
    ```sh
-   ssh admin@auth sudo cat /var/lib/kanidm-cert/chain.pem > hosts/virtual/auth/tls.pem   # commit it
+   ssh admin@auth sudo cat /var/lib/kanidm-cert/chain.pem > hosts/virtual/auth/tls.pem   # commit it, `certificate` picks it up
    ```
 
    It's good for ten years. To replace it, delete `/var/lib/kanidm-cert/*.pem` on the VM, run
    `systemctl restart kanidm-cert kanidm`, copy it again and deploy ionos-de.
-3. Deploy `ionos-de` with `auth.nix` only (comment out `mcp.nix` and `logs.nix` until step 5, and the
-   `homelab.web.oauth` block in `auth.nix`), so ACME gets the certificate.
+3. Add `oauth2-proxy-cookie-secret` (`openssl rand -hex 16`) and a placeholder `kanidm-web-secret` to ionos-de's
+   secrets (it doesn't build without them), deploy `auth` then `ionos-de`, so ACME gets the certificate.
 4. Give yourself a credential. `idm_admin`'s password is reset on the VM, then a one-time link sets up the person.
    Every start of `kanidm.service` (deploys, reboots) resets it again for provisioning, so recover it right
    before each admin session:
@@ -53,13 +58,12 @@ add chain=forward action=accept connection-state=new in-interface=wg-vpn src-add
 
    Open the link it prints and add a passkey.
 
-5. Copy the `web` client's secret (Kanidm made it) into ionos-de's secrets alongside a cookie secret, then
-   deploy `ionos-de` with everything. Once MCP switches, the `mcp` client's secret only goes into Claude's
+5. Replace the placeholder with the `web` client's secret (Kanidm made it), then deploy `ionos-de` again. Once MCP switches, the `mcp` client's secret only goes into Claude's
    connector settings, the edge never needs it:
 
    ```sh
    kanidm system oauth2 show-basic-secret web -H https://auth.peacocks.me -D idm_admin
-   sops hosts/edge/ionos-de/secrets.yaml   # kanidm-web-secret: <secret>, oauth2-proxy-cookie-secret: <openssl rand -hex 16>
+   sops hosts/edge/ionos-de/secrets.yaml   # kanidm-web-secret: <secret>
    ```
 
    Deploy `auth` before `ionos-de` whenever a client is added: oauth2-proxy looks each issuer up when it
@@ -67,7 +71,7 @@ add chain=forward action=accept connection-state=new in-interface=wg-vpn src-add
 
 ## Sites behind sign-in
 
-`sso = true` on a `homelab.web` site of the edge (`hosts/edge/ionos-de`) puts Kanidm sign-in in front of all of it,
+`sso = true` on a `homelab.web` site of the gateway (`hosts/edge/ionos-de/services.nix`) puts Kanidm sign-in in front of all of it,
 for anything without its own login: no session, the browser goes to Kanidm and back. Deploy `auth` first (the
 `web` client gets the site's callback from the edge's config), then `ionos-de`. Only the session cookie counts
 there, an MCP client's token doesn't open it, the upstream gets `X-Forwarded-User`, and the access log names the
@@ -75,8 +79,8 @@ user. Sessions are renewed every 15 minutes, so removing someone from `web_users
 
 ## People
 
-Add one in `default.nix` (`persons.<name>`, groups), deploy, and send them a reset link (step 4). Removing them
-from `default.nix` deletes them on the next deploy. Their tokens stop at the latest 15 minutes later; end their
+Add one to `people` in `hosts/virtual/auth/default.nix` (groups: `web_users` for the sso sites, `mcp_users` for MCP
+once it switches), deploy `auth`, and send them a reset link (step 4). Removing them deletes them on the next deploy. Their tokens stop at the latest 15 minutes later; end their
 sessions at once with `kanidm person session list <name>` / `destroy`.
 
 ## Backups

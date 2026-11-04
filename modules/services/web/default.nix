@@ -1,7 +1,8 @@
-{ config, lib, ... }:
+{ config, lib, nodes, ... }:
 
 # nginx sites, each either serves files from `root` or proxies to an `upstream` (usually across the tunnel),
-# with neither `/` is a 404 and only `locations` answer.
+# with neither `/` is a 404 and only `locations` answer. A site can instead take what other hosts publish (`from`,
+# publish.nix), the way a forward names its peer: they say what they serve, the site says where and who gets in.
 # Files in `root` aren't managed by nix, they're copied in (rsync as admin).
 let
   cfg = config.homelab.web;
@@ -37,6 +38,12 @@ let
         type = types.nullOr types.str;
         default = null;
       };
+      # Hosts whose homelab.publish this site serves: their locations, and their upstream, certificate and body
+      # size for whatever the site doesn't set itself.
+      from = mkOption {
+        type = types.listOf types.str;
+        default = [ ];
+      };
       # e.g. http://10.100.0.20:8080
       upstream = mkOption {
         type = types.nullOr types.str;
@@ -55,11 +62,11 @@ let
         type = types.attrsOf (types.strMatching "http://[^/]+/.*");
         default = { };
       };
-      # File of nginx map lines, `"Bearer <token>" <client>;` (a sops template, never the nix store). `locations`
-      # then answer 401 without a listed token, the upstream never sees it and the access log names the client.
-      # nginx matches them case-insensitively, so use hex tokens. A missing file stops nginx, an empty one is all 401.
+      # Clients with a bearer token each, read from <site>-token-<client> in the host's secrets.yaml (hex: nginx
+      # matches them case-insensitively). `locations` answer 401 without one, the upstream never sees it and the
+      # access log names the client. Drop a client (and its secret) to revoke it, edit the secret to rotate it.
       tokens = mkOption {
-        type = types.nullOr types.str;
+        type = types.nullOr (types.listOf types.str);
         default = null;
       };
       # `locations` are an OAuth protected resource (MCP authorization): 401 without an access token from one of
@@ -108,10 +115,26 @@ let
     };
   };
 
-  https = lib.any (s: s.https) (lib.attrValues cfg.sites);
-  oauth = lib.any (s: s.oauth) (lib.attrValues cfg.sites);
-  sso = lib.any (s: s.sso) (lib.attrValues cfg.sites);
-  tokens = lib.any (s: s.tokens != null) (lib.attrValues cfg.sites);
+  # A site with what its `from` hosts publish filled in.
+  resolve = s:
+    let
+      published = map (host: nodes.${host}.config.homelab.publish) s.from;
+      pick = attr: lib.findFirst (v: v != null) null ([ s.${attr} ] ++ map (p: p.${attr}) published);
+    in
+    s // {
+      locations = lib.foldl' (all: p: all // p.locations) { } published // s.locations;
+      upstream = pick "upstream";
+      upstreamCertificate = pick "upstreamCertificate";
+      maxBodySize = pick "maxBodySize";
+    };
+  sites = lib.mapAttrs (_: resolve) cfg.sites;
+  tokenSites = lib.filterAttrs (_: s: s.tokens != null) sites;
+  tokenSecret = name: client: "${name}-token-${client}";
+
+  https = lib.any (s: s.https) (lib.attrValues sites);
+  oauth = lib.any (s: s.oauth) (lib.attrValues sites);
+  sso = lib.any (s: s.sso) (lib.attrValues sites);
+  tokens = tokenSites != { };
   # Sites oauth2-proxy answers for, one way or the other.
   proxy = oauth || sso;
 in
@@ -157,7 +180,7 @@ in
         && (s.oauth || s.sso -> s.https) && lib.count lib.id [ s.oauth s.sso (s.tokens != null) ] <= 1
         && (s.upstreamCertificate != null -> s.upstream != null && lib.hasPrefix "https://" s.upstream && s.domains != [ ]);
       message = "web: site ${name} has both root and upstream, https without domains on every address, oauth or sso without https, more than one of tokens/oauth/sso, or upstreamCertificate without an https upstream and domains";
-    }) cfg.sites;
+    }) sites;
 
     # No account email: Let's Encrypt no longer sends expiry mail, and it would end up in the nix store.
     security.acme.acceptTerms = lib.mkIf https true;
@@ -218,13 +241,13 @@ in
             })
           + lib.optionalString s.sso (snippet "sso-server.conf" { proxy = config.services.oauth2-proxy.httpAddress; })
           + lib.optionalString (s.maxBodySize != null) "client_max_body_size ${s.maxBodySize};\n";
-      }) cfg.sites;
+      }) sites;
 
       upstreams = lib.mkMerge (lib.mapAttrsToList (name: s: lib.mapAttrs' (prefix: url:
         lib.nameValuePair (upstreamName name prefix) {
           servers.${(parse url).server} = { };
           extraConfig = "keepalive 8;";
-        }) s.locations) cfg.sites);
+        }) s.locations) sites);
 
       # Access logs go to the journal (SYSLOG_IDENTIFIER=nginx_access) and on to the logs VM, not a file. On tokens,
       # oauth and sso sites they name the client or user (the token's client, its sub, the session's username).
@@ -232,12 +255,24 @@ in
         access_log ${accessLog};
       '' + lib.optionalString (proxy || tokens) ''
         log_format user '$remote_addr $web_user [$time_local] "$request" $status $body_bytes_sent $request_time';
-      '' + lib.concatStrings (lib.mapAttrsToList (name: s: snippet "token-map.conf" { client = clientVar name; inherit (s) tokens; })
-        (lib.filterAttrs (_: s: s.tokens != null) cfg.sites));
+      '' + lib.concatStrings (lib.mapAttrsToList (name: _:
+        snippet "token-map.conf" { client = clientVar name; tokens = config.sops.templates."${name}-tokens".path; }) tokenSites);
 
       # A "Bearer <64 hex>" key is past the 64 byte default bucket, nginx refuses to start.
       mapHashBucketSize = lib.mkIf tokens 128;
     };
+
+    # From the host's secrets.yaml (sops.defaultSopsFile), only this host can read them.
+    sops.secrets = lib.mkMerge (lib.mapAttrsToList (name: s:
+      lib.genAttrs (map (tokenSecret name) s.tokens) (key: { inherit key; })) tokenSites);
+
+    sops.templates = lib.mapAttrs' (name: s: lib.nameValuePair "${name}-tokens" {
+      content = lib.concatMapStrings (client: ''
+        "Bearer ${config.sops.placeholder.${tokenSecret name client}}" ${client};
+      '') s.tokens;
+      owner = "nginx";
+      reloadUnits = [ "nginx.service" ];
+    }) tokenSites;
 
     services.oauth2-proxy = lib.mkIf proxy {
       enable = true;
@@ -277,7 +312,7 @@ in
     systemd.services.oauth2-proxy.serviceConfig.RestartSec = lib.mkIf proxy 5;
 
     systemd.tmpfiles.rules = lib.mapAttrsToList (_: s: "d ${s.root} 0755 admin users -")
-      (lib.filterAttrs (_: s: s.root != null) cfg.sites);
+      (lib.filterAttrs (_: s: s.root != null) sites);
 
     networking.firewall.allowedTCPPorts = [ 80 ] ++ lib.optional https 443;
   };

@@ -7,6 +7,9 @@
     ./networking/labs-mesh.nix
     ./services/vgpu/guest.nix
     ./services/mcp
+    ./services/logs/collector.nix
+    ./services/partdb
+    ./services/sso/server.nix
   ];
 
   homelab.secrets.groupFile = ../secrets/virtual.yaml;

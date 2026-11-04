@@ -9,8 +9,8 @@
     boot.disks = [ "root" ];
   };
 
-  # VictoriaLogs' data on the logs-data volume (README.md), formatted by hand. nofail so the VM still boots for
-  # ssh, VictoriaLogs won't start without it.
+  # VictoriaLogs' data on the logs-data volume (modules/services/logs/README.md), formatted by hand. nofail so
+  # the VM still boots for ssh, VictoriaLogs won't start without it.
   fileSystems."/var/lib/private/victorialogs" = {
     device = "/dev/disk/by-label/logs-data";
     fsType = "ext4";
