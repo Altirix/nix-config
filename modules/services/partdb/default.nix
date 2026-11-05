@@ -1,14 +1,7 @@
 { config, lib, ... }:
 
 # Part-DB, electronic parts inventory, published (homelab.publish) for a front door with sign-in (parts.peacocks.me),
-# then Part-DB's own login. Logged out, Part-DB acts as its built-in `anonymous` user (disabling that user changes
-# nothing in 2.4), so nothing is visible logged out only once that user's permissions are taken away: a one-time
-# step in its UI, it keeps them in its database. As an admin, open the users admin, edit `anonymous`, take it out
-# of every group and set every permission to Forbid; then check from a private window that the site only offers the
-# login. The router lets only the edge in, from home use the site too:
-#
-#   /ip firewall filter
-#   add chain=forward action=accept connection-state=new in-interface=wg-vpn src-address=10.0.0.1 dst-address=<host> protocol=tcp dst-port=80 comment="labs: edge to partdb" place-before=[find comment="labs: only home and tunnel in"]
+# then Part-DB's own login. Setting it up, the router rule: README.md.
 let
   cfg = config.homelab.partdb;
 in
@@ -46,7 +39,7 @@ in
       mode = "0750";
     };
 
-    homelab.publish.upstream = lib.mkIf (config.homelab.labs.address != null) "http://${config.homelab.labs.address}";
+    homelab.publish.upstream.port = 80;
 
     # Only on the labs bridge.
     networking.firewall.allowedTCPPorts = [ 80 ];

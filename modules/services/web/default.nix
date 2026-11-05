@@ -115,34 +115,49 @@ let
     };
   };
 
-  # A site with what its `from` hosts publish filled in.
+  # A site's `from` hosts: their labs address and what they publish (hosts without the options have neither).
+  publishedBy = s: map (host: {
+    inherit host;
+    address = nodes.${host}.config.homelab.labs.address or null;
+    p = nodes.${host}.config.homelab.publish or { locations = { }; upstream = null; maxBodySize = null; };
+  }) s.from;
+
+  # A site with what its `from` hosts publish filled in, at their labs address.
   resolve = s:
     let
-      published = map (host: nodes.${host}.config.homelab.publish) s.from;
-      pick = attr: lib.findFirst (v: v != null) null ([ s.${attr} ] ++ map (p: p.${attr}) published);
+      published = publishedBy s;
+      upstreams = lib.filter (x: x.p.upstream != null) published;
+      upstreamUrl = x: let u = x.p.upstream; in
+        "${if u.https then "https" else "http"}://${x.address}${lib.optionalString (u.port != (if u.https then 443 else 80)) ":${toString u.port}"}";
+      first = f: list: if list == [ ] then null else f (lib.head list);
     in
     s // {
-      locations = lib.foldl' (all: p: all // p.locations) { } published // s.locations;
-      upstream = pick "upstream";
-      upstreamCertificate = pick "upstreamCertificate";
-      maxBodySize = pick "maxBodySize";
+      locations = lib.foldl' (all: x: all // lib.mapAttrs (_: l: "http://${x.address}:${toString l.port}${l.path}")
+        x.p.locations) { } published // s.locations;
+      upstream = if s.upstream != null then s.upstream else first upstreamUrl upstreams;
+      upstreamCertificate = if s.upstreamCertificate != null then s.upstreamCertificate
+        else first (x: x.p.upstream.certificate) upstreams;
+      maxBodySize = lib.findFirst (v: v != null) null ([ s.maxBodySize ] ++ map (x: x.p.maxBodySize) published);
     };
   sites = lib.mapAttrs (_: resolve) cfg.sites;
 
-  # What's wrong with a site's `from`: a host that publishes nothing, a prefix two of them publish, or settings they
-  # disagree on.
+  # What's wrong with a site's `from`: a host without a labs address or that publishes nothing, a prefix two of them
+  # publish, more than one whole site, or body sizes they disagree on.
   fromProblems = name: s:
     let
-      published = map (host: { inherit host; p = nodes.${host}.config.homelab.publish; }) s.from;
-      empty = map (x: x.host) (lib.filter (x: x.p.locations == { } && x.p.upstream == null) published);
+      published = publishedBy s;
       prefixes = lib.concatMap (x: lib.attrNames x.p.locations) published;
-      shared = lib.unique (lib.filter (pre: lib.count (q: q == pre) prefixes > 1) prefixes);
-      clash = attr: lib.length (lib.unique (lib.filter (v: v != null) (map (x: x.p.${attr}) published))) > 1;
     in
-    map (h: "web: site ${name} takes from ${h}, which publishes nothing (no homelab.labs.address, or no service)") empty
-    ++ map (pre: "web: site ${name}'s hosts all publish ${pre}") shared
-    ++ map (attr: "web: site ${name}'s hosts disagree on ${attr}")
-      (lib.filter clash [ "upstream" "upstreamCertificate" "maxBodySize" ]);
+    map (x: "web: site ${name} takes from ${x.host}, which has no homelab.labs.address")
+      (lib.filter (x: x.address == null) published)
+    ++ map (x: "web: site ${name} takes from ${x.host}, which publishes nothing")
+      (lib.filter (x: x.p.locations == { } && x.p.upstream == null) published)
+    ++ map (pre: "web: site ${name}'s hosts all publish ${pre}")
+      (lib.unique (lib.filter (pre: lib.count (q: q == pre) prefixes > 1) prefixes))
+    ++ lib.optional (lib.length (lib.filter (x: x.p.upstream != null) published) > 1)
+      "web: site ${name}'s hosts each publish a whole site"
+    ++ lib.optional (lib.length (lib.unique (lib.filter (v: v != null) (map (x: x.p.maxBodySize) published))) > 1)
+      "web: site ${name}'s hosts disagree on maxBodySize";
   tokenSites = lib.filterAttrs (_: s: s.tokens != null) sites;
   tokenSecret = name: client: "${name}-token-${client}";
 
@@ -195,8 +210,10 @@ in
         && (s.oauth || s.sso -> s.https) && lib.count lib.id [ s.oauth s.sso (s.tokens != null) ] <= 1
         && (s.upstreamCertificate != null -> s.upstream != null && lib.hasPrefix "https://" s.upstream && s.domains != [ ]);
       message = "web: site ${name} has both root and upstream, https without domains on every address, oauth or sso without https, more than one of tokens/oauth/sso, or upstreamCertificate without an https upstream and domains";
-    }) sites ++ lib.concatLists (lib.mapAttrsToList (name: s:
-      map (message: { assertion = false; inherit message; }) (fromProblems name s)) cfg.sites);
+    }) sites ++ lib.mapAttrsToList (name: s: {
+      assertion = fromProblems name s == [ ];
+      message = lib.concatStringsSep "\n" (fromProblems name s);
+    }) cfg.sites;
 
     # No account email: Let's Encrypt no longer sends expiry mail, and it would end up in the nix store.
     security.acme.acceptTerms = lib.mkIf https true;

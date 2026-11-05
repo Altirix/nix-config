@@ -7,13 +7,11 @@ let
   cfg = config.homelab.sso.server;
   inherit (lib) mkOption types;
 
-  # The sites the gateways sign browsers in for.
-  ssoSites = lib.concatMap (host: lib.attrValues (lib.filterAttrs (_: s: s.sso) nodes.${host}.config.homelab.web.sites))
-    cfg.gateways;
-  # oauth2-proxy needs the web client even with no sso site yet (oauth sites only), which then only has the
-  # gateway's own name.
-  callbacks = if ssoSites == [ ] then [ "https://${cfg.domain}/oauth2/callback" ]
-    else map (s: "https://${lib.head s.domains}/oauth2/callback") ssoSites;
+  # The domains of the sites the gateways sign browsers in for. oauth2-proxy needs the web client even before there
+  # is one (oauth sites only), its callback on the server's own domain then goes unused.
+  ssoDomains = lib.concatMap (host: map (s: lib.head s.domains)
+    (lib.attrValues (lib.filterAttrs (_: s: s.sso) nodes.${host}.config.homelab.web.sites))) cfg.gateways;
+  domains = if ssoDomains == [ ] then [ cfg.domain ] else ssoDomains;
 in
 {
   imports = [ ../web/publish.nix ];
@@ -85,8 +83,8 @@ in
           # secret is Kanidm's own, README.md.
           web = {
             displayName = "Lab sites";
-            originUrl = callbacks;
-            originLanding = lib.replaceStrings [ "oauth2/callback" ] [ "" ] (lib.head callbacks);
+            originUrl = map (d: "https://${d}/oauth2/callback") domains;
+            originLanding = "https://${lib.head domains}/";
             scopeMaps.web_users = [ "openid" "profile" ];
             # preferred_username "<name>" instead of "<name>@<domain>", it names the user in the gateway's logs.
             preferShortUsername = true;
@@ -139,9 +137,10 @@ in
       };
     };
 
-    homelab.publish = lib.mkIf (config.homelab.labs.address != null) {
-      upstream = "https://${config.homelab.labs.address}:8443";
-      upstreamCertificate = cfg.certificate;
+    homelab.publish.upstream = {
+      port = 8443;
+      https = true;
+      inherit (cfg) certificate;
     };
 
     # Only on the labs bridge, the router lets the gateway in.

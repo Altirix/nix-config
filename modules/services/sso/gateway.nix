@@ -18,6 +18,11 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    assertions = [{
+      assertion = lib.elem config.networking.hostName server.homelab.sso.server.gateways;
+      message = "sso: ${cfg.server}'s homelab.sso.server.gateways doesn't list ${config.networking.hostName}, its sites would get no callbacks";
+    }];
+
     homelab.web.sites.${site} = {
       domains = [ domain ];
       https = true;
