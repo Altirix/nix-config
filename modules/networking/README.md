@@ -11,7 +11,7 @@ rules name zones, not hosts. Same VLAN, same bridge, a zone is only an address r
 
 | Range | Zone | For |
 |---|---|---|
-| `10.100.0.0/24` | shared | the router (`10.100.0.1`) and what every VM may reach on its ports: auth `.10`, logs `.11`. They open nothing themselves |
+| `10.100.0.0/24` | shared | the router (`10.100.0.1`) and what every VM may reach on its ports: auth `.10`, logs `.11`, dls `.12`. They open nothing themselves |
 | `10.100.1.0/24` | agents | MCP and agent VMs, untrusted: mcp `.11`, rea-dynamic `.12` (modules/services/mcp/README.md, Router) |
 | `10.100.2.0/24` | apps | everything else serving something: partdb `.10` |
 | `10.100.3.0/24` | work | VMs you work in (Windows, vGPU guests, dev boxes), home reaches every port |
@@ -39,6 +39,14 @@ reach out for it. `rea-dynamic` stays out, it opens nothing:
 add chain=input action=accept connection-state=new in-interface-list=LABS src-address=!10.100.1.12 protocol=udp dst-port=123 comment="labs: time from the router" place-before=0
 ```
 
+Every VM may license against dls (vGPU guests, `modules/services/incus/README.md`), before
+`labs: only home and tunnel in`:
+
+```routeros
+/ip firewall filter
+add chain=forward action=accept connection-state=new in-interface-list=LABS dst-address=10.100.0.12 protocol=tcp dst-port=443 comment="labs: dls in" place-before=[find comment="labs: only home and tunnel in"]
+```
+
 The shared zone's VMs open nothing else, so one that's taken can't reach the internet, the router, home or another
 VM. Their deploys push the whole closure (no `--use-substitutes`). At the top; the holes (`labs: time from the
 router`, `labs: logs in`, `labs: edge to auth`) are added after, so they sit above:
@@ -61,9 +69,9 @@ hypervisor ports from each other (protected ports), otherwise VMs on different h
 
 ## labs-mesh
 
-A VXLAN overlay across the hypervisors (`homelab.mesh.overlay`), so VMs reach each other directly, e.g. vGPU
-guests and `dls`. Opt in with `-p default -p labs-mesh`, the bridge hands out no addresses so each VM sets a
-static one in `10.254.0.0/24` (`homelab.labsMesh.address`).
+A VXLAN overlay across the hypervisors (`homelab.mesh.overlay`), so VMs reach each other directly, past the router
+and every rule on it: only for VMs that trust each other, nothing uses it now. Opt in with `-p default -p labs-mesh`,
+the bridge hands out no addresses so each VM sets a static one in `10.254.0.0/24` (`homelab.labsMesh.address`).
 
 ## Router (MikroTik)
 

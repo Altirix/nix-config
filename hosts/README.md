@@ -18,7 +18,7 @@ edge/ionos-de/             public-facing VPS
 sbc/{alluvium,basidium}/   Klipper on ROCK 5C Lites, see sbc/rock5c.md
 sbc/colluvium/               headless MT8195 Tomato, USB installer -> eMMC (see sbc/tomato.md)
 virtual/auth/              Kanidm, SSO at auth.peacocks.me via the edge (see modules/services/sso/README.md)
-virtual/dls/               FastAPI-DLS, licenses vGPU guests over labs-mesh
+virtual/dls/               FastAPI-DLS, licenses vGPU guests over labs (shared zone)
 virtual/logs/              VictoriaLogs, every host's journal (see modules/services/logs/README.md)
 virtual/mcp/               MCP servers for agents (labs, low-risk ones via the edge, see modules/services/mcp/README.md)
 virtual/partdb/            Part-DB, electronic parts inventory (parts.peacocks.me, behind Kanidm sign-in)
