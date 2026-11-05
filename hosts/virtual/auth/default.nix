@@ -14,6 +14,7 @@
   homelab.sso.server = {
     enable = true;
     domain = "auth.peacocks.me";
+    gateways = [ "ionos-de" ];
     # The edge's tunnel address.
     proxies = [ "10.0.0.1" ];
     # Copied from this VM once it's installed (modules/services/sso/README.md).

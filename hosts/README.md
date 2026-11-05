@@ -38,8 +38,9 @@ ls -l /dev/disk/by-id/   # fill in storage.nix
 ```
 
 Pick its address in a zone ([modules/networking/README.md](../modules/networking/README.md)) and set it in
-`networking.nix`, deploy the hypervisors so they pin it (an instance without a pin can't send anything on labs).
-Install it from the hypervisor it runs on, over vsock (works before it has a network, see
+`networking.nix`, deploy the hypervisors so they make its pin profile (an instance without a pin can't send anything
+on labs), and launch it with that profile, `incus launch <image> <name> --vm -p default -p <name>` (the hypervisors
+only add pins to instances that already exist when they deploy). Install it from the hypervisor it runs on, over vsock (works before it has a network, see
 [modules/services/incus/README.md](../modules/services/incus/README.md)). The installer doesn't know its address,
 give it the same one by hand first so it can fetch what it needs:
 
@@ -47,6 +48,3 @@ give it the same one by hand first so it can fetch what it needs:
 ssh root@incus-<name> 'ip addr add <address>/32 dev enp5s0 && ip route add 10.100.0.1 dev enp5s0 && ip route add default via 10.100.0.1'
 nixos-anywhere --flake .#<name> --target-host root@incus-<name> --extra-files <dir with etc/ssh/ssh_host_ed25519_key>
 ```
-
-A VM that serves something sets `homelab.labs.address`, deploy the VM, then the hypervisors so they pin it
-([modules/networking/README.md](../modules/networking/README.md)).

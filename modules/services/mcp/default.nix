@@ -111,7 +111,8 @@ in
 
     networking.firewall.allowedTCPPorts = ports (lib.attrValues enabled);
 
-    homelab.publish.locations = lib.mapAttrs' (name: s: lib.nameValuePair "/${name}/mcp"
-      "http://${config.homelab.labs.address}:${toString s.port}/mcp") (lib.filterAttrs (_: s: s.public) enabled);
+    homelab.publish.locations = lib.mkIf ((config.homelab.labs.address or null) != null) (lib.mapAttrs' (name: s:
+      lib.nameValuePair "/${name}/mcp" "http://${config.homelab.labs.address}:${toString s.port}/mcp")
+      (lib.filterAttrs (_: s: s.public) enabled));
   };
 }

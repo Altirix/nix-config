@@ -55,7 +55,7 @@ in
     # Its data is a volume of its own (README.md), mounted by the host.
     systemd.services.victorialogs.unitConfig.RequiresMountsFor = [ "/var/lib/private/victorialogs" ];
 
-    homelab.publish.upstream = "http://${config.homelab.labs.address}:9427";
+    homelab.publish.upstream = lib.mkIf (config.homelab.labs.address != null) "http://${config.homelab.labs.address}:9427";
 
     # Only on the labs bridge, the router decides who reaches it.
     networking.firewall.allowedTCPPorts = [ 9427 9428 ];

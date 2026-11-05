@@ -46,7 +46,7 @@ in
       mode = "0750";
     };
 
-    homelab.publish.upstream = "http://${config.homelab.labs.address}";
+    homelab.publish.upstream = lib.mkIf (config.homelab.labs.address != null) "http://${config.homelab.labs.address}";
 
     # Only on the labs bridge.
     networking.firewall.allowedTCPPorts = [ 80 ];

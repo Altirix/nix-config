@@ -7,10 +7,13 @@ let
   cfg = config.homelab.sso.server;
   inherit (lib) mkOption types;
 
-  # The hosts fronting this server, and the sites they sign browsers in for.
-  gateways = lib.filter (n: (n.config.homelab.sso.gateway.enable or false)
-    && n.config.homelab.sso.gateway.server == config.networking.hostName) (lib.attrValues nodes);
-  ssoSites = lib.concatMap (n: lib.attrValues (lib.filterAttrs (_: s: s.sso) n.config.homelab.web.sites)) gateways;
+  # The sites the gateways sign browsers in for.
+  ssoSites = lib.concatMap (host: lib.attrValues (lib.filterAttrs (_: s: s.sso) nodes.${host}.config.homelab.web.sites))
+    cfg.gateways;
+  # oauth2-proxy needs the web client even with no sso site yet (oauth sites only), which then only has the
+  # gateway's own name.
+  callbacks = if ssoSites == [ ] then [ "https://${cfg.domain}/oauth2/callback" ]
+    else map (s: "https://${lib.head s.domains}/oauth2/callback") ssoSites;
 in
 {
   imports = [ ../web/publish.nix ];
@@ -20,6 +23,9 @@ in
 
     # Never change it once installed: passkeys and names (user@<domain>) are bound to it.
     domain = mkOption { type = types.str; };
+
+    # The hosts fronting it (gateway.nix), whose `sso` sites get the web client's callbacks.
+    gateways = mkOption { type = types.listOf types.str; };
 
     # Front doors' addresses, whose X-Forwarded-For is trusted so logs and rate limits see the client.
     proxies = mkOption { type = types.listOf types.str; };
@@ -74,13 +80,13 @@ in
 
         persons = lib.mapAttrs (_: p: { inherit (p) displayName groups; }) cfg.people;
 
-        systems.oauth2 = lib.optionalAttrs (ssoSites != [ ]) {
+        systems.oauth2 = {
           # oauth2-proxy on the gateway, signing browsers in for every `sso` site there (one callback each). Its
           # secret is Kanidm's own, README.md.
           web = {
             displayName = "Lab sites";
-            originUrl = map (s: "https://${lib.head s.domains}/oauth2/callback") ssoSites;
-            originLanding = "https://${lib.head (lib.head ssoSites).domains}/";
+            originUrl = callbacks;
+            originLanding = lib.replaceStrings [ "oauth2/callback" ] [ "" ] (lib.head callbacks);
             scopeMaps.web_users = [ "openid" "profile" ];
             # preferred_username "<name>" instead of "<name>@<domain>", it names the user in the gateway's logs.
             preferShortUsername = true;
@@ -133,7 +139,7 @@ in
       };
     };
 
-    homelab.publish = {
+    homelab.publish = lib.mkIf (config.homelab.labs.address != null) {
       upstream = "https://${config.homelab.labs.address}:8443";
       upstreamCertificate = cfg.certificate;
     };

@@ -127,7 +127,7 @@ in
 
       # Every project's /<project>/mcp, samples/ and shared/ under /rea/ for a front door (mcp.peacocks.me), with
       # room for sample uploads.
-      homelab.publish = {
+      homelab.publish = lib.mkIf ((config.homelab.labs.address or null) != null) {
         locations."/rea/" = "http://${config.homelab.labs.address}:${toString cfg.port}/";
         maxBodySize = "1g";
       };

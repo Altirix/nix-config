@@ -7,6 +7,8 @@ let
   cfg = config.homelab.sso.gateway;
   server = nodes.${cfg.server}.config;
   inherit (server.homelab.sso.server) domain;
+  # Named after the server, out of the way of the host's own sites.
+  site = "sso-${cfg.server}";
 in
 {
   options.homelab.sso.gateway = {
@@ -16,7 +18,7 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    homelab.web.sites.auth = {
+    homelab.web.sites.${site} = {
       domains = [ domain ];
       https = true;
       from = [ cfg.server ];
@@ -27,7 +29,7 @@ in
 
     # Clients look up an issuer with a path (https://<domain>/oauth2/openid/<client>) at
     # /.well-known/<document>/oauth2/openid/<client> (RFC 8414), Kanidm only serves it under the issuer.
-    services.nginx.virtualHosts.auth.extraConfig = ''
+    services.nginx.virtualHosts.${site}.extraConfig = ''
       rewrite ^/\.well-known/(oauth-authorization-server|openid-configuration)(/oauth2/openid/[^/]+)$ $2/.well-known/$1 last;
     '';
 

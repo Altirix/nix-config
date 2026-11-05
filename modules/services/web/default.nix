@@ -128,6 +128,21 @@ let
       maxBodySize = pick "maxBodySize";
     };
   sites = lib.mapAttrs (_: resolve) cfg.sites;
+
+  # What's wrong with a site's `from`: a host that publishes nothing, a prefix two of them publish, or settings they
+  # disagree on.
+  fromProblems = name: s:
+    let
+      published = map (host: { inherit host; p = nodes.${host}.config.homelab.publish; }) s.from;
+      empty = map (x: x.host) (lib.filter (x: x.p.locations == { } && x.p.upstream == null) published);
+      prefixes = lib.concatMap (x: lib.attrNames x.p.locations) published;
+      shared = lib.unique (lib.filter (pre: lib.count (q: q == pre) prefixes > 1) prefixes);
+      clash = attr: lib.length (lib.unique (lib.filter (v: v != null) (map (x: x.p.${attr}) published))) > 1;
+    in
+    map (h: "web: site ${name} takes from ${h}, which publishes nothing (no homelab.labs.address, or no service)") empty
+    ++ map (pre: "web: site ${name}'s hosts all publish ${pre}") shared
+    ++ map (attr: "web: site ${name}'s hosts disagree on ${attr}")
+      (lib.filter clash [ "upstream" "upstreamCertificate" "maxBodySize" ]);
   tokenSites = lib.filterAttrs (_: s: s.tokens != null) sites;
   tokenSecret = name: client: "${name}-token-${client}";
 
@@ -180,7 +195,8 @@ in
         && (s.oauth || s.sso -> s.https) && lib.count lib.id [ s.oauth s.sso (s.tokens != null) ] <= 1
         && (s.upstreamCertificate != null -> s.upstream != null && lib.hasPrefix "https://" s.upstream && s.domains != [ ]);
       message = "web: site ${name} has both root and upstream, https without domains on every address, oauth or sso without https, more than one of tokens/oauth/sso, or upstreamCertificate without an https upstream and domains";
-    }) sites;
+    }) sites ++ lib.concatLists (lib.mapAttrsToList (name: s:
+      map (message: { assertion = false; inherit message; }) (fromProblems name s)) cfg.sites);
 
     # No account email: Let's Encrypt no longer sends expiry mail, and it would end up in the nix store.
     security.acme.acceptTerms = lib.mkIf https true;
@@ -291,6 +307,9 @@ in
       };
       email.domains = [ "*" ];
       setXauthrequest = true;
+      # Its request log would carry the callback's authorization codes into the journal and the logs VM, nginx logs
+      # requests already (without /oauth2/, sso-server.conf). Sign-ins still log as auth lines.
+      requestLogging = false;
       reverseProxy = true;
       trustedProxyIP = [ "127.0.0.1" ];
       extraConfig = {

@@ -31,7 +31,9 @@ add chain=forward action=accept connection-state=new in-interface="VLAN 10 HomeN
 ```
 
 Every VM takes its time from the router (`networking.timeServers` in `modules/virtual.nix`), so no zone needs to
-reach out for it. `rea-dynamic` stays out, it opens nothing:
+reach out for it. `rea-dynamic` stays out, it opens nothing. Add it after the input drops (`labs: shared opens
+nothing` below, `labs: mcp to the internet only` and `labs: rea-dynamic opens nothing` in
+modules/services/mcp/README.md), so it sits above them:
 
 ```routeros
 /system ntp server set enabled=yes
