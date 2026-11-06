@@ -9,6 +9,7 @@
     inputs.sops-nix.nixosModules.sops
     ./system/ssh.nix
     ./system/secrets.nix
+    ./services/logs
     ./disks/disko.nix
     ./system/boot.nix
     ./networking/lan.nix
@@ -22,6 +23,10 @@
   # --- Boot ---
   boot.loader.systemd-boot.enable = lib.mkDefault true;
   boot.loader.efi.canTouchEfiVariables = lib.mkDefault true;
+
+  # --- Logs ---
+  # Every host's journal goes to the logs VM (modules/services/logs), rea-dynamic opts out.
+  homelab.logs.shipTo = lib.mkDefault "logs";
 
   # --- Locale / time ---
   time.timeZone = lib.mkDefault "Europe/London";
