@@ -48,6 +48,8 @@ in
           locations."/select/".proxyPass = "http://127.0.0.1:9429";
           locations."= /".return = "302 /select/vmui/";
           locations."/".return = "404";
+          # Relative, behind the front door an absolute one would name this port.
+          extraConfig = "absolute_redirect off;";
         };
       };
     };
