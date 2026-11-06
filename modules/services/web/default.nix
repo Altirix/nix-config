@@ -15,6 +15,7 @@ let
   upstreamName = name: prefix: "${name}${lib.replaceStrings [ "/" "." ] [ "_" "_" ] (lib.removeSuffix "/" prefix)}";
 
   accessLog = "syslog:server=unix:/dev/log,tag=nginx_access,nohostname";
+  auditLog = "syslog:server=unix:/dev/log,tag=nginx_audit,nohostname";
 
   # nginx variable holding the client a site's token belongs to.
   clientVar = name: "web_client_${lib.replaceStrings [ "-" ] [ "_" ] name}";
@@ -25,7 +26,8 @@ let
 
   ssoCheck = s: lib.optionalString (s.sso != null) (builtins.readFile ./config/sso-check.conf);
 
-  # The site's access log, naming the client or user where there is one.
+  # The site's access log, naming the client or user where there is one. A location with its own access_log
+  # (`audit`) repeats it, it would replace it otherwise.
   siteLog = s: "access_log ${accessLog}${lib.optionalString (s.oauth || s.sso != null || s.tokens != null) " user"};\n";
 
   # What every proxied location carries in place of nixpkgs' recommended headers (the http-level rest of
@@ -99,6 +101,14 @@ let
           };
         }));
         default = null;
+      };
+
+      # `locations` are audited: each request's body and the start of its response (both up to 32k) go to the
+      # journal as JSON (SYSLOG_IDENTIFIER=nginx_audit), with the client or user. Requests are buffered whole
+      # before going upstream, large uploads included, so their bodies can be logged.
+      audit = mkOption {
+        type = types.bool;
+        default = false;
       };
 
       # nginx's client_max_body_size for the site, e.g. "1g" for `locations` that take uploads.
@@ -181,6 +191,7 @@ let
   oauth = lib.any (s: s.oauth) (lib.attrValues sites);
   ssoSites = lib.filterAttrs (_: s: s.sso != null) sites;
   tokens = tokenSites != { };
+  audit = lib.any (s: s.audit) (lib.attrValues sites);
   logsUser = oauth || ssoSites != { } || tokens;
 
   # oauth2-proxy instances on loopback, one per sso site (its own client and sessions) and one checking the bearer
@@ -331,7 +342,12 @@ in
           extraConfig = proxied.extraConfig + ssoCheck s
             + lib.optionalString (s.tokens != null) (snippet "token-check.conf" { client = clientVar name; })
             + lib.optionalString s.oauth (snippet "oauth-check.conf" { inherit prefix; })
-            + snippet "proxy-location.conf" { inherit prefix; inherit (parse url) path; };
+            + snippet "proxy-location.conf" {
+                inherit prefix;
+                inherit (parse url) path;
+                requestBuffering = if s.audit then "on" else "off";
+              }
+            + lib.optionalString s.audit (siteLog s + snippet "audit-location.conf" { log = auditLog; });
         }) s.locations
         # Each location's RFC 9728 metadata, the resource is the location itself.
         // lib.optionalAttrs s.oauth (lib.mapAttrs' (prefix: _:
@@ -368,11 +384,14 @@ in
         access_log ${accessLog};
       '' + lib.optionalString logsUser ''
         log_format user '$remote_addr $web_user [$time_local] "$request" $status $body_bytes_sent $request_time';
-      '' + lib.concatStrings (lib.mapAttrsToList (name: _:
+      '' + lib.optionalString audit (snippet "audit-http.conf" { script = "${./config/audit.js}"; })
+        + lib.concatStrings (lib.mapAttrsToList (name: _:
         snippet "token-map.conf" { client = clientVar name; tokens = config.sops.templates."${name}-tokens".path; }) tokenSites);
 
       # A "Bearer <64 hex>" key is past the 64 byte default bucket, nginx refuses to start.
       mapHashBucketSize = lib.mkIf tokens 128;
+
+      additionalModules = lib.optional audit pkgs.nginxModules.njs;
     };
 
     # From the host's secrets.yaml (sops.defaultSopsFile), only this host can read them.
