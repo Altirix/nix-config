@@ -2,7 +2,8 @@
 
 Home Assistant on `hosts/virtual/hass` (`10.100.2.11`, apps zone), at `https://ha.peacocks.me` behind Kanidm sign-in
 (the `hass` site in `hosts/edge/ionos-de/services.nix`, members of `web_users`), then Home Assistant's own login.
-The sign-in in front means the companion apps can't connect from outside, only browsers.
+The sign-in in front only takes a browser session, so from outside nothing using Home Assistant's own tokens gets
+through: no companion apps, long-lived access tokens or webhooks (`/api/...`), only browsers.
 
 ## Router (MikroTik)
 
@@ -16,7 +17,8 @@ add chain=forward action=accept connection-state=new in-interface=wg-vpn src-add
 ## Set up
 
 1. Point an A record for `ha.peacocks.me` at the VPS.
-2. Install the VM ([hosts/README.md](../../../hosts/README.md#add-a-vm)), add the router rule, deploy the edge.
+2. Install the VM ([hosts/README.md](../../../hosts/README.md#add-a-vm)), add the router rule, deploy the edge,
+   then auth (it learns the site's sign-in callback from the edge's config).
 3. Open the site, create the owner account (the first to get there takes it).
 
 ## Octopus Energy tariff comparison

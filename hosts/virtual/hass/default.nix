@@ -13,6 +13,7 @@
 
   homelab.home-assistant = {
     enable = true;
+    url = "https://ha.peacocks.me";
     # The edge's tunnel address.
     trustedProxies = [ "10.0.0.1" ];
   };
