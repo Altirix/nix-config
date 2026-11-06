@@ -54,7 +54,9 @@ incus config device remove win11 unattend
 Set the password from the console, RDP needs it (NLA). Activate with your own key (`slmgr /ipk <key>`), the
 answer file only uses the generic one to pick Pro.
 
-For a fixed address add it to `otherAddresses` in `modules/compute.nix`, deploy the hypervisors, then in the
+It has no labs network until it has an address (the bridge drops what an unpinned instance sends). Add one to
+`otherAddresses` in `modules/compute.nix` (VMs you work in go in the work zone, `10.100.3.0/24`), deploy the
+hypervisors, then in the
 guest (a /32 with the router on-link, like the NixOS VMs). Windows doesn't order its NICs like incus, so pick
 the labs one by the MAC from `incus config get win11 volatile.eth0.hwaddr`:
 
@@ -69,18 +71,19 @@ Set-DnsClientServerAddress -InterfaceAlias $nic -ServerAddresses 1.1.1.1,1.0.0.1
 ## vGPU
 
 Hypervisors keep the card and hand out mediated slices (`modules/services/vgpu/host.nix`), list the types with
-`incus info --resources`. Guests license against `dls` over labs-mesh only, labs can't reach it.
+`incus info --resources`. Guests license against `dls` (`10.100.0.12`) over labs, through the router
+(`labs: dls in`, networking/README.md).
 
-A Windows guest takes the slice and the mesh before it starts:
+A Windows guest takes the slice before it starts:
 
 ```sh
-incus init win11 --empty --vm -p default -p windows -p labs-mesh -c image.os=Windows
+incus init win11 --empty --vm -p default -p windows -c image.os=Windows
 incus config device add win11 gpu gpu gputype=mdev mdev=nvidia-<id>
 ```
 
-Then in the guest: a static mesh address on the labs-mesh NIC (`volatile.eth1.hwaddr`), the GRID Windows
-driver from the same zip as the host's, and the client token from `dls` (`10.254.0.10`,
-`services.fastapi-dls.listen.ip`).
+Then in the guest: its labs address (above), the GRID Windows driver from the same zip as the host's, and the
+client token from `dls` (`services.fastapi-dls.listen.ip`). Tokens carry that address, a guest licensed before dls
+moved fetches a new one.
 
 18.x and later drivers (the pin is 19.x) only trust a DLS whose root certificate is patched in. NixOS guests
 get that from `homelab.vgpu.license.rootCa`, Windows needs the same patch on `nvxdapix.dll`
@@ -88,10 +91,8 @@ get that from `homelab.vgpu.license.rootCa`, Windows needs the same patch on `nv
 Without it the token is fetched but the guest stays unlicensed and throttled.
 
 ```powershell
-$mesh = (Get-NetAdapter | Where-Object MacAddress -eq '<eth1 MAC, dashes>').Name
-New-NetIPAddress -InterfaceAlias $mesh -IPAddress 10.254.0.20 -PrefixLength 24
 $tokens = "$env:ProgramFiles\NVIDIA Corporation\vGPU Licensing\ClientConfigToken"
-curl.exe --fail --insecure -L https://10.254.0.10/-/client-token -o "$tokens\client_configuration_token.tok"
+curl.exe --fail --insecure -L https://10.100.0.12/-/client-token -o "$tokens\client_configuration_token.tok"
 Restart-Service NVDisplay.ContainerLocalSystem
 nvidia-smi -q | Select-String License
 ```
