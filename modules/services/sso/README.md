@@ -34,7 +34,7 @@ Only the edge gets in, `labs: edge to auth` in modules/networking/README.md (Rou
    Pin its certificate on the edge (ionos-de warns while it's missing, and then doesn't check what answers):
 
    ```sh
-   ssh admin@auth sudo cat /var/lib/kanidm-cert/chain.pem > hosts/virtual/auth/tls.pem   # commit it, `certificate` picks it up
+   ssh admin@incus-auth sudo cat /var/lib/kanidm-cert/chain.pem > hosts/virtual/auth/tls.pem   # on a hypervisor, commit it
    ```
 
    It's good for ten years. To replace it, delete `/var/lib/kanidm-cert/*.pem` on the VM, run
@@ -46,7 +46,7 @@ Only the edge gets in, `labs: edge to auth` in modules/networking/README.md (Rou
    before each admin session:
 
    ```sh
-   ssh admin@auth sudo kanidmd recover-account -c /etc/kanidm/server.toml idm_admin
+   ssh admin@incus-auth sudo kanidmd recover-account -c /etc/kanidm/server.toml idm_admin
    kanidm login -H https://auth.peacocks.me -D idm_admin
    kanidm person credential create-reset-token altirix -H https://auth.peacocks.me -D idm_admin
    ```
