@@ -135,7 +135,7 @@ the `headers` (the session can then read the token).
 
 ## Usage
 
-Three views, all in VictoriaLogs (`modules/services/logs`):
+Four views, all in VictoriaLogs (`modules/services/logs`):
 
 - **Every client, per request**: the edge's access log (`SYSLOG_IDENTIFIER:nginx_access`) has the client, path,
   status and duration of each request through `mcp.peacocks.me`.
@@ -149,6 +149,14 @@ Three views, all in VictoriaLogs (`modules/services/logs`):
   ```
   SYSLOG_IDENTIFIER:nginx_audit | unpack_json from _msg | filter request_body:"tools/call" | fields _time, user, request, request_body, response
   SYSLOG_IDENTIFIER:nginx_audit | unpack_json from _msg | stats by (user, request) count()
+  ```
+
+- **Where servers reach out to**: the `mcp` VM logs every connection a server opens (each runs as its own
+  `mcp-<name>` user), kernel lines like `mcp-egress fetch: ... DST=1.2.3.4 ... DPT=443`. Addresses only, the name it
+  looked up isn't there.
+
+  ```
+  _HOSTNAME:mcp "mcp-egress" | extract "mcp-egress <server>: " | extract "DST=<dst> " | extract "DPT=<port> " | stats by (server, dst, port) count()
   ```
 
 - **Claude Code, per tool call**: Claude Code's own OpenTelemetry export has a `claude_code.tool_result` event for
