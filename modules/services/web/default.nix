@@ -25,8 +25,6 @@ let
 
   ssoCheck = s: lib.optionalString (s.sso != null) (builtins.readFile ./config/sso-check.conf);
 
-  # The site's access log, naming the client or user where there is one.
-  siteLog = s: "access_log ${accessLog}${lib.optionalString (s.oauth || s.sso != null || s.tokens != null) " user"};\n";
 
   # What every proxied location carries in place of nixpkgs' recommended headers (the http-level rest of
   # recommendedProxySettings, HTTP/1.1 to upstreams and timeouts, still applies).
@@ -101,6 +99,19 @@ let
         default = null;
       };
 
+      # Its MCP endpoints (`mcp`) go through agentgateway on loopback, which logs every call: the tool, its
+      # arguments and result, and the client or user. To the logs VM over OTLP (homelab.logs.shipTo), a shorter line
+      # without arguments and results to the journal. The rest of the site is proxied as before.
+      audit = mkOption {
+        type = types.bool;
+        default = false;
+      };
+      # `locations` prefixes that are MCP endpoints (streamable HTTP), with what `from` hosts publish as such.
+      mcp = mkOption {
+        type = types.listOf types.str;
+        default = [ ];
+      };
+
       # nginx's client_max_body_size for the site, e.g. "1g" for `locations` that take uploads.
       maxBodySize = mkOption {
         type = types.nullOr types.str;
@@ -154,6 +165,7 @@ let
       upstreamCertificate = if s.upstreamCertificate != null then s.upstreamCertificate
         else first (x: x.p.upstream.certificate) upstreams;
       maxBodySize = lib.findFirst (v: v != null) null ([ s.maxBodySize ] ++ map (x: x.p.maxBodySize) published);
+      mcp = s.mcp ++ lib.concatMap (x: lib.attrNames (lib.filterAttrs (_: l: l.mcp) x.p.locations)) published;
     };
   sites = lib.mapAttrs (_: resolve) cfg.sites;
 
@@ -181,6 +193,54 @@ let
   oauth = lib.any (s: s.oauth) (lib.attrValues sites);
   ssoSites = lib.filterAttrs (_: s: s.sso != null) sites;
   tokens = tokenSites != { };
+
+  # agentgateway's routes: each audited site's MCP endpoints, one target each.
+  # Targets are named after the prefix without /mcp (time, rea-default-cli), the log's mcp.tool.target.
+  gatewayRoutes = lib.concatLists (lib.mapAttrsToList (site: s: map (prefix: {
+    name = "${site}${lib.replaceStrings [ "/" ] [ "-" ] (lib.removeSuffix "/" prefix)}";
+    target = lib.replaceStrings [ "/" ] [ "-" ] (lib.removePrefix "/" (lib.removeSuffix "/mcp" prefix));
+    inherit prefix;
+    url = s.locations.${prefix};
+  }) (lib.optionals s.audit s.mcp)) sites);
+  gatewayPort = 15100;
+  gatewayConfig = {
+    config = {
+      adminAddr = "off";
+      readinessAddr = "off";
+      statsAddr = "127.0.0.1:15020";
+      logging.format = "json";
+    };
+    # nginx names the client (token-check.conf) or user in X-Web-User, nothing else sets it.
+    frontendPolicies.accessLog = {
+      add."web.user" = ''request.headers["x-web-user"]'';
+    } // lib.optionalAttrs (logsHost != null) {
+      otlp = {
+        host = "${logsHost}:9428";
+        protocol = "http";
+        path = "/insert/opentelemetry/v1/logs";
+        fields.add = {
+          "web.user" = ''request.headers["x-web-user"]'';
+          "mcp.arguments" = "mcp.tool.arguments";
+          "mcp.result" = "mcp.tool.result";
+          "mcp.error" = "mcp.tool.error";
+        };
+      };
+    };
+    # Every address, but the firewall only opens 80 and 443.
+    binds = [{
+      port = gatewayPort;
+      listeners = [{
+        protocol = "HTTP";
+        routes = map (r: {
+          inherit (r) name;
+          matches = [{ path.pathPrefix = r.prefix; }];
+          backends = [{ mcp.targets = [{ name = r.target; mcp.host = r.url; }]; }];
+        }) gatewayRoutes;
+      }];
+    }];
+  };
+  logsHost = if config.homelab.logs.shipTo == null then null
+    else nodes.${config.homelab.logs.shipTo}.config.homelab.labs.address;
   logsUser = oauth || ssoSites != { } || tokens;
 
   # oauth2-proxy instances on loopback, one per sso site (its own client and sessions) and one checking the bearer
@@ -325,12 +385,14 @@ in
           } else {
             return = "404";
           };
-        } // lib.mapAttrs (prefix: url: proxied // {
-          proxyPass = "http://${upstreamName name prefix}${(parse url).path}";
+        } // lib.mapAttrs (prefix: url: let gateway = s.audit && lib.elem prefix s.mcp; in proxied // {
+          # Through agentgateway the path stays as it is, it knows the upstream's.
+          proxyPass = if gateway then "http://agentgateway" else "http://${upstreamName name prefix}${(parse url).path}";
           extraConfig = proxied.extraConfig + ssoCheck s
             + lib.optionalString (s.tokens != null) (snippet "token-check.conf" { client = clientVar name; })
             + lib.optionalString s.oauth (snippet "oauth-check.conf" { inherit prefix; })
-            + snippet "proxy-location.conf" { inherit prefix; inherit (parse url) path; };
+            + snippet "proxy-location.conf" { inherit prefix; path = if gateway then prefix else (parse url).path; }
+            + lib.optionalString gateway "proxy_set_header X-Web-User $web_user;\n";
         }) s.locations
         # Each location's RFC 9728 metadata, the resource is the location itself.
         // lib.optionalAttrs s.oauth (lib.mapAttrs' (prefix: _:
@@ -345,7 +407,7 @@ in
               }}';
             '';
           }) s.locations);
-        extraConfig = lib.optionalString (s.oauth || s.sso != null || s.tokens != null) (siteLog s)
+        extraConfig = lib.optionalString (s.oauth || s.sso != null || s.tokens != null) "access_log ${accessLog} user;\n"
           + lib.optionalString s.oauth (snippet "oauth-server.conf" {
               proxy = proxyAddress "oauth";
               domain = lib.head s.domains;
@@ -359,7 +421,12 @@ in
         lib.nameValuePair (upstreamName name prefix) {
           servers.${(parse url).server} = { };
           extraConfig = "keepalive 8;";
-        }) s.locations) sites);
+        }) s.locations) sites ++ lib.optional (gatewayRoutes != [ ]) {
+          agentgateway = {
+            servers."127.0.0.1:${toString gatewayPort}" = { };
+            extraConfig = "keepalive 8;";
+          };
+        });
 
       # Access logs go to the journal (SYSLOG_IDENTIFIER=nginx_access) and on to the logs VM, not a file. On tokens,
       # oauth and sso sites they name the client or user (the token's client, its sub, the session's username).
@@ -415,7 +482,21 @@ in
         Restart = "always";
         RestartSec = 5;
       };
-    }) proxies);
+    }) proxies) // lib.optionalAttrs (gatewayRoutes != [ ]) {
+      agentgateway = {
+        description = "agentgateway, the audited sites' MCP endpoints";
+        wantedBy = [ "multi-user.target" ];
+        wants = [ "network-online.target" ];
+        after = [ "network-online.target" ];
+        serviceConfig = {
+          ExecStart = "${lib.getExe (pkgs.callPackage ./packages/agentgateway.nix { })} -f ${
+            (pkgs.formats.yaml { }).generate "agentgateway.yaml" gatewayConfig}";
+          DynamicUser = true;
+          Restart = "always";
+          RestartSec = 5;
+        };
+      };
+    };
 
     systemd.tmpfiles.rules = lib.mapAttrsToList (_: s: "d ${s.root} 0755 admin users -")
       (lib.filterAttrs (_: s: s.root != null) sites);

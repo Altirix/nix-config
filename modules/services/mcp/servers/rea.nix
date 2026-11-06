@@ -128,7 +128,10 @@ in
       # Every project's /<project>/mcp, samples/ and shared/ under /rea/ for a front door (mcp.peacocks.me), with
       # room for sample uploads.
       homelab.publish = {
-        locations."/rea/".port = cfg.port;
+        # Each project's MCP endpoints on their own (the edge audits them), the rest of /rea/ as is.
+        locations = { "/rea/".port = cfg.port; } // lib.listToAttrs (lib.concatMap (p: map (mcp:
+          lib.nameValuePair "/rea/${p}/${mcp}" { port = cfg.port; path = "/${p}/${mcp}"; mcp = true; })
+          [ "mcp" "cli/mcp" ]) cfg.projects);
         maxBodySize = "1g";
       };
 

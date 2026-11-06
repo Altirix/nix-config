@@ -129,16 +129,30 @@ Claude Code cloud sessions read the same `.mcp.json` from the repo they run in. 
 settings, allow `mcp.peacocks.me` under Network access (Allowed domains, or Full), and add the `cloud` token
 as a network secret for `mcp.peacocks.me` so the agent proxy adds `Authorization: Bearer <token>` outside the VM
 and the token never reaches the session. Leave out the `headers` then. That the proxy injects it for MCP traffic
-isn't documented, so check after deploy that requests show up as `cloud` in `/var/log/nginx/access.log` on
-ionos-de. If they arrive as 401, set `MCP_TOKEN` as an environment variable of the environment instead and keep
+isn't documented, so check after deploy that requests show up as `cloud` in ionos-de's access log
+(`journalctl -t nginx_access`). If they arrive as 401, set `MCP_TOKEN` as an environment variable of the environment instead and keep
 the `headers` (the session can then read the token).
 
 ## Usage
 
-Two views, both in VictoriaLogs (`modules/services/logs`):
+Three views, all in VictoriaLogs (`modules/services/logs`):
 
 - **Every client, per request**: the edge's access log (`SYSLOG_IDENTIFIER:nginx_access`) has the client, path,
-  status and duration of each request through `mcp.peacocks.me`. It can't see inside them (which tool, with what).
+  status and duration of each request through `mcp.peacocks.me`.
+- **Every client, per tool call**: `mcp.peacocks.me` is audited (`audit = true` in
+  `hosts/edge/ionos-de/services.nix`): its MCP endpoints go through agentgateway on the edge, which understands
+  MCP. Each call goes to the logs VM over OTLP with the tool (`mcp.tool.name`, `mcp.tool.target` the server), its
+  arguments and result (`mcp.arguments`, `mcp.result`, `mcp.error`) and the client (`web.user`, from the token);
+  a shorter line without arguments and results goes to the edge's journal (`_SYSTEMD_UNIT:agentgateway.service`).
+  Arguments and results can hold whatever the tools were given or fetched, the logs VM keeps them for its
+  retention. REA's uploads and shared files aren't MCP and pass straight through.
+
+  ```
+  mcp.tool.name:* | fields _time, web.user, mcp.tool.target, mcp.tool.name, mcp.arguments, mcp.result
+  mcp.tool.name:* | stats by (web.user, mcp.tool.target, mcp.tool.name) count()
+  mcp.error:* | fields _time, mcp.tool.target, mcp.tool.name, mcp.error
+  ```
+
 - **Claude Code, per tool call**: Claude Code's own OpenTelemetry export has a `claude_code.tool_result` event for
   every tool it calls, MCP or not, with the tool, its MCP server, success, error and duration, and with
   `OTEL_LOG_TOOL_DETAILS=1` its parameters (which can hold secrets). VictoriaLogs takes OTLP directly. In
@@ -162,7 +176,7 @@ Two views, both in VictoriaLogs (`modules/services/logs`):
   claude_code.tool_result success:false | fields _time, mcp_tool_name, error, tool_parameters
   ```
 
-Claude's connectors (claude.ai, the apps) only show up in the access log, they export nothing.
+Claude's connectors (claude.ai, the apps) only show up in the access log and agentgateway's, they export nothing.
 
 ## rea (8101)
 

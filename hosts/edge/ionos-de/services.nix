@@ -23,11 +23,13 @@
     };
 
     # MCP servers and REA, a bearer token per client (modules/services/mcp/README.md). No wireguard forward to either.
+    # Every call is audited.
     mcp = {
       domains = [ "mcp.peacocks.me" ];
       https = true;
       from = [ "mcp" "rea-dynamic" ];
       tokens = [ "cloud" ];
+      audit = true;
     };
 
     # modules/services/logs

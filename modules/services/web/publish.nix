@@ -17,6 +17,11 @@ in
             type = types.str;
             default = "/";
           };
+          # An MCP endpoint (streamable HTTP), what an audited site (homelab.web) puts through agentgateway.
+          mcp = mkOption {
+            type = types.bool;
+            default = false;
+          };
         };
       });
       default = { };
