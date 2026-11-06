@@ -9,6 +9,7 @@
     ./services/mcp
     ./services/logs/collector.nix
     ./services/partdb
+    ./services/sso/server.nix
   ];
 
   homelab.secrets.groupFile = ../secrets/virtual.yaml;
@@ -21,7 +22,7 @@
   };
 
   # Time from the router's NTP server, the one thing labs may open on it (networking/README.md): every zone keeps
-  # its clock without reaching out, the shared zone included.
+  # its clock without reaching out, the shared zone included (Kanidm's tokens and passkeys depend on it).
   networking.timeServers = [ config.homelab.labs.gateway ];
 
   virtualisation.incus.agent.enable = lib.mkDefault true;
