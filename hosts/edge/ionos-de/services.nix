@@ -2,6 +2,12 @@
 # services it fronts (`from`). Each service's README has its secrets and router rules, every domain's A record points
 # here before the first deploy (ACME).
 {
+  # auth.peacocks.me, and sign-in for the `sso` sites (modules/services/sso).
+  homelab.sso.gateway = {
+    enable = true;
+    server = "auth";
+  };
+
   homelab.web.sites = {
     blog = {
       root = "/var/www/blog/public";
@@ -22,6 +28,22 @@
       https = true;
       from = [ "mcp" "rea-dynamic" ];
       tokens = [ "cloud" ];
+    };
+
+    # modules/services/logs
+    logs = {
+      domains = [ "logs.peacocks.me" ];
+      https = true;
+      from = [ "logs" ];
+      sso = true;
+    };
+
+    # modules/services/partdb
+    partdb = {
+      domains = [ "parts.peacocks.me" ];
+      https = true;
+      from = [ "partdb" ];
+      sso = true;
     };
   };
 }
