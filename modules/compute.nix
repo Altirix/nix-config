@@ -6,17 +6,24 @@ let
   mesh = config.homelab.mesh;
 
   # Isolated ports can't reach each other, only the uplink, so instances on labs only ever talk to the router.
+  # IP filtering lets an instance send only from the address pinned to it (its profile below). labs has no DHCP in
+  # incus, so an instance without a pin can't send IPv4 or IPv6 at all: no instance picks an address, and with it
+  # a zone's router rules (networking/README.md), for itself.
   labsNic = {
     name = "eth0";
     network = "labs";
     type = "nic";
     "security.mac_filtering" = "true";
+    "security.ipv4_filtering" = "true";
+    "security.ipv6_filtering" = "true";
     "security.port_isolation" = "true";
   };
 
-  # Instances that aren't hosts in this flake (Windows), instance -> labs address. They configure it themselves.
+  # Instances that aren't hosts in this flake (Windows, vGPU guests), instance -> labs address. They configure it
+  # themselves. Anything left out has no labs network.
   otherAddresses = {
-    Windows-11 = "10.100.2.10";
+    # In the work zone (networking/README.md).
+    Windows-11 = "10.100.3.10";
   };
 
   # Virtual hosts with a static labs address, pinned to the incus instance of the same name.
@@ -213,10 +220,7 @@ in
         }
       ] ++ lib.mapAttrsToList (name: address: {
         inherit name;
-        devices.eth0 = labsNic // {
-          "ipv4.address" = address;
-          "security.ipv4_filtering" = "true";
-        };
+        devices.eth0 = labsNic // { "ipv4.address" = address; };
       }) labsAddresses;
 
       # Remote, so every member installs Windows VMs from the same unattend ISO.
