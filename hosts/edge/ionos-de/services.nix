@@ -35,7 +35,7 @@
       domains = [ "logs.peacocks.me" ];
       https = true;
       from = [ "logs" ];
-      sso = true;
+      sso.title = "Logs";
     };
 
     # modules/services/partdb
@@ -43,7 +43,7 @@
       domains = [ "parts.peacocks.me" ];
       https = true;
       from = [ "partdb" ];
-      sso = true;
+      sso.title = "Part-DB";
     };
   };
 }

@@ -22,7 +22,8 @@
     mcp = true;
     people.altirix = {
       displayName = "Altirix";
-      groups = [ "mcp_users" "web_users" ];
+      # mcp_users too once MCP switches to OAuth, until then its clients would only be dead tiles.
+      groups = [ "web_users" ];
     };
   };
 }

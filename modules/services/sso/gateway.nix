@@ -1,8 +1,8 @@
 { config, lib, nodes, ... }:
 
 # The front door to an SSO server (server.nix on `server`): serves it at https://<domain> over the tunnel, accepting
-# only its own certificate, and runs oauth2-proxy (modules/services/web) signing browsers in with its `web` client for
-# this host's `sso` sites. Sites attach by setting `sso = true`, the server picks up their callbacks.
+# only its own certificate, and signs browsers in for this host's `sso` sites (modules/services/web), each with a
+# client of its own. Sites attach by setting `sso`, the server makes their clients from this host's config.
 let
   cfg = config.homelab.sso.gateway;
   server = nodes.${cfg.server}.config;
@@ -20,7 +20,7 @@ in
   config = lib.mkIf cfg.enable {
     assertions = [{
       assertion = lib.elem config.networking.hostName server.homelab.sso.server.gateways;
-      message = "sso: ${cfg.server}'s homelab.sso.server.gateways doesn't list ${config.networking.hostName}, its sites would get no callbacks";
+      message = "sso: ${cfg.server}'s homelab.sso.server.gateways doesn't list ${config.networking.hostName}, its sites would get no clients";
     }];
 
     homelab.web.sites.${site} = {
@@ -38,17 +38,7 @@ in
       rewrite ^/\.well-known/(oauth-authorization-server|openid-configuration)(/oauth2/openid/[^/]+)$ $2/.well-known/$1 last;
     '';
 
-    # Its secrets come from this host's secrets.yaml (sops.defaultSopsFile), only it can read them.
-    homelab.web.oauth = {
-      issuer = "https://${domain}/oauth2/openid/web";
-      clientId = "web";
-      clientSecretFile = config.sops.secrets.kanidm-web-secret.path;
-      cookieSecretFile = config.sops.secrets.oauth2-proxy-cookie-secret.path;
-    };
-
-    sops.secrets = lib.genAttrs [ "kanidm-web-secret" "oauth2-proxy-cookie-secret" ] (_: {
-      restartUnits = [ "oauth2-proxy.service" ];
-    });
+    homelab.web.sso.issuer = "https://${domain}/oauth2/openid/";
 
     # oauth2-proxy reads the issuer through this host's own nginx, not out and back in.
     networking.hosts."127.0.0.1" = [ domain ];

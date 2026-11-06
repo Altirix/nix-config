@@ -1,17 +1,16 @@
 { config, lib, pkgs, nodes, ... }:
 
 # Kanidm, the lab's SSO (README.md). A front door (gateway.nix on the edge) serves it at https://<domain> and signs
-# browsers in for its `sso` sites, whose callbacks this server learns from that host's config. Groups, people and
-# OAuth2 clients are provisioned from here on every start, credentials are each person's own.
+# browsers in for its `sso` sites, a client each, made from that host's config. Groups, people and OAuth2 clients are
+# provisioned from here on every start, credentials are each person's own.
 let
   cfg = config.homelab.sso.server;
   inherit (lib) mkOption types;
 
-  # The domains of the sites the gateways sign browsers in for. oauth2-proxy needs the web client even before there
-  # is one (oauth sites only), its callback on the server's own domain then goes unused.
-  ssoDomains = lib.concatMap (host: map (s: lib.head s.domains)
-    (lib.attrValues (lib.filterAttrs (_: s: s.sso) nodes.${host}.config.homelab.web.sites))) cfg.gateways;
-  domains = if ssoDomains == [ ] then [ cfg.domain ] else ssoDomains;
+  # The gateways' sso sites, client -> { title; groups; domain; }.
+  siteClients = lib.foldl' (all: host: all // nodes.${host}.config.homelab.web.ssoClients) { } cfg.gateways;
+  groups = lib.unique (lib.concatMap (c: c.groups) (lib.attrValues siteClients) ++ lib.optional cfg.mcp "mcp_users");
+  unknownGroups = lib.subtractLists groups (lib.unique (lib.concatMap (p: p.groups) (lib.attrValues cfg.people)));
 in
 {
   imports = [ ../web/publish.nix ];
@@ -34,7 +33,8 @@ in
       default = null;
     };
 
-    # Who may sign in: web_users for the gateway's sso sites, mcp_users for MCP (with `mcp`).
+    # Who may sign in: the groups the gateway's sso sites name (web_users unless they say), mcp_users for MCP (with
+    # `mcp`).
     people = mkOption {
       type = types.attrsOf (types.submodule {
         options = {
@@ -54,6 +54,11 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    assertions = [{
+      assertion = unknownGroups == [ ];
+      message = "sso: people are in ${toString unknownGroups}, which no sso site (or `mcp`) uses";
+    }];
+
     services.kanidm = {
       package = pkgs.kanidm_1_11;
 
@@ -74,22 +79,20 @@ in
       provision = {
         enable = true;
 
-        groups = { web_users = { }; } // lib.optionalAttrs cfg.mcp { mcp_users = { }; };
+        groups = lib.genAttrs groups (_: { });
 
         persons = lib.mapAttrs (_: p: { inherit (p) displayName groups; }) cfg.people;
 
-        systems.oauth2 = {
-          # oauth2-proxy on the gateway, signing browsers in for every `sso` site there (one callback each). Its
-          # secret is Kanidm's own, README.md.
-          web = {
-            displayName = "Lab sites";
-            originUrl = map (d: "https://${d}/oauth2/callback") domains;
-            originLanding = "https://${lib.head domains}/";
-            scopeMaps.web_users = [ "openid" "profile" ];
-            # preferred_username "<name>" instead of "<name>@<domain>", it names the user in the gateway's logs.
-            preferShortUsername = true;
-          };
-        } // lib.optionalAttrs cfg.mcp {
+        # Each sso site's oauth2-proxy on the gateway, the site's tile in Kanidm's app list. Their secrets are
+        # Kanidm's own, README.md.
+        systems.oauth2 = lib.mapAttrs (_: c: {
+          displayName = c.title;
+          originUrl = "https://${c.domain}/oauth2/callback";
+          originLanding = "https://${c.domain}/";
+          scopeMaps = lib.genAttrs c.groups (_: [ "openid" "profile" ]);
+          # preferred_username "<name>" instead of "<name>@<domain>", it names the user in the gateway's logs.
+          preferShortUsername = true;
+        }) siteClients // lib.optionalAttrs cfg.mcp {
           # Claude's connectors (claude.ai, the apps). Its secret is Kanidm's own, README.md.
           mcp = {
             displayName = "MCP";
