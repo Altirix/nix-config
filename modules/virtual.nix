@@ -8,6 +8,7 @@
     ./services/vgpu/guest.nix
     ./services/mcp
     ./services/logs/collector.nix
+    ./services/partdb
   ];
 
   homelab.secrets.groupFile = ../secrets/virtual.yaml;
