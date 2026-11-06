@@ -38,13 +38,28 @@ ls -l /dev/disk/by-id/   # fill in storage.nix
 ```
 
 Pick its address in a zone ([modules/networking/README.md](../modules/networking/README.md)) and set it in
-`networking.nix`, deploy the hypervisors so they make its pin profile (an instance without a pin can't send anything
-on labs), and launch it with that profile, `incus launch <image> <name> --vm -p default -p <name>` (the hypervisors
-only add pins to instances that already exist when they deploy). Install it from the hypervisor it runs on, over
-vsock (works before it has a network, see [modules/services/incus/README.md](../modules/services/incus/README.md)).
-The installer doesn't know its address, give it the same one by hand first so it can fetch what it needs:
+`networking.nix`, then deploy the hypervisors. They make its pin profile; an instance without a pin can't send
+anything on labs. They only add pins to instances that already exist, so create it with the profile, booting the
+installer ISO (import it once, under its own name per build):
+
+```sh
+incus storage volume import ceph <installer>.iso <installer> --type=iso
+incus init <name> --empty --vm -p default -p <name>
+incus config device add <name> install disk pool=ceph source=<installer> boot.priority=10
+incus start <name>
+```
+
+Install it from the hypervisor it runs on, over vsock (works before it has a network, see
+[modules/services/incus/README.md](../modules/services/incus/README.md)). The installer doesn't know its address,
+give it the same one by hand first so it can fetch what it needs:
 
 ```sh
 ssh root@incus-<name> 'ip addr add <address>/32 dev enp5s0 && ip route add 10.100.0.1 dev enp5s0 && ip route add default via 10.100.0.1'
 nixos-anywhere --flake .#<name> --target-host root@incus-<name> --extra-files <dir with etc/ssh/ssh_host_ed25519_key>
+```
+
+Then detach the ISO, so it boots its own disk:
+
+```sh
+incus config device remove <name> install
 ```
