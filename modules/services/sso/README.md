@@ -15,7 +15,7 @@ Kanidm, SSO for the lab, in two halves:
 |---|---|---|
 | `mcp` | Claude's connectors (claude.ai, the apps), confidential | `https://claude.ai/api/mcp/auth_callback` |
 | `mcp-cli` | Claude Code, public (PKCE, no secret) | any `http://localhost:<port>/...` |
-| `web` | oauth2-proxy on the edge, browser sign-in for its `sso` sites (logs, parts), confidential | `https://<site>/oauth2/callback` for each, from the edge's config |
+| `web` | oauth2-proxy on the edge, browser sign-in for its `sso` sites (logs, parts, ha), confidential | `https://<site>/oauth2/callback` for each, from the edge's config |
 
 `mcp` and `mcp-cli` only hand tokens to members of `mcp_users`, `web` only signs in members of `web_users`. MCP
 doesn't use `mcp` and `mcp-cli` yet, mcp.peacocks.me still takes bearer tokens; they're ready for the switch. Access tokens are ES256 JWTs (`iss`

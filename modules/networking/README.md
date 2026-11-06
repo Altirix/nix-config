@@ -13,7 +13,7 @@ rules name zones, not hosts. Same VLAN, same bridge, a zone is only an address r
 |---|---|---|
 | `10.100.0.0/24` | shared | the router (`10.100.0.1`) and what every VM may reach on its ports: auth `.10`, logs `.11`, dls `.12`. They open nothing themselves |
 | `10.100.1.0/24` | agents | MCP and agent VMs, untrusted: mcp `.11`, rea-dynamic `.12` (modules/services/mcp/README.md, Router) |
-| `10.100.2.0/24` | apps | everything else serving something: partdb `.10` |
+| `10.100.2.0/24` | apps | everything else serving something: partdb `.10`, hass `.11` |
 | `10.100.3.0/24` | work | VMs you work in (Windows, vGPU guests, dev boxes), home reaches every port |
 | `10.100.4.0/24`-`10.100.254.0/24` | | free, e.g. Kubernetes nodes |
 | `10.100.255.0/24` | | unused: the router's old DHCP pool, nothing on labs can take a lease (below) |

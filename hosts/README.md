@@ -14,11 +14,12 @@ compute/<name>/            the three incus + ceph hypervisors
 edge/ionos-de/             public-facing VPS
   networking.nix           wireguard interface + peers, port forwards
   services.nix             web sites: static ones, and the lab services it fronts (`from`): the SSO gateway
-                           (auth.peacocks.me), mcp.peacocks.me (bearer tokens), logs and parts (Kanidm sign-in)
+                           (auth.peacocks.me), mcp.peacocks.me (bearer tokens), logs, parts and ha (Kanidm sign-in)
 sbc/{alluvium,basidium}/   Klipper on ROCK 5C Lites, see sbc/rock5c.md
 sbc/colluvium/               headless MT8195 Tomato, USB installer -> eMMC (see sbc/tomato.md)
 virtual/auth/              Kanidm, SSO at auth.peacocks.me via the edge (see modules/services/sso/README.md)
 virtual/dls/               FastAPI-DLS, licenses vGPU guests over labs (shared zone)
+virtual/hass/              Home Assistant, Octopus tariff comparison (ha.peacocks.me, behind Kanidm sign-in)
 virtual/logs/              VictoriaLogs, every host's journal (see modules/services/logs/README.md)
 virtual/mcp/               MCP servers for agents (labs, low-risk ones via the edge, see modules/services/mcp/README.md)
 virtual/partdb/            Part-DB, electronic parts inventory (parts.peacocks.me, behind Kanidm sign-in)

@@ -2,7 +2,7 @@
 
 # What a host serves for a front door to put on the internet: a homelab.web site on the edge names this host in
 # `from`, adds its labs address, the name, TLS and who may get in. Service modules fill it in (mcp, rea, logs,
-# partdb, sso), the host only decides which of them to publish.
+# partdb, home-assistant, sso), the host only decides which of them to publish.
 let
   inherit (lib) mkOption types;
 in

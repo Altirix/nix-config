@@ -45,5 +45,13 @@
       from = [ "partdb" ];
       sso = true;
     };
+
+    # modules/services/home-assistant
+    hass = {
+      domains = [ "ha.peacocks.me" ];
+      https = true;
+      from = [ "hass" ];
+      sso = true;
+    };
   };
 }

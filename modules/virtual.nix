@@ -9,6 +9,7 @@
     ./services/mcp
     ./services/logs/collector.nix
     ./services/partdb
+    ./services/home-assistant
     ./services/sso/server.nix
   ];
 
