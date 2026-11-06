@@ -24,26 +24,9 @@ _HOSTNAME:* | stats by (_HOSTNAME) count()                         # who's sendi
 
 ## Router (MikroTik)
 
-Senders: the edge's tunnel address, mgmt (hypervisors), home (printers, Claude Code, the UI) and every labs zone
-(modules/networking/README.md), never `rea-dynamic` (`10.100.1.12`, excluded in the rule itself). At the top, ahead
-of `labs: rea-dynamic opens nothing`, `labs: mcp to the internet only` (mcp's journal goes to a private address)
-and `labs: only home and tunnel in`:
-
-```routeros
-/ip firewall address-list
-add list=log-senders address=10.0.0.1 comment="edge"
-add list=log-senders address=10.90.0.0/24 comment="mgmt"
-add list=log-senders address=10.10.0.0/24 comment="home"
-add list=log-senders address=10.100.0.0/16 comment="labs"
-
-/ip firewall filter
-add chain=forward action=accept connection-state=new src-address-list=log-senders src-address=!10.100.1.12 dst-address=10.100.0.11 protocol=tcp dst-port=9428 comment="labs: logs in" place-before=0
-add chain=forward action=accept connection-state=new in-interface="VLAN 10 HomeNet" dst-address=10.100.0.11 protocol=tcp dst-port=9427 comment="labs: home reads logs" place-before=[find comment="labs: only home and tunnel in"]
-add chain=forward action=accept connection-state=new in-interface=wg-vpn src-address=10.0.0.1 dst-address=10.100.0.11 protocol=tcp dst-port=9427 comment="labs: edge reads logs" place-before=[find comment="labs: only home and tunnel in"]
-```
-
-Anyone on home can read every log (MCP calls' arguments included). Narrow `labs: home reads logs` to the
-machines that need it if that's too wide.
+In modules/networking/README.md (Router): `labs: logs in` (every sender but `rea-dynamic`: the edge, mgmt, home and
+labs), `labs: home reads logs` and `labs: edge reads logs`. Anyone on home can read every log (MCP calls' arguments
+included), narrow `labs: home reads logs` to the machines that need it if that's too wide.
 
 ## Set up
 

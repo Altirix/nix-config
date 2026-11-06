@@ -26,12 +26,7 @@ How the MCP servers check them: [modules/services/mcp/README.md](../../../module
 
 ## Router (MikroTik)
 
-Only the edge gets in, before `labs: only home and tunnel in`:
-
-```routeros
-/ip firewall filter
-add chain=forward action=accept connection-state=new in-interface=wg-vpn src-address=10.0.0.1 dst-address=10.100.0.10 protocol=tcp dst-port=8443 comment="labs: edge to auth" place-before=[find comment="labs: only home and tunnel in"]
-```
+Only the edge gets in, `labs: edge to auth` in modules/networking/README.md (Router).
 
 ## Set up
 
