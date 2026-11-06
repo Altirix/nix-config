@@ -3,7 +3,8 @@
 # MCP servers, one systemd unit and port each. stdio servers are put behind mcp-proxy, which
 # serves streamable HTTP on /mcp and SSE on /sse and shares one server process between all clients.
 # There is no auth and no Host check. Every port is open on the VM, who reaches which is the router's call
-# (README.md, Router): a firewall on the VM is gone with root on it.
+# (README.md, Router): a firewall on the VM is gone with root on it. Where each server connects to is logged
+# (kernel, "mcp-egress <name>:") and goes to the logs VM with the journal.
 #
 # Presets for packaged servers live in servers/, every file there is imported. A preset sets
 # defaults and never `enable`, the host turns it on:
@@ -102,14 +103,44 @@ in
         Restart = "on-failure";
         RestartSec = 5;
 
-        # Each server is its own throwaway user with a private home for caches and state.
-        DynamicUser = true;
+        # Each server is its own user (named in the egress log) with a private home for caches and state.
+        User = "mcp-${name}";
+        Group = "mcp-${name}";
         StateDirectory = "mcp-${name}";
         WorkingDirectory = "/var/lib/mcp-${name}";
       } // import ./hardening.nix;
     }) enabled;
 
+    users.users = lib.mapAttrs' (name: _: lib.nameValuePair "mcp-${name}" {
+      isSystemUser = true;
+      group = "mcp-${name}";
+    }) enabled;
+    users.groups = lib.mapAttrs' (name: _: lib.nameValuePair "mcp-${name}" { }) enabled;
+
     networking.firewall.allowedTCPPorts = ports (lib.attrValues enabled);
+
+    # A server's first TCP or UDP connection to each address and port, then nothing more to it for an hour (what it
+    # called there is in the audit log): every destination shows, a loop to one doesn't flood the journal.
+    networking.nftables.tables.mcp-egress = {
+      family = "inet";
+      content = lib.concatLines ([
+        "set seen4 { typeof meta skuid . ip daddr . th dport; flags timeout; timeout 1h; }"
+        "set seen6 { typeof meta skuid . ip6 daddr . th dport; flags timeout; timeout 1h; }"
+        "chain output {"
+        "  type filter hook output priority filter; policy accept;"
+        "  oifname \"lo\" accept"
+        "  ct state != new accept"
+        "  meta skuid . ip daddr . th dport @seen4 accept"
+        "  meta skuid . ip6 daddr . th dport @seen6 accept"
+      ] ++ lib.concatMap (name: [
+        "  meta nfproto ipv4 meta skuid \"mcp-${name}\" add @seen4 { meta skuid . ip daddr . th dport } log prefix \"mcp-egress ${name}: \""
+        "  meta nfproto ipv6 meta skuid \"mcp-${name}\" add @seen6 { meta skuid . ip6 daddr . th dport } log prefix \"mcp-egress ${name}: \""
+      ]) (lib.attrNames enabled) ++ [ "}" ]);
+    };
+    # The build's ruleset check has none of these users.
+    networking.nftables.preCheckRuleset = ''
+      sed 's/skuid "mcp-[^"]*"/skuid root/g' -i ruleset.conf
+    '';
 
     homelab.publish.locations = lib.mapAttrs' (name: s: lib.nameValuePair "/${name}/mcp" {
       inherit (s) port;
