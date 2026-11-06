@@ -87,6 +87,7 @@ add chain=forward action=accept connection-state=new src-address-list=log-sender
 add chain=forward action=accept connection-state=new in-interface="VLAN 10 HomeNet" dst-address=10.100.0.11 protocol=tcp dst-port=9427 comment="labs: home reads logs" place-before=[find comment="labs: only home and tunnel in"]
 add chain=forward action=accept connection-state=new in-interface-list=LABS dst-address=10.100.0.12 protocol=tcp dst-port=443 comment="labs: dls in" place-before=[find comment="labs: only home and tunnel in"]
 add chain=forward action=accept connection-state=new in-interface="VLAN 10 HomeNet" dst-address=10.100.3.0/24 comment="labs: home to work" place-before=[find comment="labs: only home and tunnel in"]
+add chain=forward action=accept connection-state=new in-interface="VLAN 10 HomeNet" protocol=icmp comment="labs: home ping" place-before=[find comment="labs: only home and tunnel in"]
 add chain=forward action=accept connection-state=new in-interface=wg-vpn src-address=10.0.0.1 dst-address=10.100.0.10 protocol=tcp dst-port=8443 comment="labs: edge to auth" place-before=[find comment="labs: only home and tunnel in"]
 add chain=forward action=accept connection-state=new in-interface=wg-vpn src-address=10.0.0.1 dst-address=10.100.0.11 protocol=tcp dst-port=9427 comment="labs: edge reads logs" place-before=[find comment="labs: only home and tunnel in"]
 add chain=forward action=accept connection-state=new in-interface=wg-vpn src-address=10.0.0.1 dst-address=10.100.2.10 protocol=tcp dst-port=80 comment="labs: edge to partdb" place-before=[find comment="labs: only home and tunnel in"]
@@ -101,6 +102,20 @@ add chain=forward action=drop   connection-state=new in-interface-list=LABS dst-
 # Parsec follows Windows-11 into the work zone.
 set [find comment="labs: parsec home->vm"] dst-address=10.100.3.10
 set [find comment="labs: parsec vm->home"] src-address=10.100.3.10
+```
+
+Names: `<host>.mgmt.internal` for the hypervisors and `<instance>.labs.internal` for every labs instance, made from
+the hosts' config. Rerun after adding a host or changing an address, it replaces only the entries it made:
+
+```sh
+nix eval --raw .#router.dns > dns.rsc
+scp dns.rsc admin@10.10.0.1: && ssh admin@10.10.0.1 "/import file-name=dns.rsc"
+```
+
+Short names (`ping bode`) need those domains in the client's search list, on Windows (WSL follows it):
+
+```powershell
+Set-DnsClientGlobalSetting -SuffixSearchList @("home.internal", "mgmt.internal", "labs.internal")
 ```
 
 What was already there and stays: the routing rule `labs: replies to home stay local`, `labs: replies`, `labs: home ssh, rdp` (22, 3389, 80), `labs: home rdp udp`, the
