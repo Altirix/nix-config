@@ -9,8 +9,9 @@ let
 
   # The gateways' sso sites, client -> { title; groups; domain; }.
   siteClients = lib.foldl' (all: host: all // nodes.${host}.config.homelab.web.ssoClients) { } cfg.gateways;
-  groups = lib.unique (lib.concatMap (c: c.groups) (lib.attrValues siteClients) ++ lib.optional cfg.mcp "mcp_users");
-  unknownGroups = lib.subtractLists groups (lib.unique (lib.concatMap (p: p.groups) (lib.attrValues cfg.people)));
+  # Every group a site, `mcp` or a person names.
+  groups = lib.unique (lib.concatMap (c: c.groups) (lib.attrValues siteClients) ++ lib.optional cfg.mcp "mcp_users"
+    ++ lib.concatMap (p: p.groups) (lib.attrValues cfg.people));
 in
 {
   imports = [ ../web/publish.nix ];
@@ -54,11 +55,6 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    assertions = [{
-      assertion = unknownGroups == [ ];
-      message = "sso: people are in ${toString unknownGroups}, which no sso site (or `mcp`) uses";
-    }];
-
     services.kanidm = {
       package = pkgs.kanidm_1_11;
 

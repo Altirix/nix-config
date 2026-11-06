@@ -207,7 +207,6 @@ let
     "--provider=oidc"
     "--http-address=${proxyAddress name}"
     "--upstream=static://202"
-    "--cookie-secret-file=%d/cookie-secret"
     "--email-domain=*"
     "--set-xauthrequest=true"
     # Its request log would carry the callback's authorization codes into the journal and the logs VM, nginx logs
@@ -228,7 +227,6 @@ let
   ssoArgs = name: [
     "--oidc-issuer-url=${cfg.sso.issuer}${ssoClient name}"
     "--client-id=${ssoClient name}"
-    "--client-secret-file=%d/client-secret"
     "--scope=openid profile"
     # Kanidm asks for consent itself, once per client.
     "--approval-prompt=auto"
@@ -258,7 +256,8 @@ in
     };
 
     # Sign-in for `sso` sites, an oauth2-proxy each with its own client. Their secrets are sso-<site>-secret in the
-    # host's secrets.yaml, and every instance seals its cookies with oauth2-proxy-cookie-secret there (32 bytes).
+    # host's secrets.yaml, and every instance seals its cookies with a key of its own derived from
+    # oauth2-proxy-cookie-secret there (32 bytes).
     sso = {
       # A client's issuer without the client, e.g. Kanidm's https://auth.example.com/oauth2/openid/.
       issuer = mkOption { type = types.str; };
@@ -415,10 +414,20 @@ in
       wantedBy = [ "multi-user.target" ];
       wants = [ "network-online.target" ];
       after = [ "network-online.target" ];
+      path = [ pkgs.openssl pkgs.coreutils ];
+      # Its own cookie key, derived from the host's: a session sealed for one site doesn't open another.
+      script = ''
+        { cat "$CREDENTIALS_DIRECTORY/cookie-secret"; printf %s ${name}; } | openssl dgst -sha256 -binary \
+          | basenc --base64url | tr -d '\n' > "$RUNTIME_DIRECTORY/cookie-secret"
+        exec ${lib.getExe pkgs.oauth2-proxy} ${lib.escapeShellArgs
+          (proxyArgs name ++ (if ssoSites ? ${name} then ssoArgs name else oauthArgs))} \
+          --cookie-secret-file="$RUNTIME_DIRECTORY/cookie-secret" ${lib.optionalString (ssoSites ? ${name})
+            ''--client-secret-file="$CREDENTIALS_DIRECTORY/client-secret"''}
+      '';
       serviceConfig = {
-        ExecStart = "${lib.getExe pkgs.oauth2-proxy} ${lib.escapeShellArgs
-          (proxyArgs name ++ (if ssoSites ? ${name} then ssoArgs name else oauthArgs))}";
         DynamicUser = true;
+        RuntimeDirectory = proxyUnit name;
+        RuntimeDirectoryMode = "0700";
         LoadCredential = [ "cookie-secret:${config.sops.secrets.oauth2-proxy-cookie-secret.path}" ]
           ++ lib.optional (ssoSites ? ${name}) "client-secret:${config.sops.secrets.${ssoSecret name}.path}";
         # It exits while the issuer is unreachable (discovery at start), don't hit the start limit waiting for it.
