@@ -137,6 +137,9 @@ in
       };
     };
 
+    # kanidmd for recovering accounts (README.md), the module only runs it from its unit.
+    environment.systemPackages = [ config.services.kanidm.package ];
+
     homelab.publish.upstream = {
       port = 8443;
       https = true;
