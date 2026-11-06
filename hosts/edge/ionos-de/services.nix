@@ -1,5 +1,6 @@
-# From /etc/nginx/sites-enabled on the old box. Copy /var/www/<site>/public over after install,
-# or point the site at the lab once it's hosted there.
+# This host's sites: static ones from the old box (copy /var/www/<site>/public over after install), and the lab's
+# services it fronts (`from`). Each service's README has its secrets and router rules, every domain's A record points
+# here before the first deploy (ACME).
 {
   homelab.web.sites = {
     blog = {
@@ -13,6 +14,14 @@
     blog-staging = {
       root = "/var/www/blog-staging/public";
       address = "10.0.0.1";
+    };
+
+    # MCP servers and REA, a bearer token per client (modules/services/mcp/README.md). No wireguard forward to either.
+    mcp = {
+      domains = [ "mcp.peacocks.me" ];
+      https = true;
+      from = [ "mcp" "rea-dynamic" ];
+      tokens = [ "cloud" ];
     };
   };
 }
