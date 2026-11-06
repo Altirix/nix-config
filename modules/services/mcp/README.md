@@ -33,51 +33,24 @@ hypervisors pin each VM to its address (`security.ipv4_filtering`, networking/RE
 `src-address` matches can't be spoofed from labs. Never give `mcp` or `rea-dynamic` the `labs-mesh` profile:
 VXLAN goes VM to VM past the router.
 
-Who gets in. These go before `labs: only home and tunnel in`, after `labs: home ssh, rdp` (ssh from home still
-reaches both for deploys). The edge is its tunnel address `10.0.0.1`, and only on the public servers' ports
-(`public = true`, From outside):
-
-```routeros
-/ip firewall address-list
-add list=mcp-vms address=10.100.1.11 comment="mcp"
-add list=mcp-vms address=10.100.1.12 comment="rea-dynamic"
-
-/ip firewall filter
-add chain=forward action=accept connection-state=new in-interface=wg-vpn src-address=10.0.0.1 dst-address=10.100.1.11 protocol=tcp dst-port=8102,8104-8107,8109 comment="labs: edge to mcp" place-before=[find comment="labs: only home and tunnel in"]
-add chain=forward action=accept connection-state=new in-interface=wg-vpn src-address=10.0.0.1 dst-address=10.100.1.12 protocol=tcp dst-port=8101 comment="labs: edge to rea-dynamic" place-before=[find comment="labs: only home and tunnel in"]
-add chain=forward action=drop connection-state=new in-interface=wg-vpn dst-address-list=mcp-vms comment="labs: tunnel to mcp vms, nothing else" place-before=[find comment="labs: only home and tunnel in"]
-```
+Who gets in, and what they open, is in modules/networking/README.md (Router): `labs: edge to mcp` (the public
+servers' ports, `public = true`, From outside), `labs: edge to rea-dynamic`, `labs: tunnel to agents, nothing else`
+(no other tunnel peer reaches either VM), `labs: rea-dynamic opens nothing` (not the router, labs, home or out the
+tunnel) and `labs: nothing private` (mcp reaches the internet for fetch, context7, playwright and nixos, but never
+home, mgmt, labs or the edge's tunnel address). ssh from home still reaches both for deploys (`labs: home ssh, rdp`).
 
 Agents on the LAN that should reach the servers directly (every port on `mcp`, including playwright and github),
-one per machine, also before `labs: tunnel to mcp vms, nothing else`:
+one per machine, just above `labs: only home and tunnel in`:
 
 ```routeros
 /ip firewall filter
-add chain=forward action=accept connection-state=new src-address=<agent> dst-address=10.100.1.11 protocol=tcp dst-port=8100-8199 comment="labs: agents to mcp" place-before=[find comment="labs: tunnel to mcp vms, nothing else"]
-add chain=forward action=accept connection-state=new src-address=<agent> dst-address=10.100.1.12 protocol=tcp dst-port=8101 comment="labs: agents to rea-dynamic" place-before=[find comment="labs: tunnel to mcp vms, nothing else"]
+add chain=forward action=accept connection-state=new src-address=<agent> dst-address=10.100.1.11 protocol=tcp dst-port=8100-8199 comment="labs: agents to mcp" place-before=[find comment="labs: only home and tunnel in"]
+add chain=forward action=accept connection-state=new src-address=<agent> dst-address=10.100.1.12 protocol=tcp dst-port=8101 comment="labs: agents to rea-dynamic" place-before=[find comment="labs: only home and tunnel in"]
 ```
 
-What they open. `rea-dynamic` opens nothing, not to the router, labs, home or out the tunnel. `mcp` needs the
-internet (fetch, context7, playwright, nixos) but nothing private, so fetch and playwright can't be pointed at
-home, mgmt, labs or the edge's tunnel address. Both at the top, ahead of the labs egress rules:
-
-```routeros
-/ip firewall address-list
-add list=private address=10.0.0.0/8
-add list=private address=172.16.0.0/12
-add list=private address=192.168.0.0/16
-add list=private address=100.64.0.0/10
-add list=private address=169.254.0.0/16
-
-/ip firewall filter
-add chain=input action=drop connection-state=new src-address=10.100.1.12 comment="labs: rea-dynamic opens nothing" place-before=0
-add chain=forward action=drop connection-state=new src-address=10.100.1.12 comment="labs: rea-dynamic opens nothing" place-before=0
-add chain=input action=drop connection-state=new src-address=10.100.1.11 comment="labs: mcp to the internet only" place-before=0
-add chain=forward action=drop connection-state=new src-address=10.100.1.11 dst-address-list=private comment="labs: mcp to the internet only" place-before=0
-```
-
-The `mcp` VM uses `1.1.1.1` for DNS, so it needs nothing from the router itself. If labs ever carries IPv6, the
-same holds for v6 or a VM with root egresses over it:
+The `mcp` VM uses `1.1.1.1` for DNS, so it needs nothing from the router itself but time. Every labs NIC drops
+IPv6 today (`ipv6_filtering`, no pinned v6 address); if labs ever carries IPv6, the same holds for v6 or a VM with
+root egresses over it:
 
 ```routeros
 /ipv6 firewall filter
@@ -86,7 +59,7 @@ add chain=input action=drop connection-state=new src-address=<rea-dynamic v6> co
 ```
 
 Check with `/ip firewall filter print stats where comment~"mcp|rea-dynamic"`: the edge's 502s with
-`labs: tunnel to mcp vms, nothing else` counting mean a port missing from `labs: edge to mcp`. If the router
+`labs: edge only to its sites` counting mean a port missing from `labs: edge to mcp`. If the router
 ever masquerades into labs, the edge arrives as `10.100.0.1` instead of `10.0.0.1` and every edge rule misses.
 
 ## From outside

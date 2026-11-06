@@ -5,12 +5,7 @@ Part-DB on `hosts/virtual/partdb` (`10.100.2.10`, apps zone), at `https://parts.
 
 ## Router (MikroTik)
 
-Only the edge gets in, before `labs: only home and tunnel in`. From home use the site too:
-
-```routeros
-/ip firewall filter
-add chain=forward action=accept connection-state=new in-interface=wg-vpn src-address=10.0.0.1 dst-address=10.100.2.10 protocol=tcp dst-port=80 comment="labs: edge to partdb" place-before=[find comment="labs: only home and tunnel in"]
-```
+Only the edge gets in, `labs: edge to partdb` in modules/networking/README.md (Router). From home use the site too.
 
 ## Logged in only
 
