@@ -1,7 +1,7 @@
 # partdb
 
-Part-DB on `hosts/virtual/partdb` (`10.100.2.10`, apps zone), published (`homelab.publish`) for a front door,
-then Part-DB's own login.
+Part-DB on `hosts/virtual/partdb` (`10.100.2.10`, apps zone), at `https://parts.peacocks.me` behind Kanidm sign-in
+(the `partdb` site in `hosts/edge/ionos-de/services.nix`, members of `web_users`), then Part-DB's own login.
 
 ## Router (MikroTik)
 

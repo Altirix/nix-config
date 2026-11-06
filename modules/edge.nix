@@ -5,6 +5,7 @@
   imports = [
     ./services/wireguard
     ./services/web
+    ./services/sso/gateway.nix
   ];
 
   homelab = {
