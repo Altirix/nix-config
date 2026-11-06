@@ -44,7 +44,7 @@ add chain=forward action=accept connection-state=new in-interface=wg-vpn src-add
 
    It's good for ten years. To replace it, delete `/var/lib/kanidm-cert/*.pem` on the VM, run
    `systemctl restart kanidm-cert kanidm`, copy it again and deploy ionos-de.
-3. Add `oauth2-proxy-cookie-secret` (`openssl rand -hex 16`) and a placeholder `kanidm-web-secret` to ionos-de's
+3. Add `oauth2-proxy-cookie-secret` (`openssl rand -base64 32 | tr -- '+/' '-_'`, a full AES-256 key) and a placeholder `kanidm-web-secret` to ionos-de's
    secrets (it doesn't build without them), deploy `auth` then `ionos-de`, so ACME gets the certificate.
 4. Give yourself a credential. `idm_admin`'s password is reset on the VM, then a one-time link sets up the person.
    Every start of `kanidm.service` (deploys, reboots) resets it again for provisioning, so recover it right
