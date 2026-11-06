@@ -51,6 +51,12 @@ let
         type = types.listOf types.package;
         default = [ ];
       };
+      # Published at /<name>/mcp (homelab.publish) for a front door to serve (mcp.peacocks.me), low-risk servers only:
+      # never playwright (runs code) or github (holds a token). The router also has to let the edge in on its port.
+      public = mkOption {
+        type = types.bool;
+        default = false;
+      };
     };
   };
 
@@ -63,7 +69,7 @@ let
   proxy = [ (lib.getExe pkgs.mcp-proxy) "--host" "0.0.0.0" "--port" ];
 in
 {
-  imports = map (name: ./servers/${name}) presets;
+  imports = [ ../web/publish.nix ] ++ map (name: ./servers/${name}) presets;
 
   options.homelab.mcp = {
     servers = mkOption {
@@ -104,5 +110,10 @@ in
     }) enabled;
 
     networking.firewall.allowedTCPPorts = ports (lib.attrValues enabled);
+
+    homelab.publish.locations = lib.mapAttrs' (name: s: lib.nameValuePair "/${name}/mcp" {
+      inherit (s) port;
+      path = "/mcp";
+    }) (lib.filterAttrs (_: s: s.public) enabled);
   };
 }

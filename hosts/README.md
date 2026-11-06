@@ -13,8 +13,8 @@ compute/<name>/            the three incus + ceph hypervisors
   secrets.yaml
 edge/ionos-de/             public-facing VPS
   networking.nix           wireguard interface + peers, port forwards
-  services.nix             web sites
-  mcp.nix                  mcp.peacocks.me, token-gated proxy to the mcp VM
+  services.nix             web sites: static ones, and the lab services it fronts (`from`): mcp.peacocks.me
+                           (bearer tokens)
 sbc/{alluvium,basidium}/   Klipper on ROCK 5C Lites, see sbc/rock5c.md
 sbc/colluvium/               headless MT8195 Tomato, USB installer -> eMMC (see sbc/tomato.md)
 virtual/dls/               FastAPI-DLS, licenses vGPU guests over labs (shared zone)
