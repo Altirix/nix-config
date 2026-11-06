@@ -25,6 +25,8 @@ keys:
   - &host_dls age17lhpf7t5av07y4d85cjt9rn5nut4m5qnc59xs88eg76xeh8ugg5s6amk8t # Nvidia DLS
   - &host_mcp age1jl9as26uxvqqma8mrddejfq9k235gxgnsl6n22m8rr5lsteehp3spjl0k9 # MCP
   - &host_rea_dynamic age1uyv9yrzamhxlt3ejdutkuhz65jrwgg2zn4cm8y4km4vex3kgf57qrk97p3 # REA Dynamic Exec
+  - &host_auth age1fhr9ufh7p5g9tmj5e5nq5wg38xqpt3gw3sc6dghd3my3p3cqt4qsgjdlqw # Kandim Auth
+  - &host_logs age15ahlqk9gs90z550knyv5pyfvalj9g7wqpej5kmeu73jcn35sqg5quja7s5 #Victoria Logs
   
 # Groups
 groups:
@@ -40,6 +42,8 @@ groups:
     - *host_dls
     - *host_mcp
     - *host_rea_dynamic
+    - *host_auth
+    - *host_logs
 
   compute: &compute
     - *admin
