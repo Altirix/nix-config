@@ -17,6 +17,12 @@ in
             type = types.str;
             default = "/";
           };
+          # false leaves it out of an audited site's log and proxies it unbuffered: uploads, whose bodies the
+          # audit couldn't keep anyway.
+          audit = mkOption {
+            type = types.bool;
+            default = true;
+          };
         };
       });
       default = { };

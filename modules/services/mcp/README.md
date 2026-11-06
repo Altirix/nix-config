@@ -140,10 +140,10 @@ Four views, all in VictoriaLogs (`modules/services/logs`):
 - **Every client, per request**: the edge's access log (`SYSLOG_IDENTIFIER:nginx_access`) has the client, path,
   status and duration of each request through `mcp.peacocks.me`.
 - **Every client, what went in and out**: `mcp.peacocks.me` is audited (`audit = true` in
-  `hosts/edge/ionos-de/services.nix`). Each request's JSON-RPC body (the tool and its arguments) and the first 32k
-  of its response go to the edge's journal as one JSON line (`SYSLOG_IDENTIFIER:nginx_audit`), with the client
-  (`user`). A response streamed as SSE is logged once it ends; a request over 32k (an upload to REA) has an empty
-  `request_body`, `request_length` still says how big it was. Arguments and results can hold whatever the tools
+  `hosts/edge/ionos-de/services.nix`). Each request's JSON-RPC body (the tool and its arguments) and the start of
+  its response, 16k of each (cut ones end in `…`, control bytes show as `?`), go to the edge's journal as one JSON
+  line (`SYSLOG_IDENTIFIER:nginx_audit`), with the client (`user`). A response streamed as SSE is logged once it
+  ends. REA's uploads (`/rea/<project>/samples/`) aren't audited and go through unbuffered. Arguments and results can hold whatever the tools
   were given or fetched, the logs VM keeps them for its retention.
 
   ```
@@ -151,9 +151,9 @@ Four views, all in VictoriaLogs (`modules/services/logs`):
   SYSLOG_IDENTIFIER:nginx_audit | unpack_json from _msg | stats by (user, request) count()
   ```
 
-- **Where servers reach out to**: the `mcp` VM logs every connection a server opens (each runs as its own
-  `mcp-<name>` user), kernel lines like `mcp-egress fetch: ... DST=1.2.3.4 ... DPT=443`. Addresses only, the name it
-  looked up isn't there.
+- **Where servers reach out to**: the `mcp` VM logs each server's first TCP or UDP connection to every address and
+  port, then none to that one for an hour (each runs as its own `mcp-<name>` user), kernel lines like
+  `mcp-egress fetch: ... DST=1.2.3.4 ... DPT=443`. Addresses only, the name it looked up isn't there.
 
   ```
   _HOSTNAME:mcp "mcp-egress" | extract "mcp-egress <server>: " | extract "DST=<dst> " | extract "DPT=<port> " | stats by (server, dst, port) count()

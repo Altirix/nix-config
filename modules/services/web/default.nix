@@ -26,9 +26,6 @@ let
 
   ssoCheck = s: lib.optionalString (s.sso != null) (builtins.readFile ./config/sso-check.conf);
 
-  # The site's access log, naming the client or user where there is one. A location with its own access_log
-  # (`audit`) repeats it, it would replace it otherwise.
-  siteLog = s: "access_log ${accessLog}${lib.optionalString (s.oauth || s.sso != null || s.tokens != null) " user"};\n";
 
   # What every proxied location carries in place of nixpkgs' recommended headers (the http-level rest of
   # recommendedProxySettings, HTTP/1.1 to upstreams and timeouts, still applies).
@@ -103,12 +100,17 @@ let
         default = null;
       };
 
-      # `locations` are audited: each request's body and the start of its response (both up to 32k) go to the
-      # journal as JSON (SYSLOG_IDENTIFIER=nginx_audit), with the client or user. Requests are buffered whole
-      # before going upstream, large uploads included, so their bodies can be logged.
+      # `locations` are audited: each request's body and the start of its response (16k each) go to the journal as
+      # JSON (SYSLOG_IDENTIFIER=nginx_audit), with the client or user. Requests are buffered whole before going
+      # upstream so their bodies can be logged, except in `unaudited` (uploads).
       audit = mkOption {
         type = types.bool;
         default = false;
+      };
+      # `locations` prefixes left out of `audit`, with what `from` hosts publish with audit = false.
+      unaudited = mkOption {
+        type = types.listOf types.str;
+        default = [ ];
       };
 
       # nginx's client_max_body_size for the site, e.g. "1g" for `locations` that take uploads.
@@ -164,6 +166,8 @@ let
       upstreamCertificate = if s.upstreamCertificate != null then s.upstreamCertificate
         else first (x: x.p.upstream.certificate) upstreams;
       maxBodySize = lib.findFirst (v: v != null) null ([ s.maxBodySize ] ++ map (x: x.p.maxBodySize) published);
+      unaudited = s.unaudited ++ lib.concatMap (x: lib.attrNames (lib.filterAttrs (_: l: !l.audit) x.p.locations))
+        published;
     };
   sites = lib.mapAttrs (_: resolve) cfg.sites;
 
@@ -336,7 +340,7 @@ in
           } else {
             return = "404";
           };
-        } // lib.mapAttrs (prefix: url: proxied // {
+        } // lib.mapAttrs (prefix: url: let audited = s.audit && !lib.elem prefix s.unaudited; in proxied // {
           proxyPass = "http://${upstreamName name prefix}${(parse url).path}";
           extraConfig = proxied.extraConfig + ssoCheck s
             + lib.optionalString (s.tokens != null) (snippet "token-check.conf" { client = clientVar name; })
@@ -344,9 +348,9 @@ in
             + snippet "proxy-location.conf" {
                 inherit prefix;
                 inherit (parse url) path;
-                requestBuffering = if s.audit then "on" else "off";
+                requestBuffering = if audited then "on" else "off";
               }
-            + lib.optionalString s.audit (siteLog s + snippet "audit-location.conf" { log = auditLog; });
+            + lib.optionalString audited (builtins.readFile ./config/audit-location.conf);
         }) s.locations
         # Each location's RFC 9728 metadata, the resource is the location itself.
         // lib.optionalAttrs s.oauth (lib.mapAttrs' (prefix: _:
@@ -361,7 +365,12 @@ in
               }}';
             '';
           }) s.locations);
-        extraConfig = lib.optionalString (s.oauth || s.sso != null || s.tokens != null) (siteLog s)
+        extraConfig = lib.optionalString (s.oauth || s.sso != null || s.tokens != null) "access_log ${accessLog} user;\n"
+          # Next to the access log (one set here replaces the inherited one), only for the locations ($audit_on).
+          + lib.optionalString s.audit ''
+            ${lib.optionalString (!(s.oauth || s.sso != null || s.tokens != null)) "access_log ${accessLog};"}
+            access_log ${auditLog} audit if=$audit_on;
+          ''
           + lib.optionalString s.oauth (snippet "oauth-server.conf" {
               proxy = proxyAddress "oauth";
               domain = lib.head s.domains;
@@ -389,8 +398,6 @@ in
 
       # A "Bearer <64 hex>" key is past the 64 byte default bucket, nginx refuses to start.
       mapHashBucketSize = lib.mkIf tokens 128;
-
-      additionalModules = lib.optional audit pkgs.nginxModules.njs;
     };
 
     # From the host's secrets.yaml (sops.defaultSopsFile), only this host can read them.

@@ -128,7 +128,9 @@ in
       # Every project's /<project>/mcp, samples/ and shared/ under /rea/ for a front door (mcp.peacocks.me), with
       # room for sample uploads.
       homelab.publish = {
-        locations."/rea/".port = cfg.port;
+        # Uploads stay out of the edge's audit, the rest of REA is in it.
+        locations = { "/rea/".port = cfg.port; } // lib.genAttrs' cfg.projects (p:
+          lib.nameValuePair "/rea/${p}/samples/" { port = cfg.port; path = "/${p}/samples/"; audit = false; });
         maxBodySize = "1g";
       };
 
