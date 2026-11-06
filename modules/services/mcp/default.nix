@@ -3,7 +3,8 @@
 # MCP servers, one systemd unit and port each. stdio servers are put behind mcp-proxy, which
 # serves streamable HTTP on /mcp and SSE on /sse and shares one server process between all clients.
 # There is no auth and no Host check. Every port is open on the VM, who reaches which is the router's call
-# (README.md, Router): a firewall on the VM is gone with root on it.
+# (README.md, Router): a firewall on the VM is gone with root on it. Every connection a server opens is logged
+# (kernel, "mcp-egress <name>:") and goes to the logs VM with the journal, so where tools reach out to shows there.
 #
 # Presets for packaged servers live in servers/, every file there is imported. A preset sets
 # defaults and never `enable`, the host turns it on:
@@ -102,14 +103,36 @@ in
         Restart = "on-failure";
         RestartSec = 5;
 
-        # Each server is its own throwaway user with a private home for caches and state.
-        DynamicUser = true;
+        # Each server is its own user (named in the egress log) with a private home for caches and state.
+        User = "mcp-${name}";
+        Group = "mcp-${name}";
         StateDirectory = "mcp-${name}";
         WorkingDirectory = "/var/lib/mcp-${name}";
       } // import ./hardening.nix;
     }) enabled;
 
+    users.users = lib.mapAttrs' (name: _: lib.nameValuePair "mcp-${name}" {
+      isSystemUser = true;
+      group = "mcp-${name}";
+    }) enabled;
+    users.groups = lib.mapAttrs' (name: _: lib.nameValuePair "mcp-${name}" { }) enabled;
+
     networking.firewall.allowedTCPPorts = ports (lib.attrValues enabled);
+
+    # Every new connection a server opens, off the VM or on it (loopback aside).
+    networking.nftables.tables.mcp-egress = {
+      family = "inet";
+      content = lib.concatLines ([
+        "chain output {"
+        "  type filter hook output priority filter; policy accept;"
+        "  oifname \"lo\" accept"
+      ] ++ map (name: "  ct state new meta skuid \"mcp-${name}\" log prefix \"mcp-egress ${name}: \"")
+        (lib.attrNames enabled) ++ [ "}" ]);
+    };
+    # The build's ruleset check has none of these users.
+    networking.nftables.preCheckRuleset = ''
+      sed 's/skuid "mcp-[^"]*"/skuid root/g' -i ruleset.conf
+    '';
 
     homelab.publish.locations = lib.mapAttrs' (name: s: lib.nameValuePair "/${name}/mcp" {
       inherit (s) port;
