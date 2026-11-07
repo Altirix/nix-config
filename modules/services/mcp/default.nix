@@ -145,6 +145,7 @@ in
     homelab.publish.locations = lib.mapAttrs' (name: s: lib.nameValuePair "/${name}/mcp" {
       inherit (s) port;
       path = "/mcp";
+      mcp = true;
     }) (lib.filterAttrs (_: s: s.public) enabled);
   };
 }

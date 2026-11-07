@@ -15,7 +15,6 @@ let
   upstreamName = name: prefix: "${name}${lib.replaceStrings [ "/" "." ] [ "_" "_" ] (lib.removeSuffix "/" prefix)}";
 
   accessLog = "syslog:server=unix:/dev/log,tag=nginx_access,nohostname";
-  auditLog = "syslog:server=unix:/dev/log,tag=nginx_audit,nohostname";
 
   # nginx variable holding the client a site's token belongs to.
   clientVar = name: "web_client_${lib.replaceStrings [ "-" ] [ "_" ] name}";
@@ -100,15 +99,15 @@ let
         default = null;
       };
 
-      # `locations` are audited: each request's body and the start of its response (16k each) go to the journal as
-      # JSON (SYSLOG_IDENTIFIER=nginx_audit), with the client or user. Requests are buffered whole before going
-      # upstream so their bodies can be logged, except in `unaudited` (uploads).
+      # Its MCP endpoints (`mcp`) go through agentgateway on loopback, which logs every call: the tool, its
+      # arguments and result, and the client or user. To the logs VM over OTLP (homelab.logs.shipTo), a shorter line
+      # without arguments and results to the journal. The rest of the site is proxied as before.
       audit = mkOption {
         type = types.bool;
         default = false;
       };
-      # `locations` prefixes left out of `audit`, with what `from` hosts publish with audit = false.
-      unaudited = mkOption {
+      # `locations` prefixes that are MCP endpoints (streamable HTTP), with what `from` hosts publish as such.
+      mcp = mkOption {
         type = types.listOf types.str;
         default = [ ];
       };
@@ -166,8 +165,7 @@ let
       upstreamCertificate = if s.upstreamCertificate != null then s.upstreamCertificate
         else first (x: x.p.upstream.certificate) upstreams;
       maxBodySize = lib.findFirst (v: v != null) null ([ s.maxBodySize ] ++ map (x: x.p.maxBodySize) published);
-      unaudited = s.unaudited ++ lib.concatMap (x: lib.attrNames (lib.filterAttrs (_: l: !l.audit) x.p.locations))
-        published;
+      mcp = s.mcp ++ lib.concatMap (x: lib.attrNames (lib.filterAttrs (_: l: l.mcp) x.p.locations)) published;
     };
   sites = lib.mapAttrs (_: resolve) cfg.sites;
 
@@ -195,7 +193,54 @@ let
   oauth = lib.any (s: s.oauth) (lib.attrValues sites);
   ssoSites = lib.filterAttrs (_: s: s.sso != null) sites;
   tokens = tokenSites != { };
-  audit = lib.any (s: s.audit) (lib.attrValues sites);
+
+  # agentgateway's routes: each audited site's MCP endpoints, one target each.
+  # Targets are named after the prefix without /mcp (time, rea-default-cli), the log's mcp.tool.target.
+  gatewayRoutes = lib.concatLists (lib.mapAttrsToList (site: s: map (prefix: {
+    name = "${site}${lib.replaceStrings [ "/" ] [ "-" ] (lib.removeSuffix "/" prefix)}";
+    target = lib.replaceStrings [ "/" ] [ "-" ] (lib.removePrefix "/" (lib.removeSuffix "/mcp" prefix));
+    inherit prefix;
+    url = s.locations.${prefix};
+  }) (lib.optionals s.audit s.mcp)) sites);
+  gatewayPort = 15100;
+  gatewayConfig = {
+    config = {
+      adminAddr = "off";
+      readinessAddr = "off";
+      statsAddr = "127.0.0.1:15020";
+      logging.format = "json";
+    };
+    # nginx names the client (token-check.conf) or user in X-Web-User, nothing else sets it.
+    frontendPolicies.accessLog = {
+      add."web.user" = ''request.headers["x-web-user"]'';
+    } // lib.optionalAttrs (logsHost != null) {
+      otlp = {
+        host = "${logsHost}:9428";
+        protocol = "http";
+        path = "/insert/opentelemetry/v1/logs";
+        fields.add = {
+          "web.user" = ''request.headers["x-web-user"]'';
+          "mcp.arguments" = "mcp.tool.arguments";
+          "mcp.result" = "mcp.tool.result";
+          "mcp.error" = "mcp.tool.error";
+        };
+      };
+    };
+    # Every address, but the firewall only opens 80 and 443.
+    binds = [{
+      port = gatewayPort;
+      listeners = [{
+        protocol = "HTTP";
+        routes = map (r: {
+          inherit (r) name;
+          matches = [{ path.pathPrefix = r.prefix; }];
+          backends = [{ mcp.targets = [{ name = r.target; mcp.host = r.url; }]; }];
+        }) gatewayRoutes;
+      }];
+    }];
+  };
+  logsHost = if config.homelab.logs.shipTo == null then null
+    else nodes.${config.homelab.logs.shipTo}.config.homelab.labs.address;
   logsUser = oauth || ssoSites != { } || tokens;
 
   # oauth2-proxy instances on loopback, one per sso site (its own client and sessions) and one checking the bearer
@@ -340,17 +385,14 @@ in
           } else {
             return = "404";
           };
-        } // lib.mapAttrs (prefix: url: let audited = s.audit && !lib.elem prefix s.unaudited; in proxied // {
-          proxyPass = "http://${upstreamName name prefix}${(parse url).path}";
+        } // lib.mapAttrs (prefix: url: let gateway = s.audit && lib.elem prefix s.mcp; in proxied // {
+          # Through agentgateway the path stays as it is, it knows the upstream's.
+          proxyPass = if gateway then "http://agentgateway" else "http://${upstreamName name prefix}${(parse url).path}";
           extraConfig = proxied.extraConfig + ssoCheck s
             + lib.optionalString (s.tokens != null) (snippet "token-check.conf" { client = clientVar name; })
             + lib.optionalString s.oauth (snippet "oauth-check.conf" { inherit prefix; })
-            + snippet "proxy-location.conf" {
-                inherit prefix;
-                inherit (parse url) path;
-                requestBuffering = if audited then "on" else "off";
-              }
-            + lib.optionalString audited (builtins.readFile ./config/audit-location.conf);
+            + snippet "proxy-location.conf" { inherit prefix; path = if gateway then prefix else (parse url).path; }
+            + lib.optionalString gateway "proxy_set_header X-Web-User $web_user;\n";
         }) s.locations
         # Each location's RFC 9728 metadata, the resource is the location itself.
         // lib.optionalAttrs s.oauth (lib.mapAttrs' (prefix: _:
@@ -366,11 +408,6 @@ in
             '';
           }) s.locations);
         extraConfig = lib.optionalString (s.oauth || s.sso != null || s.tokens != null) "access_log ${accessLog} user;\n"
-          # Next to the access log (one set here replaces the inherited one), only for the locations ($audit_on).
-          + lib.optionalString s.audit ''
-            ${lib.optionalString (!(s.oauth || s.sso != null || s.tokens != null)) "access_log ${accessLog};"}
-            access_log ${auditLog} audit if=$audit_on;
-          ''
           + lib.optionalString s.oauth (snippet "oauth-server.conf" {
               proxy = proxyAddress "oauth";
               domain = lib.head s.domains;
@@ -384,7 +421,12 @@ in
         lib.nameValuePair (upstreamName name prefix) {
           servers.${(parse url).server} = { };
           extraConfig = "keepalive 8;";
-        }) s.locations) sites);
+        }) s.locations) sites ++ lib.optional (gatewayRoutes != [ ]) {
+          agentgateway = {
+            servers."127.0.0.1:${toString gatewayPort}" = { };
+            extraConfig = "keepalive 8;";
+          };
+        });
 
       # Access logs go to the journal (SYSLOG_IDENTIFIER=nginx_access) and on to the logs VM, not a file. On tokens,
       # oauth and sso sites they name the client or user (the token's client, its sub, the session's username).
@@ -392,8 +434,7 @@ in
         access_log ${accessLog};
       '' + lib.optionalString logsUser ''
         log_format user '$remote_addr $web_user [$time_local] "$request" $status $body_bytes_sent $request_time';
-      '' + lib.optionalString audit (snippet "audit-http.conf" { script = "${./config/audit.js}"; })
-        + lib.concatStrings (lib.mapAttrsToList (name: _:
+      '' + lib.concatStrings (lib.mapAttrsToList (name: _:
         snippet "token-map.conf" { client = clientVar name; tokens = config.sops.templates."${name}-tokens".path; }) tokenSites);
 
       # A "Bearer <64 hex>" key is past the 64 byte default bucket, nginx refuses to start.
@@ -441,7 +482,21 @@ in
         Restart = "always";
         RestartSec = 5;
       };
-    }) proxies);
+    }) proxies) // lib.optionalAttrs (gatewayRoutes != [ ]) {
+      agentgateway = {
+        description = "agentgateway, the audited sites' MCP endpoints";
+        wantedBy = [ "multi-user.target" ];
+        wants = [ "network-online.target" ];
+        after = [ "network-online.target" ];
+        serviceConfig = {
+          ExecStart = "${lib.getExe (pkgs.callPackage ./packages/agentgateway.nix { })} -f ${
+            (pkgs.formats.yaml { }).generate "agentgateway.yaml" gatewayConfig}";
+          DynamicUser = true;
+          Restart = "always";
+          RestartSec = 5;
+        };
+      };
+    };
 
     systemd.tmpfiles.rules = lib.mapAttrsToList (_: s: "d ${s.root} 0755 admin users -")
       (lib.filterAttrs (_: s: s.root != null) sites);

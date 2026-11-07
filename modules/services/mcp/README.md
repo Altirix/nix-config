@@ -139,16 +139,18 @@ Four views, all in VictoriaLogs (`modules/services/logs`):
 
 - **Every client, per request**: the edge's access log (`SYSLOG_IDENTIFIER:nginx_access`) has the client, path,
   status and duration of each request through `mcp.peacocks.me`.
-- **Every client, what went in and out**: `mcp.peacocks.me` is audited (`audit = true` in
-  `hosts/edge/ionos-de/services.nix`). Each request's JSON-RPC body (the tool and its arguments) and the start of
-  its response, 16k of each (cut ones end in `…`, control bytes show as `?`), go to the edge's journal as one JSON
-  line (`SYSLOG_IDENTIFIER:nginx_audit`), with the client (`user`). A response streamed as SSE is logged once it
-  ends. REA's uploads (`/rea/<project>/samples/`) aren't audited and go through unbuffered. Arguments and results can hold whatever the tools
-  were given or fetched, the logs VM keeps them for its retention.
+- **Every client, per tool call**: `mcp.peacocks.me` is audited (`audit = true` in
+  `hosts/edge/ionos-de/services.nix`): its MCP endpoints go through agentgateway on the edge, which understands
+  MCP. Each call goes to the logs VM over OTLP with the tool (`mcp.tool.name`, `mcp.tool.target` the server), its
+  arguments and result (`mcp.arguments`, `mcp.result`, `mcp.error`) and the client (`web.user`, from the token);
+  a shorter line without arguments and results goes to the edge's journal (`_SYSTEMD_UNIT:agentgateway.service`).
+  Arguments and results can hold whatever the tools were given or fetched, the logs VM keeps them for its
+  retention. REA's uploads and shared files aren't MCP and pass straight through.
 
   ```
-  SYSLOG_IDENTIFIER:nginx_audit | unpack_json from _msg | filter request_body:"tools/call" | fields _time, user, request, request_body, response
-  SYSLOG_IDENTIFIER:nginx_audit | unpack_json from _msg | stats by (user, request) count()
+  mcp.tool.name:* | fields _time, web.user, mcp.tool.target, mcp.tool.name, mcp.arguments, mcp.result
+  mcp.tool.name:* | stats by (web.user, mcp.tool.target, mcp.tool.name) count()
+  mcp.error:* | fields _time, mcp.tool.target, mcp.tool.name, mcp.error
   ```
 
 - **Where servers reach out to**: the `mcp` VM logs each server's first TCP or UDP connection to every address and
@@ -182,7 +184,7 @@ Four views, all in VictoriaLogs (`modules/services/logs`):
   claude_code.tool_result success:false | fields _time, mcp_tool_name, error, tool_parameters
   ```
 
-Claude's connectors (claude.ai, the apps) only show up in the access and audit logs, they export nothing.
+Claude's connectors (claude.ai, the apps) only show up in the access log and agentgateway's, they export nothing.
 
 ## rea (8101)
 
