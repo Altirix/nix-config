@@ -120,12 +120,13 @@ in
     networking.firewall.allowedTCPPorts = ports (lib.attrValues enabled);
 
     # A server's first TCP or UDP connection to each address and port, then nothing more to it for an hour (what it
-    # called there is in the audit log): every destination shows, a loop to one doesn't flood the journal.
+    # called there is in the audit log): every destination shows, a loop to one doesn't flood the journal. It logs
+    # before remembering, so with a set full (65536 in an hour) repeats show again rather than new ones going.
     networking.nftables.tables.mcp-egress = {
       family = "inet";
       content = lib.concatLines ([
-        "set seen4 { typeof meta skuid . ip daddr . th dport; flags timeout; timeout 1h; }"
-        "set seen6 { typeof meta skuid . ip6 daddr . th dport; flags timeout; timeout 1h; }"
+        "set seen4 { typeof meta skuid . ip daddr . th dport; flags timeout; timeout 1h; size 65536; }"
+        "set seen6 { typeof meta skuid . ip6 daddr . th dport; flags timeout; timeout 1h; size 65536; }"
         "chain output {"
         "  type filter hook output priority filter; policy accept;"
         "  oifname \"lo\" accept"
@@ -133,8 +134,8 @@ in
         "  meta skuid . ip daddr . th dport @seen4 accept"
         "  meta skuid . ip6 daddr . th dport @seen6 accept"
       ] ++ lib.concatMap (name: [
-        "  meta nfproto ipv4 meta skuid \"mcp-${name}\" add @seen4 { meta skuid . ip daddr . th dport } log prefix \"mcp-egress ${name}: \""
-        "  meta nfproto ipv6 meta skuid \"mcp-${name}\" add @seen6 { meta skuid . ip6 daddr . th dport } log prefix \"mcp-egress ${name}: \""
+        "  meta nfproto ipv4 meta skuid \"mcp-${name}\" log prefix \"mcp-egress ${name}: \" add @seen4 { meta skuid . ip daddr . th dport }"
+        "  meta nfproto ipv6 meta skuid \"mcp-${name}\" log prefix \"mcp-egress ${name}: \" add @seen6 { meta skuid . ip6 daddr . th dport }"
       ]) (lib.attrNames enabled) ++ [ "}" ]);
     };
     # The build's ruleset check has none of these users.
