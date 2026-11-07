@@ -102,6 +102,12 @@ creation_rules:
         - *admin
         - *host_mcp
 
+  - path_regex: ^hosts[\\/]virtual[\\/]auth[\\/]secrets\.yaml$
+    key_groups:
+      - age:
+        - *admin
+        - *host_auth
+
   # Shared Secrets
   - path_regex: ^secrets[\\/]common\.yaml$
     key_groups:
