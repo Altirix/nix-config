@@ -210,6 +210,8 @@ let
       statsAddr = "127.0.0.1:15020";
       logging.format = "json";
     };
+    # MCP messages are buffered whole to read them, results run to megabytes (REA's decompiles, markitdown).
+    frontendPolicies.http.maxBufferSize = 64 * 1024 * 1024;
     # nginx names the client (token-check.conf) or user in X-Web-User, nothing else sets it.
     frontendPolicies.accessLog = {
       add."web.user" = ''request.headers["x-web-user"]'';
@@ -392,7 +394,9 @@ in
             + lib.optionalString (s.tokens != null) (snippet "token-check.conf" { client = clientVar name; })
             + lib.optionalString s.oauth (snippet "oauth-check.conf" { inherit prefix; })
             + snippet "proxy-location.conf" { inherit prefix; path = if gateway then prefix else (parse url).path; }
-            + lib.optionalString gateway "proxy_set_header X-Web-User $web_user;\n";
+            # Sites without tokens, oauth or sso have no $web_user, nor anyone to name.
+            + lib.optionalString (gateway && (s.tokens != null || s.oauth || s.sso != null))
+              "proxy_set_header X-Web-User $web_user;\n";
         }) s.locations
         # Each location's RFC 9728 metadata, the resource is the location itself.
         // lib.optionalAttrs s.oauth (lib.mapAttrs' (prefix: _:
@@ -465,6 +469,10 @@ in
       path = [ pkgs.openssl pkgs.coreutils ];
       # Its own cookie key, derived from the host's: a session sealed for one site doesn't open another.
       script = ''
+        if [ "$(wc -c < "$CREDENTIALS_DIRECTORY/cookie-secret")" -lt 32 ]; then
+          echo "oauth2-proxy-cookie-secret is under 32 bytes, see modules/services/sso/README.md" >&2
+          exit 1
+        fi
         { cat "$CREDENTIALS_DIRECTORY/cookie-secret"; printf %s ${name}; } | openssl dgst -sha256 -binary \
           | basenc --base64url | tr -d '\n' > "$RUNTIME_DIRECTORY/cookie-secret"
         exec ${lib.getExe pkgs.oauth2-proxy} ${lib.escapeShellArgs
