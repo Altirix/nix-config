@@ -64,7 +64,7 @@ ever masquerades into labs, the edge arrives as `10.100.0.1` instead of `10.0.0.
 
 ## From outside
 
-The servers `hosts/virtual/mcp` marks `public` (nixos, context7, fetch, time, memory, markitdown) are published
+The servers `hosts/virtual/mcp` marks `public` (nixos, context7, fetch, time, memory, markitdown, fdfdb) are published
 (`homelab.publish`), and the edge's `mcp` site (`hosts/edge/ionos-de/services.nix`, `from = [ "mcp" "rea-dynamic" ]`)
 serves them at `https://mcp.peacocks.me/<server>/mcp`, proxied over the tunnel (streamable
 HTTP only, SSE is deprecated). playwright runs code, github holds a token, they get no route. Every
@@ -305,6 +305,15 @@ it. The host doesn't build with it enabled and no token.
 ```sh
 sops hosts/virtual/mcp/secrets.yaml   # github-mcp-token: github_pat_...
 ```
+
+## fdfdb (8110)
+
+NAND flash by part number or by the ID its READ ID returns, with the controllers that support it, from
+[iTXTech/fdfdb](https://github.com/iTXTech/fdfdb) (CC BY-NC-SA 4.0): the flash tables of Silicon Motion, Phison,
+Maxio, JMicron, Innostor, YEESTOR, ChipsBank, Alcor, FirstChip and SandForce tools. `packages/fdfdb-mcp.py` reads
+them into one index at build time, so a table whose format changed fails the build. Part numbers keep each
+table's spelling (package and mode suffixes), so searches match on substrings and IDs on shared prefixes. Bump
+`rev` and `hash` in `packages/fdfdb.nix` for new tables.
 
 ## context7 (8104)
 

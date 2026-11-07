@@ -18,6 +18,7 @@
     memory = { enable = true; public = true; };
     playwright.enable = true;
     markitdown = { enable = true; public = true; };
+    fdfdb = { enable = true; public = true; };
   };
 
   system.stateVersion = "26.05";
