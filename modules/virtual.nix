@@ -7,6 +7,7 @@
     ./networking/labs-mesh.nix
     ./services/vgpu/guest.nix
     ./services/mcp
+    ./services/inventree
     ./services/logs/collector.nix
     ./services/paperless
     ./services/partdb

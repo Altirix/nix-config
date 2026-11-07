@@ -40,6 +40,14 @@
       sso.title = "Logs";
     };
 
+    # modules/services/inventree, next to Part-DB to compare.
+    inventree = {
+      domains = [ "inventree.peacocks.me" ];
+      https = true;
+      from = [ "inventree" ];
+      sso.title = "InvenTree";
+    };
+
     # modules/services/paperless
     paperless = {
       domains = [ "docs.peacocks.me" ];
