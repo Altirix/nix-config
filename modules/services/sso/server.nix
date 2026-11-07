@@ -9,9 +9,10 @@ let
 
   # The gateways' sso sites, client -> { title; groups; domain; }.
   siteClients = lib.foldl' (all: host: all // nodes.${host}.config.homelab.web.ssoClients) { } cfg.gateways;
-  # Every group a site, `mcp` or a person names.
-  groups = lib.unique (lib.concatMap (c: c.groups) (lib.attrValues siteClients) ++ lib.optional cfg.mcp "mcp_users"
-    ++ lib.concatMap (p: p.groups) (lib.attrValues cfg.people));
+  # The groups sites and `mcp` use, and web_users (sso sites' default) even before one does. Kanidm's module
+  # refuses people in any other, a typo fails the build.
+  groups = lib.unique ([ "web_users" ] ++ lib.concatMap (c: c.groups) (lib.attrValues siteClients)
+    ++ lib.optional cfg.mcp "mcp_users");
 in
 {
   imports = [ ../web/publish.nix ];
