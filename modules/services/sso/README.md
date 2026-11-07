@@ -44,15 +44,18 @@ Only the edge gets in, `labs: edge to auth` in modules/networking/README.md (Rou
 3. Add `oauth2-proxy-cookie-secret` (`openssl rand -base64 32 | tr -- '+/' '-_'`, a full AES-256 key) and a
    placeholder `sso-<site>-secret` for each `sso` site to ionos-de's secrets (it doesn't build without them), deploy
    `auth` then `ionos-de`, so ACME gets the certificate.
-4. Give yourself a credential. `idm_admin`'s password is reset on the VM, then a one-time link sets up the person.
-   Every start of `kanidm.service` (deploys, reboots) resets it again for provisioning, so recover it right
-   before each admin session:
+4. Give `idm_admin` a password of its own, kept in auth's secrets and set on every start of `kanidm.service`
+   (auth doesn't build without it). Then log in with it and send yourself a one-time link to set up the person:
 
    ```sh
-   ssh admin@incus-auth sudo kanidmd recover-account -c /etc/kanidm/server.toml idm_admin
+   openssl rand -base64 32
+   sops hosts/virtual/auth/secrets.yaml   # kanidm-idm-admin-password: <it>
    kanidm login -H https://auth.peacocks.me -D idm_admin
    kanidm person credential create-reset-token altirix -H https://auth.peacocks.me -D idm_admin
    ```
+
+   Change it by editing the secret and deploying `auth`. Lost it: `kanidmd recover-account -c /etc/kanidm/server.toml
+   idm_admin` on the VM prints a new one, good until the next start.
 
    Open the link it prints and add a passkey.
 

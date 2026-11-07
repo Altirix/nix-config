@@ -57,7 +57,8 @@ in
 
   config = lib.mkIf cfg.enable {
     services.kanidm = {
-      package = pkgs.kanidm_1_11;
+      # Its secret-provisioning patches take idm_admin's password from a file.
+      package = pkgs.kanidm_1_11.withSecretProvisioning;
 
       server = {
         enable = true;
@@ -75,6 +76,8 @@ in
 
       provision = {
         enable = true;
+        # Set on every start, otherwise provisioning resets it to a random one each time.
+        idmAdminPasswordFile = config.sops.secrets.kanidm-idm-admin-password.path;
 
         groups = lib.genAttrs groups (_: { });
 
@@ -108,6 +111,12 @@ in
           };
         };
       };
+    };
+
+    # From the host's secrets.yaml (sops.defaultSopsFile), README.md.
+    sops.secrets.kanidm-idm-admin-password = {
+      owner = "kanidm";
+      restartUnits = [ "kanidm.service" ];
     };
 
     # kanidmd won't start without TLS: a self-signed certificate for the origin's name, good for ten years and
