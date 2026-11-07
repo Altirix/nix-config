@@ -19,6 +19,9 @@
     playwright.enable = true;
     markitdown = { enable = true; public = true; };
     fdfdb = { enable = true; public = true; };
+    # Once paperless-mcp-token is in secrets.yaml (modules/services/paperless/README.md), the host doesn't build
+    # without it.
+    # paperless = { enable = true; public = true; };
   };
 
   system.stateVersion = "26.05";

@@ -8,6 +8,7 @@
     ./services/vgpu/guest.nix
     ./services/mcp
     ./services/logs/collector.nix
+    ./services/paperless
     ./services/partdb
     ./services/sso/server.nix
   ];

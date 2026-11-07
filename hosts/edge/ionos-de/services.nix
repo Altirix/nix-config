@@ -40,6 +40,14 @@
       sso.title = "Logs";
     };
 
+    # modules/services/paperless
+    paperless = {
+      domains = [ "docs.peacocks.me" ];
+      https = true;
+      from = [ "paperless" ];
+      sso.title = "Paperless";
+    };
+
     # modules/services/partdb
     partdb = {
       domains = [ "parts.peacocks.me" ];

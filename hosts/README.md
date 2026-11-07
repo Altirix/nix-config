@@ -21,6 +21,7 @@ virtual/auth/              Kanidm, SSO at auth.peacocks.me via the edge (see mod
 virtual/dls/               FastAPI-DLS, licenses vGPU guests over labs (shared zone)
 virtual/logs/              VictoriaLogs, every host's journal (see modules/services/logs/README.md)
 virtual/mcp/               MCP servers for agents (labs, low-risk ones via the edge, see modules/services/mcp/README.md)
+virtual/paperless/         Paperless-ngx, documents for people and LLMs (docs.peacocks.me, behind Kanidm sign-in)
 virtual/partdb/            Part-DB, electronic parts inventory (parts.peacocks.me, behind Kanidm sign-in)
 virtual/rea-dynamic/       REA per project and session, dynamic analysis, no egress, reset from a snapshot (see modules/services/mcp/README.md)
 ```
