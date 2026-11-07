@@ -35,9 +35,10 @@ in
       enable = true;
       # 2.20.15 isn't cached: one of its mail tests fails (test_error_skip_rule, 1 != 2), so it builds here and fails
       # the same way. Mail import isn't used. Drop once nixpkgs' build passes again.
-      package = pkgs.paperless-ngx.overridePythonAttrs (old: {
-        disabledTests = (old.disabledTests or [ ]) ++ [ "test_error_skip_rule" ];
-      });
+      # The module overrides it again (tesseract's languages), so it stays overridable.
+      package = lib.makeOverridable (args: (pkgs.paperless-ngx.override args).overridePythonAttrs (old: {
+        disabledTests = old.disabledTests ++ [ "test_error_skip_rule" ];
+      })) { };
       database.createLocally = true;
       settings = {
         PAPERLESS_URL = cfg.url;
