@@ -24,6 +24,7 @@ virtual/logs/              VictoriaLogs, every host's journal (see modules/servi
 virtual/mcp/               MCP servers for agents (labs, low-risk ones via the edge, see modules/services/mcp/README.md)
 virtual/paperless/         Paperless-ngx, documents for people and LLMs (docs.peacocks.me, behind Kanidm sign-in)
 virtual/partdb/            Part-DB, electronic parts inventory (parts.peacocks.me, behind Kanidm sign-in)
+virtual/pcb/               KiCad projects: an MCP server each for agents, pages for you (pcb.peacocks.me, behind Kanidm sign-in)
 virtual/rea-dynamic/       REA per project and session, dynamic analysis, no egress, reset from a snapshot (see modules/services/mcp/README.md)
 ```
 
