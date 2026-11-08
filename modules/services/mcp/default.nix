@@ -58,6 +58,11 @@ let
         type = types.bool;
         default = false;
       };
+      # Where it's published, /<name>/mcp unless set (e.g. /kicad/<project>/mcp for a server per project).
+      publishAt = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+      };
     };
   };
 
@@ -143,7 +148,7 @@ in
       sed 's/skuid "mcp-[^"]*"/skuid root/g' -i ruleset.conf
     '';
 
-    homelab.publish.locations = lib.mapAttrs' (name: s: lib.nameValuePair "/${name}/mcp" {
+    homelab.publish.locations = lib.mapAttrs' (name: s: lib.nameValuePair (if s.publishAt != null then s.publishAt else "/${name}/mcp") {
       inherit (s) port;
       path = "/mcp";
       mcp = true;
