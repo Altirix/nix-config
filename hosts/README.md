@@ -52,13 +52,15 @@ incus config device add <name> install disk pool=ceph source=<installer> boot.pr
 incus start <name>
 ```
 
-Install it from the hypervisor it runs on, over vsock (works before it has a network, see
-[modules/services/incus/README.md](../modules/services/incus/README.md)). The installer doesn't know its address,
-give it the same one by hand first so it can fetch what it needs:
+Install it from the hypervisor it runs on, over vsock, so it needs no network (see
+[modules/services/incus/README.md](../modules/services/incus/README.md)). The stock installer has no key: set a root
+password from its console first (`incus console <name> --type=vga`, `sudo passwd root`). Everything comes from the
+hypervisor over vsock, the installer downloads nothing; with 1 GiB, give it zram so what's copied fits:
 
 ```sh
-ssh root@incus-<name> 'ip addr add <address>/32 dev enp5s0 && ip route add 10.100.0.1 dev enp5s0 && ip route add default via 10.100.0.1'
-nixos-anywhere --flake .#<name> --target-host root@incus-<name> --extra-files <dir with etc/ssh/ssh_host_ed25519_key>
+ssh root@incus-<name> 'modprobe zram && zramctl /dev/zram0 --size 2G --algorithm zstd && mkswap /dev/zram0 && swapon /dev/zram0 && mount -o remount,size=2G /nix/.rw-store'
+nixos-anywhere --flake .#<name> --target-host root@incus-<name> --no-substitute-on-destination \
+  --extra-files <dir with etc/ssh/ssh_host_ed25519_key>
 ```
 
 Then detach the ISO, so it boots its own disk:
