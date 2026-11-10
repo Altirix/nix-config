@@ -80,6 +80,8 @@ in
           extraConfig = ''
             ${lib.concatMapStrings (a: "allow ${a};\n") cfg.trustedProxies}deny all;
             client_max_body_size ${cfg.maxBodySize};
+            # Uploads stream through to Paperless, the front door already passes them on as they arrive.
+            proxy_request_buffering off;
           '';
         };
         # Token clients: only the API, and nobody names a user.

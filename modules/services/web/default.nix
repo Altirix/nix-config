@@ -391,8 +391,10 @@ in
           "/" = if s.upstream != null then proxied // {
             proxyPass = s.upstream;
             proxyWebsockets = true;
-            extraConfig = proxied.extraConfig + ssoCheck s + lib.optionalString (s.upstreamCertificate != null)
-              (snippet "upstream-tls.conf" { certificate = "${s.upstreamCertificate}"; domain = lib.head s.domains; });
+            # Uploads stream through to the upstream as they arrive, instead of landing here whole first.
+            extraConfig = proxied.extraConfig + "proxy_request_buffering off;\n" + ssoCheck s
+              + lib.optionalString (s.upstreamCertificate != null)
+                (snippet "upstream-tls.conf" { certificate = "${s.upstreamCertificate}"; domain = lib.head s.domains; });
           } else if s.root != null then {
             tryFiles = "$uri $uri/ =404";
           } else {
