@@ -76,13 +76,6 @@ let
         type = types.nullOr (types.listOf types.str);
         default = null;
       };
-      # Clients of `tokens` kept to some `locations`, client -> prefixes it may use (a prefix covers what's under it:
-      # "/kicad/" is every KiCad project). Anywhere else its token gets 403. Clients not listed may use them all.
-      tokenScopes = mkOption {
-        type = types.attrsOf (types.listOf types.str);
-        default = { };
-        example = { board-agent = [ "/kicad/my-board/mcp" "/fdfdb/mcp" ]; };
-      };
       # `locations` are an OAuth protected resource (MCP authorization): 401 without an access token from one of
       # `oauth`'s issuers, pointing at /.well-known/oauth-protected-resource/<path> (RFC 9728) for where to get
       # one. oauth2-proxy checks the token, the upstream never sees it and the access log names the user. Ready
@@ -366,9 +359,6 @@ in
         && (s.oauth || s.sso != null -> s.https) && lib.count lib.id [ s.oauth (s.sso != null) (s.tokens != null) ] <= 1
         && (s.upstreamCertificate != null -> s.upstream != null && lib.hasPrefix "https://" s.upstream && s.domains != [ ]);
       message = "web: site ${name} has both root and upstream, https without domains on every address, oauth or sso without https, more than one of tokens/oauth/sso, or upstreamCertificate without an https upstream and domains";
-    }) sites ++ lib.mapAttrsToList (name: s: {
-      assertion = lib.all (client: lib.elem client (if s.tokens == null then [ ] else s.tokens)) (lib.attrNames s.tokenScopes);
-      message = "web: site ${name}'s tokenScopes names clients that aren't in its tokens";
     }) sites ++ [{
       assertion = lib.allUnique proxies;
       message = "web: an sso site named oauth clashes with the oauth sites' oauth2-proxy";
@@ -415,11 +405,6 @@ in
           proxyPass = if gateway then "http://agentgateway" else "http://${upstreamName name prefix}${(parse url).path}";
           extraConfig = proxied.extraConfig + ssoCheck s
             + lib.optionalString (s.tokens != null) (snippet "token-check.conf" { client = clientVar name; })
-            # Scoped clients this location isn't for.
-            + lib.concatStrings (lib.mapAttrsToList (client: _: snippet "token-scope.conf" {
-                client = clientVar name;
-                name = client;
-              }) (lib.filterAttrs (_: scope: !lib.any (allowed: lib.hasPrefix allowed prefix) scope) s.tokenScopes))
             + lib.optionalString s.oauth (snippet "oauth-check.conf" { inherit prefix; })
             + snippet "proxy-location.conf" { inherit prefix; path = if gateway then prefix else (parse url).path; }
             # Sites without tokens, oauth or sso have no $web_user, nor anyone to name.
