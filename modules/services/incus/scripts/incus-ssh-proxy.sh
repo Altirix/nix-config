@@ -1,8 +1,8 @@
-# ssh ProxyCommand for `ssh incus-<instance>`, reaches the VM's sshd over vsock so it works before the VM has a network.
+# ssh ProxyCommand for `ssh <instance>.incus`, reaches the VM's sshd over vsock so it works before the VM has a network.
 # A VM on another member is reached through that member's relay over the mesh, so any member works as the entry point.
 # Relays over stdin/stdout, so it also works run through ssh from another machine.
 # Looks everything up on every connect, the vsock id and member change when the VM is recreated or moved.
-# Args: host (incus-<instance>, or <instance>.<anything> from another machine) port
+# Args: host (<instance>.incus, from a member or through one from another machine) port
 #       --serve: relay side, reads the instance name from stdin and only reaches local VMs on port 22
 # Env: SELF, MEMBERS ("name=address ..."), RELAY_PORT
 if [ "${1:-}" = "--serve" ]; then
@@ -14,8 +14,7 @@ if [ "${1:-}" = "--serve" ]; then
   port=22
 else
   serve=0
-  instance=${1#incus-}
-  instance=${instance%%.*}
+  instance=${1%%.*}
   port=${2:-22}
 fi
 

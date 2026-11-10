@@ -26,7 +26,7 @@ removed.
    user Paperless makes on its own has no permissions). The password is never used, sign-in comes from the edge:
 
    ```sh
-   ssh admin@incus-paperless sudo paperless-manage createsuperuser --username altirix --email ''
+   ssh admin@paperless.incus sudo paperless-manage createsuperuser --username altirix --email ''
    ```
 
    Others who sign in get a user without permissions: give them some in its admin (Users & Groups).

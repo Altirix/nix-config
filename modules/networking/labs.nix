@@ -4,7 +4,7 @@
 # port isolated from each other and talk directly over labs-mesh instead. Live services take a static /32 with
 # the router on-link, the hypervisors pin it to the instance of the same name (modules/compute.nix) so no other
 # instance can claim it. Without one the bridge drops everything the instance sends (no labs network, reach it over
-# vsock: `ssh incus-<name>`).
+# vsock: `ssh <name>.incus`).
 let
   cfg = config.homelab.labs;
   inherit (lib) mkOption types;

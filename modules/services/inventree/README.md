@@ -25,7 +25,7 @@ user.
    user InvenTree makes on its own has no permissions). The password is never used, sign-in comes from the edge:
 
    ```sh
-   ssh admin@incus-inventree sudo inventree-manage createsuperuser --username altirix --email ''
+   ssh admin@inventree.incus sudo inventree-manage createsuperuser --username altirix --email ''
    ```
 
    Others who sign in get a user without permissions: give them some in its admin.

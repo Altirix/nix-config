@@ -58,8 +58,8 @@ password from its console first (`incus console <name> --type=vga`, `sudo passwd
 hypervisor over vsock, the installer downloads nothing; with 1 GiB, give it zram so what's copied fits:
 
 ```sh
-ssh root@incus-<name> 'modprobe zram && zramctl /dev/zram0 --size 2G --algorithm zstd && mkswap /dev/zram0 && swapon /dev/zram0 && mount -o remount,size=2G /nix/.rw-store'
-nixos-anywhere --flake .#<name> --target-host root@incus-<name> --no-substitute-on-destination \
+ssh root@<name>.incus 'modprobe zram && zramctl /dev/zram0 --size 2G --algorithm zstd && mkswap /dev/zram0 && swapon /dev/zram0 && mount -o remount,size=2G /nix/.rw-store'
+nixos-anywhere --flake .#<name> --target-host root@<name>.incus --no-substitute-on-destination \
   --extra-files <dir with etc/ssh/ssh_host_ed25519_key>
 ```
 
