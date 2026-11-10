@@ -28,6 +28,12 @@ in
       type = lib.types.str;
       default = "200m";
     };
+    # A sops file with paperless-mcp-token (40 hex), shared with the MCP server's host: a view-only mcp user with
+    # that token, made and kept here (mcp-user.py). null makes none.
+    mcpTokenFile = lib.mkOption {
+      type = lib.types.nullOr lib.types.path;
+      default = null;
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -89,6 +95,35 @@ in
           extraConfig = "client_max_body_size ${cfg.maxBodySize};";
         };
       };
+    };
+
+    sops.secrets.paperless-mcp-token = lib.mkIf (cfg.mcpTokenFile != null) {
+      sopsFile = cfg.mcpTokenFile;
+      owner = config.services.paperless.user;
+      restartUnits = [ "paperless-mcp-user.service" ];
+    };
+
+    systemd.services.paperless-mcp-user = lib.mkIf (cfg.mcpTokenFile != null) {
+      description = "Paperless' mcp user and its token";
+      wantedBy = [ "multi-user.target" ];
+      # The scheduler migrates the database first.
+      requires = [ "paperless-scheduler.service" ];
+      after = [ "paperless-scheduler.service" ];
+      path = [ config.services.paperless.manage ];
+      serviceConfig = {
+        Type = "oneshot";
+        User = config.services.paperless.user;
+      };
+      script = ''
+        paperless-manage shell -c "$(cat ${pkgs.replaceVars ./mcp-user.py {
+          token = config.sops.secrets.paperless-mcp-token.path;
+        }})"
+      '';
+    };
+
+    systemd.timers.paperless-mcp-user = lib.mkIf (cfg.mcpTokenFile != null) {
+      wantedBy = [ "timers.target" ];
+      timerConfig.OnUnitActiveSec = "15min";
     };
 
     homelab.publish = {

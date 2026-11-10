@@ -1,8 +1,9 @@
 { config, lib, pkgs, nodes, ... }:
 
 # Paperless-ngx over MCP (packages/paperless-mcp.nix): search, read and file documents on `host`
-# (modules/services/paperless), through its token-only API port. Every client acts as the token's Paperless user,
-# so its permissions are what the tools can do (README.md): the server itself can edit and delete.
+# (modules/services/paperless), through its token-only API port, with the token that host makes its view-only mcp
+# user with (its mcpTokenFile). Every client acts as that user: the server itself can edit and delete, the user
+# can only read.
 let
   cfg = config.homelab.mcp.paperless;
   enable = config.homelab.mcp.servers.paperless.enable;
@@ -29,8 +30,8 @@ in
     };
 
     sops = lib.mkIf enable {
-      # From the host's secrets.yaml (sops.defaultSopsFile), only that host can read it.
-      secrets."paperless-mcp-token".key = "paperless-mcp-token";
+      # Shared with `host`, which gives its mcp user the same token.
+      secrets."paperless-mcp-token".sopsFile = paperless.homelab.paperless.mcpTokenFile;
 
       templates."mcp-paperless.env" = {
         content = "PAPERLESS_API_KEY=${config.sops.placeholder."paperless-mcp-token"}\n";

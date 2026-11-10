@@ -33,18 +33,18 @@ removed.
 
 ## MCP
 
-The server can list, read, upload, edit and delete. What it may do is the permissions of the Paperless user its
-token belongs to, so give it one of its own: in Users & Groups, add `mcp` with View on documents, tags,
-correspondents, document types, custom fields and notes (add Add on documents if LLMs should file uploads). Give
-it a token in Paperless' Django admin, `https://docs.peacocks.me/admin/` (Auth Token, Tokens, Add, user `mcp`), and
-put it in the mcp VM's secrets:
+The MCP server (on the mcp VM) acts as a view-only `mcp` user: it sees every document, tag, correspondent, document
+type, storage path, custom field and note, and can change none of them. Paperless makes that user and its group,
+shares everything with the group to view (on every start and every 15 minutes, so new documents are shared too) and
+sets its token from `secrets/paperless.yaml`, which the mcp VM reads as well. So the token is made once, before
+either deploys:
 
 ```sh
-sops hosts/virtual/mcp/secrets.yaml   # paperless-mcp-token: <token>
+openssl rand -hex 20
+sops secrets/paperless.yaml   # paperless-mcp-token: <it>
 ```
 
-Uncomment `paperless` in `hosts/virtual/mcp/default.nix` and deploy `mcp`; it's at
-`https://mcp.peacocks.me/paperless/mcp` through agentgateway, where every call is logged.
+It's at `https://mcp.peacocks.me/paperless/mcp` through agentgateway, where every call is logged.
 
 ## Backups
 

@@ -16,5 +16,7 @@
     url = "https://docs.peacocks.me";
     # The edge's tunnel address.
     trustedProxies = [ "10.0.0.1" ];
+    # Shared with the mcp VM, its Paperless MCP server uses it.
+    mcpTokenFile = ../../../secrets/paperless.yaml;
   };
 }
