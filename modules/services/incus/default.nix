@@ -251,12 +251,13 @@ in
       script = lib.getExe bootstrapScript;
     };
 
-    # `ssh incus-<instance>` reaches a VM on any member over vsock, also as a nixos-anywhere target.
+    # `ssh <instance>.incus` reaches a VM on any member over vsock, also as a nixos-anywhere target. The same name
+    # works from other machines through a member (README.md).
     # On PATH so other machines can use it as `ProxyCommand ssh admin@<member> incus-ssh-proxy %h %p`.
     # Host keys aren't pinned, an installer makes new ones every boot and vsock never leaves the cluster.
     environment.systemPackages = [ sshProxyScript ];
     programs.ssh.extraConfig = ''
-      Host incus-*
+      Host *.incus
         ProxyCommand ${lib.getExe sshProxyScript} %h %p
         CheckHostIP no
         StrictHostKeyChecking no

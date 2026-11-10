@@ -6,10 +6,10 @@ cluster-wide, per host keys go in `homelab.incus.members`.
 
 ## ssh into VMs
 
-`ssh incus-<name>` on a hypervisor reaches a VM's sshd over vsock, so it works before the VM has a network
-and is how VMs get installed ([hosts/README.md](../../../hosts/README.md)). From another machine,
-`ssh <instance>.incus` goes through any member, which relays to the one running the VM over the mesh (your
-key logs in, members only relay):
+`ssh <name>.incus` reaches a VM's sshd over vsock, so it works before the VM has a network and is how VMs get
+installed ([hosts/README.md](../../../hosts/README.md)). On a hypervisor it works as is; from another machine, the
+same name goes through any member, which relays to the one running the VM over the mesh (your key logs in, members
+only relay):
 
 ```
 Host *.incus

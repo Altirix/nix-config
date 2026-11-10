@@ -21,11 +21,12 @@ user.
    sops secrets/sso.yaml   # ionos-de-inventree: <it>
    ```
 
-3. Make yourself InvenTree's admin before signing in, with your Kanidm name, so the first sign-in lands on it (a
-   user InvenTree makes on its own has no permissions). The password is never used, sign-in comes from the edge:
+3. Make yourself InvenTree's admin, with your Kanidm name. Signing in makes a user without permissions, so this
+   promotes it, and makes it first if you haven't signed in yet (its password is never used, sign-in comes from the
+   edge):
 
    ```sh
-   ssh admin@incus-inventree sudo inventree-manage createsuperuser --username altirix --email ''
+   ssh admin@inventree.incus sudo inventree-manage shell -c "from django.contrib.auth.models import User; u, _ = User.objects.get_or_create(username='altirix'); u.is_superuser = u.is_staff = True; u.save()"
    ```
 
    Others who sign in get a user without permissions: give them some in its admin.
