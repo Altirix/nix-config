@@ -15,7 +15,7 @@
   homelab.pcb = {
     enable = true;
     # One per line of work: agents on different projects never share a server or files.
-    projects = [ "scratch" ];
+    projects = [ "scratch" "palmremote" ];
     # The edge's tunnel address.
     trustedProxies = [ "10.0.0.1" ];
   };
