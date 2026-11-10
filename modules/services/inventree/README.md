@@ -21,7 +21,7 @@ user.
    sops secrets/sso.yaml   # ionos-de-inventree: <it>
    ```
 
-3. Make yourself InvenTree' admin, with your Kanidm name. Signing in makes a user without permissions, so this
+3. Make yourself InvenTree's admin, with your Kanidm name. Signing in makes a user without permissions, so this
    promotes it, and makes it first if you haven't signed in yet (its password is never used, sign-in comes from the
    edge):
 
