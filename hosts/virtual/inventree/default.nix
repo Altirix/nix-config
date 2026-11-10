@@ -11,6 +11,11 @@
 
   system.stateVersion = "26.05";
 
+  homelab.vm = {
+    cpus = 2;
+    memory = "2GiB";
+  };
+
   homelab.inventree = {
     enable = true;
     url = "https://inventree.peacocks.me";

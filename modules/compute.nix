@@ -226,8 +226,11 @@ in
               vtpm.type = "tpm";
             };
           }
-        ] ++ lib.mapAttrsToList (name: address: {
+        ] ++ lib.mapAttrsToList (name: address: let vm = nodes.${name}.config.homelab.vm or { }; in {
           inherit name;
+          # Its size from its own config (homelab.vm), instances that aren't hosts here keep theirs.
+          config = lib.optionalAttrs ((vm.cpus or null) != null) { "limits.cpu" = toString vm.cpus; }
+            // lib.optionalAttrs ((vm.memory or null) != null) { "limits.memory" = vm.memory; };
           devices.eth0 = labsNic // { "ipv4.address" = address; };
         }) labsAddresses;
 

@@ -15,27 +15,42 @@
     ./services/sso/server.nix
   ];
 
-
-  # Address ranges: networking/README.md.
-  homelab.labs = {
-    gateway = "10.100.0.1";
-    # The router drops input from labs, so not its resolver.
-    dns = [ "1.1.1.1" "1.0.0.1" ];
+  # Its size, carried by its pin profile (modules/compute.nix): set here, not with `incus config set` on the
+  # instance, which would override the profile. null keeps Incus' default (1 vCPU, 1 GiB). CPUs change live, memory
+  # at the next restart.
+  options.homelab.vm = {
+    cpus = lib.mkOption {
+      type = lib.types.nullOr lib.types.ints.positive;
+      default = null;
+    };
+    memory = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "4GiB";
+    };
   };
 
-  # Time from the router's NTP server, the one thing labs may open on it (networking/README.md): every zone keeps
-  # its clock without reaching out, the shared zone included (Kanidm's tokens and passkeys depend on it).
-  networking.timeServers = [ config.homelab.labs.gateway ];
+  config = {
+    # Address ranges: networking/README.md.
+    homelab.labs = {
+      gateway = "10.100.0.1";
+      # The router drops input from labs, so not its resolver.
+      dns = [ "1.1.1.1" "1.0.0.1" ];
+    };
 
-  virtualisation.incus.agent.enable = lib.mkDefault true;
+    # Time from the router's NTP server, the one thing labs may open on it (networking/README.md): every zone keeps
+    # its clock without reaching out, the shared zone included (Kanidm's tokens and passkeys depend on it).
+    networking.timeServers = [ config.homelab.labs.gateway ];
 
-  networking.nftables.enable = true;
-  networking.firewall.enable = true;
+    virtualisation.incus.agent.enable = lib.mkDefault true;
 
-  # Only on the labs bridge.
-  networking.firewall.allowedTCPPorts = [ 22 ];
+    networking.nftables.enable = true;
+    networking.firewall.enable = true;
 
-  # `incus console` attaches to the serial port.
-  boot.kernelParams = [ "console=tty1" "console=ttyS0" ];
+    # Only on the labs bridge.
+    networking.firewall.allowedTCPPorts = [ 22 ];
 
+    # `incus console` attaches to the serial port.
+    boot.kernelParams = [ "console=tty1" "console=ttyS0" ];
+  };
 }

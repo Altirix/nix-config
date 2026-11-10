@@ -12,6 +12,12 @@
 
   system.stateVersion = "26.05";
 
+  # KiCad renders and checks.
+  homelab.vm = {
+    cpus = 4;
+    memory = "4GiB";
+  };
+
   homelab.pcb = {
     enable = true;
     # One per line of work: agents on different projects never share a server or files.

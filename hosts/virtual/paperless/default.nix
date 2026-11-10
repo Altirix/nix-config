@@ -11,6 +11,12 @@
 
   system.stateVersion = "26.05";
 
+  # OCR is CPU-bound.
+  homelab.vm = {
+    cpus = 4;
+    memory = "4GiB";
+  };
+
   homelab.paperless = {
     enable = true;
     url = "https://docs.peacocks.me";
