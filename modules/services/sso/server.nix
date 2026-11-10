@@ -29,11 +29,9 @@ in
     # Front doors' addresses, whose X-Forwarded-For is trusted so logs and rate limits see the client.
     proxies = mkOption { type = types.listOf types.str; };
 
-    # This server's own certificate, copied back once it made it (README.md), the only one the gateway accepts.
-    certificate = mkOption {
-      type = types.nullOr types.path;
-      default = null;
-    };
+    # Its certificate, the only one the gateways accept: a self-signed leaf for `domain` (README.md), its key
+    # kanidm-tls-key in the host's secrets.yaml. Change both and deploy this host and its gateways.
+    certificate = mkOption { type = types.path; };
 
     # The site clients' secrets, keyed by client (<gateway>-<site>), set in Kanidm from here and read by the
     # gateways: one sops file for this server and its gateways (README.md).
@@ -70,8 +68,9 @@ in
           inherit (cfg) domain;
           origin = "https://${cfg.domain}";
           bindaddress = "0.0.0.0:8443";
-          tls_chain = "/var/lib/kanidm-cert/chain.pem";
-          tls_key = "/var/lib/kanidm-cert/key.pem";
+          # Its module wants it outside the store, it's public all the same.
+          tls_chain = "/etc/kanidm/chain.pem";
+          tls_key = config.sops.secrets.kanidm-tls-key.path;
           http_client_address_info.x-forward-for = cfg.proxies;
           # /var/lib/kanidm/backups, nightly.
           online_backup.versions = 7;
@@ -118,9 +117,17 @@ in
       };
     };
 
+    environment.etc."kanidm/chain.pem".source = cfg.certificate;
+    # A new certificate restarts it, as a new key does (sops).
+    systemd.services.kanidm.restartTriggers = [ cfg.certificate ];
+
     # From the host's secrets.yaml (sops.defaultSopsFile), README.md, and the clients' from `secretsFile`.
     sops.secrets = {
       kanidm-idm-admin-password = {
+        owner = "kanidm";
+        restartUnits = [ "kanidm.service" ];
+      };
+      kanidm-tls-key = {
         owner = "kanidm";
         restartUnits = [ "kanidm.service" ];
       };
@@ -130,36 +137,6 @@ in
       owner = "kanidm";
       restartUnits = [ "kanidm.service" ];
     }) siteClients;
-
-    # kanidmd won't start without TLS: a self-signed certificate for the origin's name, good for ten years and
-    # remade only within 30 days of expiring (or if it's missing). The gateway accepts only this one (`certificate`),
-    # so a new one needs copying again. Not `kanidmd cert-generate`, its certificate expires after five days. A leaf
-    # (CA:FALSE, serverAuth): Rust clients like the kanidm CLI refuse a CA certificate as the server's.
-    systemd.services.kanidm-cert = {
-      requiredBy = [ "kanidm.service" ];
-      before = [ "kanidm.service" ];
-      path = [ pkgs.openssl ];
-      script = ''
-        [ -e key.pem ] && [ -e chain.pem ] && openssl x509 -checkend 2592000 -noout -in chain.pem && exit 0
-        openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3650 \
-          -subj /CN=${cfg.domain} -addext subjectAltName=DNS:${cfg.domain} \
-          -addext basicConstraints=critical,CA:FALSE -addext keyUsage=critical,digitalSignature \
-          -addext extendedKeyUsage=serverAuth -keyout key.pem -out chain.pem
-      '';
-      serviceConfig = {
-        Type = "oneshot";
-        RemainAfterExit = true;
-        User = "kanidm";
-        Group = "kanidm";
-        UMask = "0077";
-        StateDirectory = "kanidm-cert";
-        StateDirectoryMode = "0700";
-        WorkingDirectory = "/var/lib/kanidm-cert";
-      };
-    };
-
-    # kanidmd for recovering accounts (README.md), the module only runs it from its unit.
-    environment.systemPackages = [ config.services.kanidm.package ];
 
     homelab.publish.upstream = {
       port = 8443;

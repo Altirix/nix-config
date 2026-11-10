@@ -3,7 +3,8 @@
 Kanidm, SSO for the lab, in two halves:
 
 - `server.nix` (`homelab.sso.server`) runs Kanidm on a host, `hosts/virtual/auth` (`10.100.0.10`) at
-  `auth.peacocks.me`. It serves `8443` with its own self-signed certificate (`kanidm-cert.service`) and provisions
+  `auth.peacocks.me`. It serves `8443` with its own self-signed certificate (`hosts/virtual/auth/tls.pem`, its key
+  in auth's secrets) and provisions
   groups, people (`people`) and OAuth2 clients on every start (`kanidm.service` post-start). Credentials (passkeys,
   passwords, TOTP) are each person's own and live only in Kanidm's database.
 - `gateway.nix` (`homelab.sso.gateway`) makes a host its front door, ionos-de (`hosts/edge/ionos-de/services.nix`):
@@ -31,16 +32,22 @@ Only the edge gets in, `labs: edge to auth` in modules/networking/README.md (Rou
 ## Set up
 
 1. Point an A record for `auth.peacocks.me` at the VPS.
-2. Deploy the hypervisors so they pin `10.100.0.10` (the VM has no network until then), then install the VM
-   ([hosts/README.md](../../README.md#add-a-vm)). Add the router rule.
-   Pin its certificate on the edge (ionos-de warns while it's missing, and then doesn't check what answers):
+2. Make its certificate, a self-signed leaf for its domain good for ten years (CA:FALSE: Rust clients like the
+   kanidm CLI refuse a CA certificate as a server's). The certificate is committed, the edge accepts only it; the key
+   goes in auth's secrets:
 
    ```sh
-   ssh admin@incus-auth sudo cat /var/lib/kanidm-cert/chain.pem > hosts/virtual/auth/tls.pem   # on a hypervisor, commit it
+   openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3650 \
+     -subj /CN=auth.peacocks.me -addext subjectAltName=DNS:auth.peacocks.me \
+     -addext basicConstraints=critical,CA:FALSE -addext keyUsage=critical,digitalSignature \
+     -addext extendedKeyUsage=serverAuth -keyout key.pem -out hosts/virtual/auth/tls.pem
+   sops hosts/virtual/auth/secrets.yaml   # kanidm-tls-key: | <key.pem, indented>
+   rm key.pem
    ```
 
-   It's good for ten years. To replace it, delete `/var/lib/kanidm-cert/*.pem` on the VM, run
-   `systemctl restart kanidm-cert kanidm`, copy it again and deploy ionos-de.
+   To replace it, do the same and deploy `auth` and `ionos-de`. Then deploy the hypervisors so they pin
+   `10.100.0.10` (the VM has no network until then), install the VM ([hosts/README.md](../../README.md#add-a-vm)) and
+   add the router rule.
 3. Add `oauth2-proxy-cookie-secret` (`openssl rand -base64 32 | tr -- '+/' '-_'`, a full AES-256 key) to
    ionos-de's secrets, and a secret per `sso` site to `secrets/sso.yaml`, keyed by its client (`<gateway>-<site>`).
    Kanidm sets each client's secret from it and the gateway's oauth2-proxies read the same value, so neither copies

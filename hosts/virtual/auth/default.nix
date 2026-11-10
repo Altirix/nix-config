@@ -17,8 +17,8 @@
     gateways = [ "ionos-de" ];
     # The edge's tunnel address.
     proxies = [ "10.0.0.1" ];
-    # Copied from this VM once it's installed (modules/services/sso/README.md).
-    certificate = if builtins.pathExists ./tls.pem then ./tls.pem else null;
+    # Its key is kanidm-tls-key in secrets.yaml (modules/services/sso/README.md).
+    certificate = ./tls.pem;
     # Its gateways' site clients' secrets (modules/services/sso/README.md).
     secretsFile = ../../../secrets/sso.yaml;
     mcp = true;

@@ -29,9 +29,6 @@ in
       from = [ cfg.server ];
     };
 
-    warnings = lib.optional (server.homelab.sso.server.certificate == null)
-      "sso: ${cfg.server} has no certificate set yet, ${domain} proxies to whatever answers at ${server.homelab.labs.address}";
-
     # Clients look up an issuer with a path (https://<domain>/oauth2/openid/<client>) at
     # /.well-known/<document>/oauth2/openid/<client> (RFC 8414), Kanidm only serves it under the issuer.
     services.nginx.virtualHosts.${site}.extraConfig = ''
