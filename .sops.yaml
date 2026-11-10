@@ -109,6 +109,14 @@ creation_rules:
         - *host_auth
 
   # Shared Secrets
+  # The SSO server's site client secrets, shared with its gateway (modules/services/sso/README.md).
+  - path_regex: ^secrets[\\/]sso\.yaml$
+    key_groups:
+      - age:
+        - *admin
+        - *host_auth
+        - *host_ionos_de
+
   - path_regex: ^secrets[\\/]common\.yaml$
     key_groups:
       - age: *common

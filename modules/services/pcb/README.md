@@ -35,10 +35,9 @@ ssh from home for git is `labs: home ssh, rdp`.
 
 1. Point an A record for `pcb.peacocks.me` at the VPS. Deploy the hypervisors, install the VM
    ([hosts/README.md](../../../hosts/README.md#add-a-vm)), add the router rule.
-2. Deploy `auth` (it makes the site's client, `ionos-de-pcb`), add its secret to ionos-de's secrets and deploy
-   `ionos-de`:
+2. Give its sign-in client a secret, then deploy `auth` (it makes the client, `ionos-de-pcb`) and `ionos-de`:
 
    ```sh
-   kanidm system oauth2 show-basic-secret ionos-de-pcb -D idm_admin
-   sops hosts/edge/ionos-de/secrets.yaml   # sso-pcb-secret: <secret>
+   openssl rand -base64 32 | tr -- '+/' '-_'
+   sops secrets/sso.yaml   # ionos-de-pcb: <it>
    ```

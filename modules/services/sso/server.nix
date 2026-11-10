@@ -35,6 +35,10 @@ in
       default = null;
     };
 
+    # The site clients' secrets, keyed by client (<gateway>-<site>), set in Kanidm from here and read by the
+    # gateways: one sops file for this server and its gateways (README.md).
+    secretsFile = mkOption { type = types.path; };
+
     # Who may sign in: the groups the gateway's sso sites name (web_users unless they say), mcp_users for MCP (with
     # `mcp`).
     people = mkOption {
@@ -83,9 +87,10 @@ in
 
         persons = lib.mapAttrs (_: p: { inherit (p) displayName groups; }) cfg.people;
 
-        # Each sso site's oauth2-proxy on the gateway, the site's tile in Kanidm's app list. Their secrets are
-        # Kanidm's own, README.md.
-        systems.oauth2 = lib.mapAttrs (_: c: {
+        # Each sso site's oauth2-proxy on the gateway, the site's tile in Kanidm's app list, with its secret from
+        # `secretsFile`.
+        systems.oauth2 = lib.mapAttrs (client: c: {
+          basicSecretFile = config.sops.secrets."kanidm-client-${client}".path;
           displayName = c.title;
           originUrl = "https://${c.domain}/oauth2/callback";
           originLanding = "https://${c.domain}/";
@@ -113,11 +118,18 @@ in
       };
     };
 
-    # From the host's secrets.yaml (sops.defaultSopsFile), README.md.
-    sops.secrets.kanidm-idm-admin-password = {
+    # From the host's secrets.yaml (sops.defaultSopsFile), README.md, and the clients' from `secretsFile`.
+    sops.secrets = {
+      kanidm-idm-admin-password = {
+        owner = "kanidm";
+        restartUnits = [ "kanidm.service" ];
+      };
+    } // lib.mapAttrs' (client: _: lib.nameValuePair "kanidm-client-${client}" {
+      sopsFile = cfg.secretsFile;
+      key = client;
       owner = "kanidm";
       restartUnits = [ "kanidm.service" ];
-    };
+    }) siteClients;
 
     # kanidmd won't start without TLS: a self-signed certificate for the origin's name, good for ten years and
     # remade only within 30 days of expiring (or if it's missing). The gateway accepts only this one (`certificate`),

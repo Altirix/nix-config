@@ -14,12 +14,11 @@ user.
 
 1. Point an A record for `inventree.peacocks.me` at the VPS. Deploy the hypervisors, install the VM
    ([hosts/README.md](../../../hosts/README.md#add-a-vm)), add the router rule.
-2. Deploy `auth` (it makes the site's client, `ionos-de-inventree`), add its secret to ionos-de's secrets and
-   deploy `ionos-de`:
+2. Give its sign-in client a secret, then deploy `auth` (it makes the client, `ionos-de-inventree`) and `ionos-de`:
 
    ```sh
-   kanidm system oauth2 show-basic-secret ionos-de-inventree -D idm_admin
-   sops hosts/edge/ionos-de/secrets.yaml   # sso-inventree-secret: <secret>
+   openssl rand -base64 32 | tr -- '+/' '-_'
+   sops secrets/sso.yaml   # ionos-de-inventree: <it>
    ```
 
 3. Make yourself InvenTree's admin before signing in, with your Kanidm name, so the first sign-in lands on it (a

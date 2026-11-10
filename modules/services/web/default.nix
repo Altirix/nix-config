@@ -260,6 +260,7 @@ let
   proxyAddress = name: "http://127.0.0.1:${toString (4180 + lib.lists.findFirstIndex (n: n == name) 0 proxies)}";
   proxyUnit = name: "oauth2-proxy-${name}";
   ssoClient = name: "${config.networking.hostName}-${name}";
+  # sops' name for a site's client secret here, its key in `sso.secretsFile` is the client.
   ssoSecret = name: "sso-${name}-secret";
 
   # What every instance shares.
@@ -315,12 +316,13 @@ in
       default = { };
     };
 
-    # Sign-in for `sso` sites, an oauth2-proxy each with its own client. Their secrets are sso-<site>-secret in the
-    # host's secrets.yaml, and every instance seals its cookies with a key of its own derived from
-    # oauth2-proxy-cookie-secret there (32 bytes).
+    # Sign-in for `sso` sites, an oauth2-proxy each with its own client. Every instance seals its cookies with a key
+    # of its own derived from oauth2-proxy-cookie-secret in the host's secrets.yaml (32 bytes).
     sso = {
       # A client's issuer without the client, e.g. Kanidm's https://auth.example.com/oauth2/openid/.
       issuer = mkOption { type = types.str; };
+      # The clients' secrets, keyed by client (<host>-<site>), shared with the issuer, which sets them.
+      secretsFile = mkOption { type = types.path; };
     };
 
     # The clients `sso` sites sign in with, client -> { title; groups; domain; }, for the issuer to provide.
@@ -457,7 +459,13 @@ in
     # From the host's secrets.yaml (sops.defaultSopsFile), only this host can read them.
     sops.secrets = lib.mkMerge (lib.mapAttrsToList (name: s:
       lib.genAttrs (map (tokenSecret name) s.tokens) (key: { inherit key; })) tokenSites
-      ++ lib.mapAttrsToList (name: _: { ${ssoSecret name}.restartUnits = [ "${proxyUnit name}.service" ]; }) ssoSites
+      ++ lib.mapAttrsToList (name: _: {
+        ${ssoSecret name} = {
+          sopsFile = cfg.sso.secretsFile;
+          key = ssoClient name;
+          restartUnits = [ "${proxyUnit name}.service" ];
+        };
+      }) ssoSites
       ++ lib.optional (proxies != [ ]) {
         oauth2-proxy-cookie-secret.restartUnits = map (name: "${proxyUnit name}.service") proxies;
       });

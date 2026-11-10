@@ -19,6 +19,8 @@
     proxies = [ "10.0.0.1" ];
     # Copied from this VM once it's installed (modules/services/sso/README.md).
     certificate = if builtins.pathExists ./tls.pem then ./tls.pem else null;
+    # Its gateways' site clients' secrets (modules/services/sso/README.md).
+    secretsFile = ../../../secrets/sso.yaml;
     mcp = true;
     people.altirix = {
       displayName = "Altirix";

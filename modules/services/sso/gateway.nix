@@ -38,7 +38,10 @@ in
       rewrite ^/\.well-known/(oauth-authorization-server|openid-configuration)(/oauth2/openid/[^/]+)$ $2/.well-known/$1 last;
     '';
 
-    homelab.web.sso.issuer = "https://${domain}/oauth2/openid/";
+    homelab.web.sso = {
+      issuer = "https://${domain}/oauth2/openid/";
+      inherit (server.homelab.sso.server) secretsFile;
+    };
 
     # oauth2-proxy reads the issuer through this host's own nginx, not out and back in.
     networking.hosts."127.0.0.1" = [ domain ];

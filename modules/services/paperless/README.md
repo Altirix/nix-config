@@ -15,12 +15,11 @@ removed.
 
 1. Point an A record for `docs.peacocks.me` at the VPS. Deploy the hypervisors, install the VM
    ([hosts/README.md](../../../hosts/README.md#add-a-vm)), add the router rules.
-2. Deploy `auth` (it makes the site's client, `ionos-de-paperless`), add its secret to ionos-de's secrets and
-   deploy `ionos-de`:
+2. Give its sign-in client a secret, then deploy `auth` (it makes the client, `ionos-de-paperless`) and `ionos-de`:
 
    ```sh
-   kanidm system oauth2 show-basic-secret ionos-de-paperless -D idm_admin
-   sops hosts/edge/ionos-de/secrets.yaml   # sso-paperless-secret: <secret>
+   openssl rand -base64 32 | tr -- '+/' '-_'
+   sops secrets/sso.yaml   # ionos-de-paperless: <it>
    ```
 
 3. Make yourself Paperless' admin before signing in, with your Kanidm name, so the first sign-in lands on it (a
