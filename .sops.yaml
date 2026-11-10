@@ -55,6 +55,12 @@ creation_rules:
         - *admin
         - *host_ionos_de
 
+  - path_regex: ^hosts[\\/]virtual[\\/]pcb[\\/]secrets\.yaml$
+    key_groups:
+      - age:
+        - *admin
+        - *host_pcb
+
   - path_regex: ^hosts[\\/]virtual[\\/]mcp[\\/]secrets\.yaml$
     key_groups:
       - age:

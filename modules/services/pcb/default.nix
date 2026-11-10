@@ -33,14 +33,47 @@ in
       type = lib.types.listOf (lib.types.strMatching "[a-z0-9][a-z0-9-]*");
       default = [ ];
     };
+    # Projects that follow a repo where they're committed (GitHub): fetched every minute and fast-forwarded, so a
+    # push there reaches their MCP server and pages (sync.sh). Others are pushed to directly over ssh.
+    sources = lib.mkOption {
+      type = lib.types.attrsOf (lib.types.submodule {
+        options = {
+          url = lib.mkOption { type = lib.types.str; };
+          branch = lib.mkOption {
+            type = lib.types.str;
+            default = "main";
+          };
+          # Agents' commits (vcs_commit_checkpoint) go back up, the deploy key needs write access then.
+          push = lib.mkOption {
+            type = lib.types.bool;
+            default = false;
+          };
+        };
+      });
+      default = { };
+      example = { palmremote.url = "git@github.com:you/palmremote.git"; };
+    };
+    # Sources over ssh (private ones, or any that push): a deploy key, pcb-deploy-key in the host's secrets.yaml,
+    # added to each source repo on GitHub (with write access where it pushes).
+    deployKey = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+    };
     dir = lib.mkOption {
       type = lib.types.str;
       default = "/var/lib/pcb";
     };
-    # What agents may do: readonly (inspect, check, export) or write (edit schematics and boards too).
+    # What agents may do: readonly (inspect, check, export) or write (create projects, edit schematics and boards,
+    # commit) too.
     mode = lib.mkOption {
       type = lib.types.enum [ "readonly" "write" ];
       default = "write";
+    };
+    # Its tool set. builder has creating projects, schematic, library, board and routing editing, ERC/DRC and its
+    # git tools; its `default` is review only, which hides creating and editing even in write mode.
+    profile = lib.mkOption {
+      type = lib.types.str;
+      default = if cfg.mode == "write" then "builder" else "review";
     };
     # The MCP servers' ports, one per project in order from here.
     basePort = lib.mkOption {
@@ -57,6 +90,10 @@ in
     users.users = {
       admin.extraGroups = [ "pcb" ];
       pcb-render = {
+        isSystemUser = true;
+        group = "pcb";
+      };
+      pcb-sync = {
         isSystemUser = true;
         group = "pcb";
       };
@@ -87,6 +124,7 @@ in
         # No running KiCad to drive, its IPC tools stay hidden.
         KICAD_MCP_HEADLESS = "true";
         KICAD_MCP_OPERATING_MODE = cfg.mode;
+        KICAD_MCP_PROFILE = cfg.profile;
       };
     }) cfg.projects);
 
@@ -114,6 +152,33 @@ in
         '') cfg.projects;
       };
 
+      pcb-sync = lib.mkIf (cfg.sources != { }) {
+        description = "Fast-forward the KiCad projects to their sources";
+        after = [ "pcb-projects.service" "network-online.target" ];
+        wants = [ "network-online.target" ];
+        path = [ pkgs.git pkgs.openssh ];
+        environment = {
+          DIR = cfg.dir;
+          SOURCES = toString (lib.mapAttrsToList (p: src: "${p}=${src.url}=${src.branch}=${lib.boolToString src.push}") cfg.sources);
+          # Its own known hosts, a source's host key is taken on first contact.
+          GIT_SSH_COMMAND = "ssh -o UserKnownHostsFile=/var/lib/pcb-sync/known_hosts -o StrictHostKeyChecking=accept-new"
+            + lib.optionalString cfg.deployKey " -i ${config.sops.secrets.pcb-deploy-key.path} -o IdentitiesOnly=yes";
+        };
+        script = builtins.readFile ./sync.sh;
+        serviceConfig = {
+          Type = "oneshot";
+          User = "pcb-sync";
+          Group = "pcb";
+          UMask = "0002";
+          StateDirectory = "pcb-sync";
+          ReadWritePaths = map (p: "${cfg.dir}/${p}") (lib.attrNames cfg.sources);
+          ProtectSystem = "strict";
+          ProtectHome = true;
+          PrivateTmp = true;
+          NoNewPrivileges = true;
+        };
+      };
+
       pcb-render = {
         description = "Render the KiCad projects that changed";
         after = [ "pcb-projects.service" ];
@@ -133,6 +198,18 @@ in
           Nice = 10;
         };
       };
+    };
+
+    systemd.timers.pcb-sync = lib.mkIf (cfg.sources != { }) {
+      wantedBy = [ "timers.target" ];
+      timerConfig = {
+        OnBootSec = "1min";
+        OnUnitInactiveSec = "1min";
+      };
+    };
+
+    sops.secrets.pcb-deploy-key = lib.mkIf cfg.deployKey {
+      owner = "pcb-sync";
     };
 
     systemd.timers.pcb-render = {

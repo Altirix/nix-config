@@ -14,17 +14,37 @@ KiCad projects on `hosts/virtual/pcb` (`10.100.1.13`, agents zone), for you and 
   to inspecting, checking and exporting. Its outputs still need your review before fabrication.
 
 Add a project to `projects` in `hosts/virtual/pcb/default.nix` and deploy `pcb` (and `ionos-de`, for its MCP route).
-Each is an empty repo you push to; a push updates its checkout (`receive.denyCurrentBranch=updateInstead`), so
-agents and the pages see it at once:
 
-```sh
-git remote add pcb admin@pcb.labs.internal:/var/lib/pcb/<project>
-git push pcb main
+## Where the files come from
+
+A project can follow the repo you commit it to (`sources`): the VM fetches it every minute and fast-forwards its
+checkout, so a push there reaches the MCP server and the pages within a minute. With `push`, what agents commit on
+the VM goes back up the same way:
+
+```nix
+sources.palmremote = { url = "git@github.com:you/palmremote.git"; push = true; };
+deployKey = true;
 ```
 
-What agents changed is in that checkout, uncommitted: look at it with `ssh admin@pcb.labs.internal git -C
-/var/lib/pcb/<project> status`, commit it there and pull. A push refuses to land on uncommitted changes, so pull or
-commit theirs first.
+An ssh source needs a deploy key: make one, add its public half to the repo on GitHub (Settings, Deploy keys, with
+write access for `push`) and its private half to the pcb VM's secrets (a public https source needs neither):
+
+```sh
+ssh-keygen -t ed25519 -N '' -C pcb -f pcb-deploy-key
+sops hosts/virtual/pcb/secrets.yaml   # pcb-deploy-key: | <pcb-deploy-key, indented>
+```
+
+Nothing is overwritten: a checkout with uncommitted changes, or one that has diverged from its source, is left alone
+and the sync says why (`journalctl -u pcb-sync`). A project without a source is a repo you push to directly over ssh
+(`git push admin@pcb.labs.internal:/var/lib/pcb/<project> main`), its checkout follows the push
+(`receive.denyCurrentBranch=updateInstead`).
+
+## What agents can do
+
+In `write` mode the servers run KiCad MCP Pro's `builder` tool set: `kicad_create_new_project` starts a design in
+the project (a subfolder for each board if it holds several), `sch_*` and `pcb_*` edit schematics and boards, the
+validation tools run ERC and DRC, and `vcs_commit_checkpoint` commits the result, which `push` sends to the source.
+Leave an agent's edits committed or discarded: uncommitted, they hold the sync back.
 
 ## Router (MikroTik)
 
