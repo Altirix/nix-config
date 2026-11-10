@@ -77,6 +77,14 @@ creation_rules:
     key_groups:
       - age: *sbc
 
+  # Paperless' mcp user token, shared with the MCP server (modules/services/paperless/README.md).
+  - path_regex: ^secrets[\\/]paperless\.yaml$
+    key_groups:
+      - age:
+        - *admin
+        - *host_paperless
+        - *host_mcp
+
   - path_regex: ^secrets[\\/]sso\.yaml$
     key_groups:
       - age:

@@ -9,8 +9,6 @@
   ];
 
   homelab = {
-    secrets.groupFile = ../secrets/edge.yaml;
-
     wireguard.enable = lib.mkDefault true;
 
     web.enable = lib.mkDefault true;

@@ -15,7 +15,6 @@
     ./services/sso/server.nix
   ];
 
-  homelab.secrets.groupFile = ../secrets/virtual.yaml;
 
   # Address ranges: networking/README.md.
   homelab.labs = {
