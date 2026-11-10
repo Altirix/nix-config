@@ -55,7 +55,17 @@ in
         # It's https at the front door, for CSRF checks and links.
         PAPERLESS_PROXY_SSL_HEADER = [ "HTTP_X_FORWARDED_PROTO" "https" ];
         PAPERLESS_OCR_LANGUAGE = "eng";
+        # Uploads wait here for the task queue. The module's default /tmp is the task queue's private one, which
+        # the web service only shares from its own start: once the queue restarts, uploads land where it can't see
+        # them ("Cannot consume /tmp/paperless/...: File not found"). The data directory every service sees.
+        PAPERLESS_SCRATCH_DIR = "${config.services.paperless.dataDir}/scratch";
       };
+    };
+
+    systemd.tmpfiles.settings."10-paperless-scratch"."${config.services.paperless.dataDir}/scratch".d = {
+      inherit (config.services.paperless) user;
+      group = config.users.users.${config.services.paperless.user}.group;
+      mode = "0700";
     };
 
     services.nginx = {
