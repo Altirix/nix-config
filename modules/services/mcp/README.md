@@ -69,7 +69,16 @@ The servers `hosts/virtual/mcp` marks `public` (nixos, context7, fetch, time, me
 serves them at `https://mcp.peacocks.me/<server>/mcp`, proxied over the tunnel (streamable
 HTTP only, SSE is deprecated). playwright runs code, github holds a token, they get no route. Every
 request needs `Authorization: Bearer <token>`, one token per client in `hosts/edge/ionos-de/secrets.yaml` so each
-can be revoked, and the access log (the journal's `nginx_access`, on to the logs VM) names the client. OAuth
+can be revoked, and the access log (the journal's `nginx_access`, on to the logs VM) names the client. A client
+can be kept to some servers (`tokenScopes` on the site): an agent working on one board gets a token that opens only
+that project's KiCad server and fdfdb, and a 403 everywhere else:
+
+```nix
+tokens = [ "cloud" "board-agent" ];
+tokenScopes.board-agent = [ "/kicad/my-board/mcp" "/fdfdb/mcp" ];   # a prefix covers what's under it, "/kicad/"
+```
+
+with its token as `mcp-token-board-agent` in ionos-de's secrets (`openssl rand -hex 32`). OAuth
 sign-in through Kanidm (`modules/services/sso`) is ready to replace the tokens later (`oauth` in place of `tokens` on
 the site, its `mcp` and `mcp-cli` clients already exist), MCP doesn't use it yet. The router only lets the edge's tunnel
 address `10.0.0.1` in on the exposed servers' ports (`labs: edge to mcp`, Router), so a compromised edge still
