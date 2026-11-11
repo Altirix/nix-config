@@ -1,10 +1,13 @@
 # The mcp user (README.md): view-only, sees every document and what files it through the mcp group, with the
-# token from @token@. Run on every start and every 15 minutes, so new documents are shared too.
+# token from @token@. A workflow shares each document with the group as it's added; this runs on every start and
+# every 15 minutes for whatever came before it, and for new tags, correspondents and the like.
 from django.contrib.auth.models import Group, Permission, User
 from guardian.shortcuts import assign_perm
 from rest_framework.authtoken.models import Token
 
-from documents.models import Correspondent, Document, DocumentType, StoragePath, Tag
+from documents.models import (
+    Correspondent, Document, DocumentType, StoragePath, Tag, Workflow, WorkflowAction, WorkflowTrigger,
+)
 
 key = open("@token@").read().strip()
 
@@ -33,3 +36,15 @@ for model, perm in [
     (StoragePath, "view_storagepath"),
 ]:
     assign_perm(perm, group, model.objects.all())
+
+# Every new document, from any source, shared with the group to view as it's added.
+workflow, created = Workflow.objects.get_or_create(name="mcp: share new documents", defaults={"order": 0})
+if created:
+    trigger = WorkflowTrigger.objects.create(type=WorkflowTrigger.WorkflowTriggerType.DOCUMENT_ADDED)
+    action = WorkflowAction.objects.create(type=WorkflowAction.WorkflowActionType.ASSIGNMENT)
+    workflow.triggers.add(trigger)
+    workflow.actions.add(action)
+workflow.enabled = True
+workflow.save()
+for action in workflow.actions.all():
+    action.assign_view_groups.add(group)
