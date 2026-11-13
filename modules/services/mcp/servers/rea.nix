@@ -274,6 +274,24 @@ in
         pathConfig.PathChanged = "/var/lib/rea/${p}/shared/evidence";
       }) projects);
 
+      # Loopback reaches every project's gateway and nginx, past the sandbox: not for a project's own users.
+      networking.nftables.tables.rea-local = {
+        family = "inet";
+        content = builtins.replaceStrings [ "@users@" "@addresses@" "@ports@" ]
+          [
+            (lib.concatMapStringsSep ", " (p: ''"${user p}"'') projects)
+            # Loopback, and its own labs address, where nginx listens too.
+            (lib.concatStringsSep ", " ([ "127.0.0.0/8" ] ++ lib.optional (config.homelab.labs.address or null != null)
+              config.homelab.labs.address))
+            (lib.concatMapStringsSep ", " toString ([ cfg.port ] ++ lib.attrValues cfg.projects))
+          ]
+          (builtins.readFile ../config/rea-local.nft);
+      };
+      # The build's ruleset check has none of these users.
+      networking.nftables.preCheckRuleset = ''
+        sed 's/"rea-[^"]*"/root/g' -i ruleset.conf
+      '';
+
       services.nginx = {
         enable = true;
         appendHttpConfig = builtins.replaceStrings

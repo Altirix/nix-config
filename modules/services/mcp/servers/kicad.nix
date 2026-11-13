@@ -94,6 +94,11 @@ in
         assertion = lib.all (p: builtins.match "[a-z0-9][a-z0-9-]*" p != null) projects;
         message = "kicad: project names are lowercase letters, digits and dashes";
       }
+      {
+        # The router's `labs: edge to mcp` and `labs: agents to mcp` only let these through.
+        assertion = lib.all (port: port >= 9200 && port <= 9299) (lib.attrValues cfg.projects);
+        message = "kicad: project ports are in 9200-9299, the router's range for them";
+      }
     ];
 
     users.groups.kicad = { };
@@ -174,6 +179,9 @@ in
         UMask = "0002";
         WorkingDirectory = repo p;
         StateDirectory = syncUser p;
+        # Only its own project there: what an agent leaves in .git (alternates, linked refs) can't reach another's.
+        TemporaryFileSystem = cfg.dir;
+        BindPaths = [ (repo p) ];
         ReadWritePaths = [ (repo p) ];
         ProtectSystem = "strict";
         ProtectHome = true;

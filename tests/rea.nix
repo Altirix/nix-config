@@ -59,7 +59,8 @@ in
         rea.wait_for_unit(f"rea@{p}.service", timeout=900)
     rea.wait_for_unit("nginx.service")
     rea.wait_for_open_port(gateway, timeout=900)
-    rea.wait_for_open_port(${toString nodes.rea.homelab.mcp.rea.projects.beta}, timeout=900)
+    beta_gateway = ${toString nodes.rea.homelab.mcp.rea.projects.beta}
+    rea.wait_for_open_port(beta_gateway, timeout=900)
     rea.wait_for_open_port(port)
 
     with subtest("firmware toolset"):
@@ -141,6 +142,13 @@ in
             [(text, err)] = call("beta", [("open_binary", {"path": "/var/lib/rea/beta/samples/hello"})])
             assert not err, text
             rea.succeed("runuser -u rea-alpha -- test ! -r /var/lib/rea/beta/scratch")
+            # Nor through loopback: not beta's gateway, not nginx. root still gets in.
+            for target in [f"127.0.0.1:{beta_gateway}/beta/mcp", f"127.0.0.1:{port}/beta/mcp"]:
+                rea.fail(f"runuser -u rea-alpha -- ${pkgs.curl}/bin/curl -sS --max-time 5 http://{target}")
+            rea.succeed(f"${pkgs.curl}/bin/curl -sS --max-time 5 -o /dev/null http://127.0.0.1:{port}/alpha/samples/")
+            # nginx serves no link a sample planted, so nothing of beta's through alpha's URLs.
+            rea.succeed("runuser -u rea-alpha -- ln -s /var/lib/rea/beta/samples/hello /var/lib/rea/alpha/shared/beta-hello")
+            client.fail(f"curl -fsS {base}/alpha/shared/beta-hello")
             # Each project's files moved to its own user once, the marker stops it running again.
             rea.succeed("test -e /var/lib/rea/alpha/.owned", "stat -c %U /var/lib/rea/alpha/scratch | grep -qx rea-alpha")
     finally:
