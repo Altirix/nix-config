@@ -204,11 +204,11 @@ Claude's connectors (claude.ai, the apps) only show up in the access log and age
 ## rea (8101)
 
 Decompiles with Ghidra, reads APKs with JADX, runs samples and unpacks firmware. It only runs on
-`hosts/virtual/rea-dynamic` (`10.100.1.12`): one supergateway (`rea.service`, `config/rea-gateway.json`) serves
-every project in `homelab.mcp.rea.projects` and starts a REA for each MCP session, so agents never close or
-replace each other's target; a session idle for 30 minutes ends, and its REA with it. nginx on 8101
+`hosts/virtual/rea-dynamic` (`10.100.1.12`): each project in `homelab.mcp.rea.projects` has a supergateway of its
+own (`rea@<project>.service`, `config/rea-gateway.json`), which starts a REA for each MCP session, so agents never
+close or replace each other's target; a session idle for 30 minutes ends, and its REA with it. nginx on 8101
 (`homelab.mcp.rea.port`, `config/rea-nginx.conf`, reached through the router's `labs: edge to rea-dynamic`) is
-the only way in, the gateway (8102) only listens on loopback:
+the only way in, the gateways (from 8102, one per project in order) only listen on loopback:
 
 ```
 https://mcp.peacocks.me/rea/<project>/mcp       the project's server
@@ -216,23 +216,23 @@ https://mcp.peacocks.me/rea/<project>/samples/  its uploads, /var/lib/rea/<proje
 https://mcp.peacocks.me/rea/<project>/shared/   what its sessions share, read-only, /var/lib/rea/<project>/shared
 ```
 
-A repo's `.mcp.json` points at its project (this one at `default`):
+A repo's `.mcp.json` points at its project:
 
 ```json
-{ "mcpServers": { "rea": { "type": "http", "url": "https://mcp.peacocks.me/rea/default/mcp" } } }
+{ "mcpServers": { "rea": { "type": "http", "url": "https://mcp.peacocks.me/rea/<project>/mcp" } } }
 ```
 
 Adding a project is a line in `hosts/virtual/rea-dynamic` and a deploy, the edge needs nothing. Each session takes
 about 1.5 times Ghidra's heap (`homelab.mcp.rea.ghidraHeap`, 1G here) once it has a target open, and all of them
-together at most `homelab.mcp.rea.memoryMax` (75% of the VM): past that the kernel ends a session, not the VM.
+together, every project's, at most `homelab.mcp.rea.memoryMax` (75% of the VM, `rea.slice`): past that the kernel ends a session, not the VM.
 There's no cap on sessions, so size the VM's `limits.memory` for what runs at once.
 
 REA's tools take paths on the VM, so samples are uploaded first and opened by that path:
 
 ```sh
-curl -T sample.apk https://mcp.peacocks.me/rea/default/samples/sample.apk
-curl https://mcp.peacocks.me/rea/default/samples/                           # list
-curl -X DELETE https://mcp.peacocks.me/rea/default/samples/sample.apk
+curl -T sample.apk https://mcp.peacocks.me/rea/<project>/samples/sample.apk
+curl https://mcp.peacocks.me/rea/<project>/samples/                           # list
+curl -X DELETE https://mcp.peacocks.me/rea/<project>/samples/sample.apk
 ```
 
 From a cloud session the agent proxy adds the token. Uploads are up to 1G, one level (no subdirectories), land
@@ -240,8 +240,10 @@ From a cloud session the agent proxy adds the token. Uploads are up to 1G, one l
 
 ### Projects and sharing
 
-Projects keep work apart, they don't isolate it: everything runs as the `rea` user, and a sample one project
-runs can reach every project's files. The VM is a disposable sandbox, what matters lives in the projects' repos.
+Projects are isolated from each other: each runs as its own user (`rea-<project>`) and sees only its own
+directory, so a sample one project runs can't read or change another's files, nor reach its processes. That's
+against samples, not agents: every client's token opens every project's URLs, so keep apart there by client, not
+by project. The VM is still a disposable sandbox, what matters lives in the projects' repos.
 Each project's sessions pass work along through its shared directory:
 
 ```
@@ -254,7 +256,7 @@ Each project's sessions pass work along through its shared directory:
 
 Agents on the same branch import each other's evidence, a different branch starts its own. REA only writes into
 existing directories, so the names stay flat (`/` in a branch becomes `-`), and writes them `0600`, so
-`rea-shared.path` makes them group-readable for nginx a moment after they land.
+`rea-shared@<project>.path` makes them group-readable for nginx a moment after they land.
 
 Bundles carry findings as evidence records, not a Ghidra database: importing one doesn't rename anything in the
 importing session's binary, and REA's snapshots are the same records (no Ghidra analysis in them), so every
@@ -265,9 +267,9 @@ export after every finding worth keeping. To keep a bundle beyond the VM (in the
 it, and upload it as a sample to import it again:
 
 ```sh
-curl -fsS https://mcp.peacocks.me/rea/default/shared/evidence/                  # list
-curl -fsSO https://mcp.peacocks.me/rea/default/shared/evidence/main__agent-1.json
-curl -fsS -T main__agent-1.json https://mcp.peacocks.me/rea/default/samples/main__agent-1.json
+curl -fsS https://mcp.peacocks.me/rea/<project>/shared/evidence/                  # list
+curl -fsSO https://mcp.peacocks.me/rea/<project>/shared/evidence/main__agent-1.json
+curl -fsS -T main__agent-1.json https://mcp.peacocks.me/rea/<project>/samples/main__agent-1.json
 ```
 
 ### Dynamic analysis

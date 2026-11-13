@@ -17,7 +17,7 @@
     dynamic = true;
     firmware = true;
     # mcp.peacocks.me/rea/<project>/mcp. Add one per line of work that shouldn't share state.
-    projects = [ "default" "ig5236" "mptools" ];
+    projects = [ "ig5236" "mptools" ];
     # 24G VM, REA gets 75%: a dozen sessions with Ghidra open at 1G (~1.5G each with the JVM's overhead).
     ghidraHeap = "1G";
   };
