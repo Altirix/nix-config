@@ -1,13 +1,16 @@
 self:
 { lib, pkgs, ... }:
 
-# The MCP servers hosts/virtual/mcp enables, run by the real module, each initialized and its tools
-# listed over streamable HTTP from `client`. Who reaches which port is the router's call, not tested here.
+# The MCP servers hosts/virtual/mcp and mcp-web enable, run by the real module on one VM, each initialized and its
+# tools listed over streamable HTTP from `client`. Who reaches which port is the router's call, not tested here.
 # The VMs have no internet, so tools are only called where they stay on the test network.
 let
-  # github needs the host's sops key for its token, which the test VM doesn't have.
-  enabled = lib.attrNames (lib.filterAttrs (name: s: s.enable && name != "github")
-    self.nixosConfigurations.mcp.config.homelab.mcp.servers);
+  # github and paperless need the host's sops key for their tokens, which the test VM doesn't have; the KiCad
+  # servers come from their own preset, with project repos.
+  skip = name: lib.elem name [ "github" "paperless" ] || lib.hasPrefix "kicad-" name;
+  servers = host: lib.filterAttrs (name: s: s.enable && !skip name)
+    self.nixosConfigurations.${host}.config.homelab.mcp.servers;
+  enabled = lib.attrNames (servers "mcp" // servers "mcp-web");
 
   # A tool each server must list.
   tools = {
@@ -19,6 +22,7 @@ let
     memory = "read_graph";
     playwright = "browser_navigate";
     markitdown = "convert_to_markdown";
+    fdfdb = "search_part_number";
   };
 
   page = pkgs.writeTextDir "index.html" "<html><head><title>mcp-test</title></head><body><h1>Hello from client</h1></body></html>";
@@ -79,6 +83,10 @@ in
         ],
         "fetch": [("fetch", {"url": "http://client/"}, "Hello from client")],
         "markitdown": [("convert_to_markdown", {"uri": "http://client/"}, "Hello from client")],
+        "fdfdb": [
+            ("search_part_number", {"part_number": "MT29F512G08EEHAF"}, "2CA40832A100"),
+            ("search_flash_id", {"flash_id": "2C A4 08 32 A1 00"}, "MT29F512G08EEHAF"),
+        ],
         "playwright": [("browser_navigate", {"url": "http://client/"}, "mcp-test")],
     }
 

@@ -6,6 +6,7 @@
     "fetch": { "type": "http", "url": "https://mcp.peacocks.me/fetch/mcp" },
     "time": { "type": "http", "url": "https://mcp.peacocks.me/time/mcp" },
     "memory": { "type": "http", "url": "https://mcp.peacocks.me/memory/mcp" },
-    "markitdown": { "type": "http", "url": "https://mcp.peacocks.me/markitdown/mcp/" }
+    "markitdown": { "type": "http", "url": "https://mcp.peacocks.me/markitdown/mcp/" },
+    "fdfdb": { "type": "http", "url": "https://mcp.peacocks.me/fdfdb/mcp" }
   }
 }
