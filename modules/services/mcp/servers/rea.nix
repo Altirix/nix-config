@@ -277,12 +277,9 @@ in
       # Loopback reaches every project's gateway and nginx, past the sandbox: not for a project's own users.
       networking.nftables.tables.rea-local = {
         family = "inet";
-        content = builtins.replaceStrings [ "@users@" "@addresses@" "@ports@" ]
+        content = builtins.replaceStrings [ "@users@" "@ports@" ]
           [
             (lib.concatMapStringsSep ", " (p: ''"${user p}"'') projects)
-            # Loopback, and its own labs address, where nginx listens too.
-            (lib.concatStringsSep ", " ([ "127.0.0.0/8" ] ++ lib.optional (config.homelab.labs.address or null != null)
-              config.homelab.labs.address))
             (lib.concatMapStringsSep ", " toString ([ cfg.port ] ++ lib.attrValues cfg.projects))
           ]
           (builtins.readFile ../config/rea-local.nft);

@@ -2,6 +2,6 @@
 # nginx, not any project's gateway (rea.nix). Their own gateway they never connect to either.
 chain output {
   type filter hook output priority filter; policy accept;
-  meta skuid { @users@ } ip daddr { @addresses@ } tcp dport { @ports@ } reject
-  meta skuid { @users@ } ip6 daddr ::1 tcp dport { @ports@ } reject
+  # Any of this host's addresses, loopback included.
+  ct state new meta skuid { @users@ } fib daddr type local tcp dport { @ports@ } reject
 }

@@ -7,8 +7,7 @@ set seen6 { typeof meta skuid . ip6 daddr . th dport; flags timeout; timeout 1h;
 chain output {
   type filter hook output priority filter; policy accept;
   # No server opens another on this host past the edge's token check (a server per project gets another's).
-  meta skuid { @users@ } ip daddr { @addresses@ } tcp dport { @ports@ } reject
-  meta skuid { @users@ } ip6 daddr ::1 tcp dport { @ports@ } reject
+  ct state new meta skuid { @users@ } fib daddr type local tcp dport { @ports@ } reject
   oifname "lo" accept
   ct state != new accept
   meta skuid . ip daddr . th dport @seen4 accept

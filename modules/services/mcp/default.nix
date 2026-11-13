@@ -127,14 +127,11 @@ in
     # Where each server connects to (config/egress.nft).
     networking.nftables.tables.mcp-egress = {
       family = "inet";
-      content = builtins.replaceStrings [ "@servers@" "@users@" "@addresses@" "@ports@" ]
+      content = builtins.replaceStrings [ "@servers@" "@users@" "@ports@" ]
         [
           (lib.concatMapStrings (name: builtins.replaceStrings [ "@name@" ] [ name ] (builtins.readFile ./config/egress-server.nft))
             (lib.attrNames enabled))
           (lib.concatMapStringsSep ", " (name: ''"mcp-${name}"'') (lib.attrNames enabled))
-          # Loopback, and its own labs address, where they listen too.
-          (lib.concatStringsSep ", " ([ "127.0.0.0/8" ] ++ lib.optional (config.homelab.labs.address or null != null)
-            config.homelab.labs.address))
           (lib.concatMapStringsSep ", " toString (lib.unique (ports (lib.attrValues enabled))))
         ]
         (builtins.readFile ./config/egress.nft);
