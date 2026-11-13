@@ -181,6 +181,8 @@ in
           [ git "-C" (repo p) "config" "branch.${src.branch}.autocommitscript"
             "echo 'uncommitted changes: commit them (vcs_commit_checkpoint) or discard them' >&2; false" ]
         ];
+        # The server waited for it: start it, also after a clone that took a few tries (as root, "+").
+        ExecStartPost = "+${config.systemd.package}/bin/systemctl start --no-block mcp-kicad-${p}.service";
       };
     })) cfg.projects
     // lib.mapAttrs' (p: src: lib.nameValuePair "kicad-sync-${p}" (lib.recursiveUpdate (sourceUnit p src) {
@@ -197,12 +199,6 @@ in
           "[ \"$SERVICE_RESULT\" = success ] || exec ${git} rebase --abort" ];
       };
     })) cfg.projects;
-
-    # The server starts once its clone is there, also after a clone that took a few tries.
-    systemd.paths = lib.listToAttrs (map (p: lib.nameValuePair "mcp-kicad-${p}" {
-      wantedBy = [ "multi-user.target" ];
-      pathConfig.PathExists = "${repo p}/.git/config";
-    }) projects);
 
     systemd.timers = lib.mapAttrs' (p: _: lib.nameValuePair "kicad-sync-${p}" {
       wantedBy = [ "timers.target" ];

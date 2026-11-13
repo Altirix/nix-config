@@ -22,6 +22,12 @@
   # A KiCad MCP server per project (modules/services/mcp/servers/kicad.nix), at mcp.peacocks.me/kicad/<project>/mcp.
   # One per line of work: agents on different projects never share a server or files. Each follows its repo, which
   # needs something committed first, agents' commits go back up with its deploy key (README.md, KiCad).
+  # Three KiCad servers, each running kicad-cli for checks and exports, beside the rest (Incus' default is 1/1GiB).
+  homelab.vm = {
+    cpus = 4;
+    memory = "6GiB";
+  };
+
   homelab.mcp.kicad.projects = {
     palmremote = { port = 9200; url = "git@github.com:Altirix/A1990-A2141-PalmRemote.git"; };
     polaris11 = { port = 9201; url = "git@github.com:Altirix/Polaris11.git"; };
