@@ -1,13 +1,16 @@
 self:
 { lib, pkgs, ... }:
 
-# The MCP servers hosts/virtual/mcp enables, run by the real module, each initialized and its tools
-# listed over streamable HTTP from `client`. Who reaches which port is the router's call, not tested here.
+# The MCP servers hosts/virtual/mcp and mcp-web enable, run by the real module on one VM, each initialized and its
+# tools listed over streamable HTTP from `client`. Who reaches which port is the router's call, not tested here.
 # The VMs have no internet, so tools are only called where they stay on the test network.
 let
-  # github needs the host's sops key for its token, which the test VM doesn't have.
-  enabled = lib.attrNames (lib.filterAttrs (name: s: s.enable && name != "github")
-    self.nixosConfigurations.mcp.config.homelab.mcp.servers);
+  # github and paperless need the host's sops key for their tokens, which the test VM doesn't have; the KiCad
+  # servers come from their own preset, with project repos.
+  skip = name: lib.elem name [ "github" "paperless" ] || lib.hasPrefix "kicad-" name;
+  servers = host: lib.filterAttrs (name: s: s.enable && !skip name)
+    self.nixosConfigurations.${host}.config.homelab.mcp.servers;
+  enabled = lib.attrNames (servers "mcp" // servers "mcp-web");
 
   # A tool each server must list.
   tools = {

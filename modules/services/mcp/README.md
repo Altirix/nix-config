@@ -5,7 +5,20 @@ sit behind mcp-proxy: streamable HTTP on `http://<host>:<port>/mcp`, SSE on `/ss
 the router decides who reaches which port (Router), and only the edge's nginx (with tokens) puts the low-risk
 ones on the internet (From outside). The VMs open every port they serve: a firewall on a VM is gone with root
 on it, so none of what keeps them apart lives there. stdio servers share one process, and with it any state,
-between clients. `hosts/virtual/mcp` (`10.100.1.11`) serves them on labs.
+between clients. They run on labs, split by what a compromise of one gives away (Where servers run).
+
+## Where servers run
+
+A VM is the boundary: servers on one share its egress, its root and whatever its other servers hold.
+
+| VM | Address | Servers | Why there |
+|----|---------|---------|-----------|
+| `hosts/virtual/mcp` | `10.100.1.11` | nixos, context7, time, memory, fdfdb, github, paperless, KiCad projects | hold tokens or data (github's PAT, paperless' token, memory's graph, the projects), only talk to known APIs |
+| `hosts/virtual/mcp-web` | `10.100.1.13` | fetch, markitdown, playwright | read any page an agent names, playwright runs its code: nothing there to steal |
+| `hosts/virtual/rea-dynamic` | `10.100.1.12` | rea | runs the binaries it analyses, no egress, reset from a snapshot (rea) |
+
+A new server goes on `mcp-web` if it reads arbitrary URLs or runs untrusted content, on `mcp` otherwise, on a VM of
+its own if it runs what it's given. Both pass through the router's `labs: nothing private`.
 
 Presets in `servers/` only need enabling in the host, anything else is added directly:
 
@@ -23,28 +36,29 @@ Add it to a client:
 claude mcp add --transport http sequential-thinking http://<host>:8100/mcp
 ```
 
-`nix build .#checks.x86_64-linux.mcp` boots the servers `hosts/virtual/mcp` enables in a VM and calls each from
+`nix build .#checks.x86_64-linux.mcp` boots the servers `hosts/virtual/mcp` and `mcp-web` enable in a VM and calls each from
 a client over the network, see `tests/mcp.nix`.
 
 ## Router (MikroTik)
 
 Everything that keeps the MCP VMs apart is on the router, so it holds with root lost on either VM. The
 hypervisors pin each VM to its address (`security.ipv4_filtering`, networking/README.md), so the router's
-`src-address` matches can't be spoofed from labs. Never give `mcp` or `rea-dynamic` the `labs-mesh` profile:
+`src-address` matches can't be spoofed from labs. Never give `mcp`, `mcp-web` or `rea-dynamic` the `labs-mesh` profile:
 VXLAN goes VM to VM past the router.
 
 Who gets in, and what they open, is in modules/networking/README.md (Router): `labs: edge to mcp` (the public
-servers' ports, `public = true`, From outside), `labs: edge to rea-dynamic`, `labs: tunnel to agents, nothing else`
+servers' ports, `public = true`, From outside), `labs: edge to mcp-web`, `labs: edge to rea-dynamic`, `labs: tunnel to agents, nothing else`
 (no other tunnel peer reaches either VM), `labs: rea-dynamic opens nothing` (not the router, labs, home or out the
-tunnel) and `labs: nothing private` (mcp reaches the internet for fetch, context7, playwright and nixos, but never
-home, mgmt, labs or the edge's tunnel address). ssh from home still reaches both for deploys (`labs: home ssh, rdp`).
+tunnel) and `labs: nothing private` (mcp and mcp-web reach the internet, for context7, nixos, GitHub, fetch and playwright,
+but never home, mgmt, labs or the edge's tunnel address). ssh from home still reaches them for deploys (`labs: home ssh, rdp`).
 
-Agents on the LAN that should reach the servers directly (every port on `mcp`, including playwright and github),
+Agents on the LAN that should reach the servers directly (every port, including playwright and github),
 one per machine, just above `labs: only home and tunnel in`:
 
 ```routeros
 /ip firewall filter
-add chain=forward action=accept connection-state=new src-address=<agent> dst-address=10.100.1.11 protocol=tcp dst-port=8100-8199 comment="labs: agents to mcp" place-before=[find comment="labs: only home and tunnel in"]
+add chain=forward action=accept connection-state=new src-address=<agent> dst-address=10.100.1.11 protocol=tcp dst-port=8100-8299 comment="labs: agents to mcp" place-before=[find comment="labs: only home and tunnel in"]
+add chain=forward action=accept connection-state=new src-address=<agent> dst-address=10.100.1.13 protocol=tcp dst-port=8100-8199 comment="labs: agents to mcp-web" place-before=[find comment="labs: only home and tunnel in"]
 add chain=forward action=accept connection-state=new src-address=<agent> dst-address=10.100.1.12 protocol=tcp dst-port=8101 comment="labs: agents to rea-dynamic" place-before=[find comment="labs: only home and tunnel in"]
 ```
 
@@ -64,8 +78,9 @@ ever masquerades into labs, the edge arrives as `10.100.0.1` instead of `10.0.0.
 
 ## From outside
 
-The servers `hosts/virtual/mcp` marks `public` (nixos, context7, fetch, time, memory, markitdown, fdfdb) are published
-(`homelab.publish`), and the edge's `mcp` site (`hosts/edge/ionos-de/services.nix`, `from = [ "mcp" "rea-dynamic" ]`)
+The servers marked `public` (nixos, context7, time, memory, fdfdb, paperless, the KiCad projects on `mcp`; fetch and
+markitdown on `mcp-web`) are published (`homelab.publish`), and the edge's `mcp` site
+(`hosts/edge/ionos-de/services.nix`, `from = [ "mcp" "mcp-web" "rea-dynamic" ]`)
 serves them at `https://mcp.peacocks.me/<server>/mcp`, proxied over the tunnel (streamable
 HTTP only, SSE is deprecated). playwright runs code, github holds a token, they get no route. Every
 request needs `Authorization: Bearer <token>`, one token per client in `hosts/edge/ionos-de/secrets.yaml` so each
@@ -73,9 +88,9 @@ can be revoked, and the access log (the journal's `nginx_access`, on to the logs
 sign-in through Kanidm (`modules/services/sso`) is ready to replace the tokens later (`oauth` in place of `tokens` on
 the site, its `mcp` and `mcp-cli` clients already exist), MCP doesn't use it yet. The router only lets the edge's tunnel
 address `10.0.0.1` in on the exposed servers' ports (`labs: edge to mcp`, Router), so a compromised edge still
-doesn't reach the others. Never add a wireguard forward to `10.100.1.11` or `10.100.1.12`: forwards arrive from
+doesn't reach the others. Never add a wireguard forward to `10.100.1.11`, `.12` or `.13`: forwards arrive from
 `10.0.0.1` too and would skip the token. Exposing another server takes both, `public = true` on it and its
-port in `labs: edge to mcp`.
+port in its VM's `labs: edge to` rule.
 
 REA is also routed, `https://mcp.peacocks.me/rea/` → its own VM's nginx `10.100.1.12:8101`, on the same
 token. It runs code a caller hands it but reaches nothing (no secrets, the router drops what it opens,
@@ -304,6 +319,42 @@ it. The host doesn't build with it enabled and no token.
 
 ```sh
 sops hosts/virtual/mcp/secrets.yaml   # github-mcp-token: github_pat_...
+```
+
+## KiCad (8200-8299)
+
+`homelab.mcp.kicad` (`servers/kicad.nix`) gives each project in `projects` a git repo in `/var/lib/kicad/<project>`
+and its own KiCad MCP Pro server, at `https://mcp.peacocks.me/kicad/<project>/mcp`, confined to that repo. Agents on
+different projects never share a server or files; agents on the same one share both, so give each line of work its
+own project. Headless: ERC/DRC, BOM and exports run through `kicad-cli`, tools that drive a running KiCad stay hidden.
+In `write` mode (the default) the `builder` tool set creates projects, edits schematics and boards and commits
+(`vcs_commit_checkpoint`); `readonly` keeps agents to inspecting, checking and exporting. Its outputs still need your
+review before fabrication. To look at a design, pull the repo and open it in KiCad.
+
+Add a project to `projects` in `hosts/virtual/mcp/default.nix` (at the end, ports follow the order), deploy `mcp` and
+`ionos-de` (the route) and widen nothing: `labs: edge to mcp` covers 8200-8299.
+
+A project with a `source` keeps in step with it through git-sync every minute: commits there come down, what agents
+commit goes up, rebased onto them. On uncommitted changes or a conflict it stops and leaves the repo as it was
+(`journalctl -u kicad-sync-<project>` says why):
+
+```nix
+homelab.mcp.kicad.sources.palmremote.url = "git@github.com:you/palmremote.git";
+```
+
+An ssh source needs a deploy key with write access, one per repo (GitHub allows a key on one repo only): add the
+public half to the repo (Settings, Deploy keys, Allow write access), the private half to the mcp VM's secrets. A
+public https source pulls with none, but can't push.
+
+```sh
+ssh-keygen -t ed25519 -N '' -C kicad-palmremote -f kicad-deploy-key-palmremote
+sops hosts/virtual/mcp/secrets.yaml   # kicad-deploy-key-palmremote: | <the private key, indented>
+```
+
+A project without a source is a repo you push to over ssh, its checkout follows the push:
+
+```sh
+git push admin@mcp.incus:/var/lib/kicad/<project> main
 ```
 
 ## fdfdb (8110)

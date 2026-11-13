@@ -27,9 +27,7 @@
     mcp = {
       domains = [ "mcp.peacocks.me" ];
       https = true;
-      from = [ "mcp" "rea-dynamic" "pcb" ];
-      # Their MCP endpoints, pcb's pages are pcb.peacocks.me.
-      take = "locations";
+      from = [ "mcp" "mcp-web" "rea-dynamic" ];
       tokens = [ "cloud" ];
       audit = true;
     };
@@ -40,15 +38,6 @@
       https = true;
       from = [ "logs" ];
       sso.title = "Logs";
-    };
-
-    # modules/services/pcb, its MCP servers are on mcp.peacocks.me.
-    pcb = {
-      domains = [ "pcb.peacocks.me" ];
-      https = true;
-      from = [ "pcb" ];
-      take = "upstream";
-      sso.title = "PCB projects";
     };
 
     # modules/services/inventree, next to Part-DB to compare.

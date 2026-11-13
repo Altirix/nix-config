@@ -45,12 +45,6 @@ let
         type = types.listOf types.str;
         default = [ ];
       };
-      # What it takes from them: a host that publishes both MCP endpoints and a site of its own goes to two sites,
-      # one taking its locations, the other its upstream (and body size).
-      take = mkOption {
-        type = types.enum [ "all" "locations" "upstream" ];
-        default = "all";
-      };
       # e.g. http://10.100.0.20:8080
       upstream = mkOption {
         type = types.nullOr types.str;
@@ -149,13 +143,10 @@ let
   };
 
   # A site's `from` hosts: their labs address and what they publish (hosts without the options have neither).
-  publishedBy = s: map (host: let
-    p = nodes.${host}.config.homelab.publish or { locations = { }; upstream = null; maxBodySize = null; };
-  in {
+  publishedBy = s: map (host: {
     inherit host;
     address = nodes.${host}.config.homelab.labs.address or null;
-    p = p // lib.optionalAttrs (s.take == "locations") { upstream = null; maxBodySize = null; }
-      // lib.optionalAttrs (s.take == "upstream") { locations = { }; };
+    p = nodes.${host}.config.homelab.publish or { locations = { }; upstream = null; maxBodySize = null; };
   }) s.from;
 
   # A site with what its `from` hosts publish filled in, at their labs address.

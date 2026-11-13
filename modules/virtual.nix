@@ -11,7 +11,6 @@
     ./services/logs/collector.nix
     ./services/paperless
     ./services/partdb
-    ./services/pcb
     ./services/sso/server.nix
   ];
 
