@@ -336,7 +336,7 @@ homelab.mcp.kicad.projects.palmremote = { port = 9200; url = "git@github.com:you
 
 An ssh source needs a deploy key with write access, one per repo (GitHub allows a key on one repo only): add the
 public half to the repo (Settings, Deploy keys, Allow write access), the private half to the mcp VM's secrets. Until
-it's there, the clone fails and so does the project's server.
+it's there the clone retries every minute, and the project's server starts once it's through.
 
 ```sh
 ssh-keygen -t ed25519 -N '' -C kicad-palmremote -f kicad-deploy-key-palmremote
