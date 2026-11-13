@@ -29,11 +29,7 @@ in
       from = [ cfg.server ];
     };
 
-    # Clients look up an issuer with a path (https://<domain>/oauth2/openid/<client>) at
-    # /.well-known/<document>/oauth2/openid/<client> (RFC 8414), Kanidm only serves it under the issuer.
-    services.nginx.virtualHosts.${site}.extraConfig = ''
-      rewrite ^/\.well-known/(oauth-authorization-server|openid-configuration)(/oauth2/openid/[^/]+)$ $2/.well-known/$1 last;
-    '';
+    services.nginx.virtualHosts.${site}.extraConfig = builtins.readFile ./config/well-known.conf;
 
     homelab.web.sso = {
       issuer = "https://${domain}/oauth2/openid/";

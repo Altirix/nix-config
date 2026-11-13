@@ -1,7 +1,7 @@
 # A KiCad project's repository at $REPO (servers/kicad.nix): pushes land in it directly (its checkout follows),
 # shared by the kicad group. With $URL, set up for git-sync to keep $BRANCH in step with it. git-sync then refuses
 # rather than committing uncommitted changes itself, so an agent's half-done edits never go up.
-[ -e "$REPO/.git" ] || git init -q -b main --shared=group "$REPO"
+[ -e "$REPO/.git" ] || git init -q -b "${BRANCH:-main}" --shared=group "$REPO"
 git -C "$REPO" config receive.denyCurrentBranch updateInstead
 
 if [ -n "${URL:-}" ]; then

@@ -8,6 +8,7 @@
 let
   cfg = config.homelab.paperless;
   paperless = "http://127.0.0.1:${toString config.services.paperless.port}";
+  uploads = builtins.replaceStrings [ "@maxBodySize@" ] [ cfg.maxBodySize ] (builtins.readFile ./config/uploads.conf);
 in
 {
   imports = [ ../web/publish.nix ];
@@ -82,7 +83,7 @@ in
             extraConfig = builtins.readFile ../web/config/published-headers.conf;
           };
           extraConfig = lib.concatMapStrings (a: "allow ${a};\n") cfg.trustedProxies + "deny all;\n"
-            + builtins.replaceStrings [ "@maxBodySize@" ] [ cfg.maxBodySize ] (builtins.readFile ./config/front-door.conf);
+            + uploads;
         };
         # Token clients: only the API.
         paperless-api = {
@@ -92,7 +93,7 @@ in
             extraConfig = builtins.readFile ./config/api.conf;
           };
           locations."/".return = "404";
-          extraConfig = "client_max_body_size ${cfg.maxBodySize};";
+          extraConfig = uploads;
         };
       };
     };

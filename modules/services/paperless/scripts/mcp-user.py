@@ -4,7 +4,7 @@
 import os
 
 from django.contrib.auth.models import Group, Permission, User
-from guardian.shortcuts import assign_perm
+from guardian.shortcuts import assign_perm, get_objects_for_group
 from rest_framework.authtoken.models import Token
 
 from documents.models import (
@@ -29,7 +29,8 @@ group.permissions.set(Permission.objects.filter(codename__in=[
 Token.objects.filter(user=user).exclude(key=key).delete()
 Token.objects.get_or_create(user=user, key=key)
 
-# Everything you own is shared with the group to view, never to change.
+# Everything you own is shared with the group to view, never to change: only what isn't yet, so a run costs what's
+# new since the last, not the whole library.
 for model, perm in [
     (Document, "view_document"),
     (Tag, "view_tag"),
@@ -37,7 +38,8 @@ for model, perm in [
     (DocumentType, "view_documenttype"),
     (StoragePath, "view_storagepath"),
 ]:
-    assign_perm(perm, group, model.objects.all())
+    shared = get_objects_for_group(group, perm, klass=model, accept_global_perms=False)
+    assign_perm(perm, group, model.objects.exclude(pk__in=shared.values("pk")))
 
 # Every new document, from any source, shared with the group to view as it's added.
 workflow, created = Workflow.objects.get_or_create(name="mcp: share new documents", defaults={"order": 0})

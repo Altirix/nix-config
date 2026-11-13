@@ -5,12 +5,12 @@ self:
 # tools listed over streamable HTTP from `client`. Who reaches which port is the router's call, not tested here.
 # The VMs have no internet, so tools are only called where they stay on the test network.
 let
-  # paperless needs the host's sops key for its token, which the test VM doesn't have; the KiCad servers come from
-  # their own preset, with project repos.
+  # paperless needs the host's sops key for its token, which the test VM doesn't have. The host's KiCad projects
+  # follow GitHub, the test has one of its own (kicad-t) following a local repo.
   skip = name: name == "paperless" || lib.hasPrefix "kicad-" name;
   servers = host: lib.filterAttrs (name: s: s.enable && !skip name)
     self.nixosConfigurations.${host}.config.homelab.mcp.servers;
-  enabled = lib.attrNames (servers "mcp" // servers "mcp-web");
+  enabled = lib.attrNames (servers "mcp" // servers "mcp-web") ++ [ "kicad-t" ];
 
   # A tool each server must list.
   tools = {
@@ -22,6 +22,7 @@ let
     playwright = "browser_navigate";
     markitdown = "convert_to_markdown";
     fdfdb = "search_part_number";
+    kicad-t = "kicad_create_new_project";
   };
 
   page = pkgs.writeTextDir "index.html" "<html><head><title>mcp-test</title></head><body><h1>Hello from client</h1></body></html>";
@@ -39,6 +40,13 @@ in
       ];
 
       homelab.mcp.servers = lib.genAttrs enabled (_: { enable = true; });
+
+      # A project kept in step with a repo on the VM, which its pushes write to.
+      homelab.mcp.kicad = {
+        projects = [ "t" ];
+        sources.t.url = "/var/lib/kicad-src/t.git";
+      };
+      systemd.services.kicad-sync-t.serviceConfig.ReadWritePaths = [ "/var/lib/kicad-src" ];
 
       # As on the real host: modules/virtual.nix and modules/default.nix.
       networking.nftables.enable = true;
@@ -119,6 +127,21 @@ in
                 check(name)
             finally:
                 print(mcp.succeed(f"journalctl -u mcp-{name} -o cat | tail -n 40"))
+
+    with subtest("kicad sync"):
+        mcp.succeed(
+            "git init -q --bare -b main /var/lib/kicad-src/t.git",
+            "git clone -q /var/lib/kicad-src/t.git /tmp/t",
+            "cd /tmp/t && echo a > a && git add a && git commit -qm a && git push -q origin HEAD:main",
+            "chown -R kicad-sync:kicad /var/lib/kicad-src",
+        )
+        # The source's commits come down, an agent's go up.
+        mcp.succeed("systemctl start kicad-sync-t", "test -f /var/lib/kicad/t/a")
+        mcp.succeed(
+            "runuser -u mcp-kicad-t -- sh -c 'umask 002; cd /var/lib/kicad/t && echo b > b && git add b && git commit -qm b'",
+            "systemctl start kicad-sync-t",
+            "git -C /var/lib/kicad-src/t.git log --format=%s main | grep -qx b",
+        )
 
     if "memory" in servers:
         with subtest("memory graph in the state dir"):

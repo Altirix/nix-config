@@ -12,7 +12,8 @@ let
   kicad = pkgs.kicad-small;
   server = pkgs.callPackage ../packages/kicad-mcp-pro.nix { };
   repo = p: "${cfg.dir}/${p}";
-  ssh = url: !(lib.hasPrefix "https://" url);
+  # git@github.com:you/repo.git or ssh://..., not a path, file:// or http(s)://.
+  ssh = url: lib.hasPrefix "ssh://" url || builtins.match "[^/:]+@[^/:]+:.*" url != null;
   keySecret = p: "kicad-deploy-key-${p}";
   sshSources = lib.filterAttrs (_: s: ssh s.url) cfg.sources;
 in
@@ -27,15 +28,21 @@ in
     # Projects that live in a repo elsewhere (GitHub). An ssh url takes a deploy key with write access,
     # kicad-deploy-key-<project> in the host's secrets.yaml (GitHub allows a key on one repo only).
     sources = mkOption {
-      type = types.attrsOf (types.submodule {
+      type = types.attrsOf (types.submodule ({ config, ... }: {
         options = {
           url = mkOption { type = types.str; };
           branch = mkOption {
             type = types.str;
             default = "main";
           };
+          # Agents' commits go back up (git-sync). Off, the project only fast-forwards to the source: http(s) has
+          # no credentials here.
+          push = mkOption {
+            type = types.bool;
+            default = !(lib.hasPrefix "https://" config.url || lib.hasPrefix "http://" config.url);
+          };
         };
-      });
+      }));
       default = { };
       example = { palmremote.url = "git@github.com:you/palmremote.git"; };
     };
@@ -84,7 +91,11 @@ in
 
     programs.git = {
       enable = true;
-      config.safe.directory = map repo cfg.projects;
+      config = {
+        safe.directory = map repo cfg.projects;
+        # Who git-sync's rebases and agents' commits are by, git can't make one up without a mail domain.
+        user = { name = "KiCad MCP"; email = "kicad@${config.networking.hostName}.incus"; };
+      };
     };
 
     homelab.mcp.servers = lib.listToAttrs (lib.imap0 (i: p: lib.nameValuePair "kicad-${p}" {
@@ -120,6 +131,7 @@ in
       path = [ pkgs.git-sync pkgs.git pkgs.openssh ];
       environment = {
         BRANCH = src.branch;
+        PUSH = lib.boolToString src.push;
         GIT_SSH_COMMAND = "ssh -o UserKnownHostsFile=/var/lib/kicad-sync/known_hosts"
           + " -o StrictHostKeyChecking=accept-new"
           + lib.optionalString (ssh src.url) " -i ${config.sops.secrets.${keySecret p}.path} -o IdentitiesOnly=yes";

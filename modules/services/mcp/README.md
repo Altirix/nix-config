@@ -325,15 +325,16 @@ Add a project to `projects` in `hosts/virtual/mcp/default.nix` (at the end, port
 
 A project with a `source` keeps in step with it through git-sync every minute: commits there come down, what agents
 commit goes up, rebased onto them. On uncommitted changes or a conflict it stops and leaves the repo as it was
-(`journalctl -u kicad-sync-<project>` says why):
+(`journalctl -u kicad-sync-<project>` says why). It also refuses a repo with no history in common with its source,
+one that was a project of its own before it had one: move it aside and the next run checks the source out.
 
 ```nix
 homelab.mcp.kicad.sources.palmremote.url = "git@github.com:you/palmremote.git";
 ```
 
 An ssh source needs a deploy key with write access, one per repo (GitHub allows a key on one repo only): add the
-public half to the repo (Settings, Deploy keys, Allow write access), the private half to the mcp VM's secrets. A
-public https source pulls with none, but can't push.
+public half to the repo (Settings, Deploy keys, Allow write access), the private half to the mcp VM's secrets. An
+http(s) source needs none and is pull-only (`push = false`): it fast-forwards, agents' commits stay on the VM.
 
 ```sh
 ssh-keygen -t ed25519 -N '' -C kicad-palmremote -f kicad-deploy-key-palmremote

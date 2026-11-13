@@ -1,4 +1,4 @@
-{ config, lib, pkgs, nodes, ... }:
+{ config, lib, pkgs, nodes, utils, ... }:
 
 # nginx sites, each either serves files from `root` or proxies to an `upstream` (usually across the tunnel),
 # with neither `/` is a 404 and only `locations` answer. A site can instead take what other hosts publish (`from`,
@@ -22,6 +22,12 @@ let
   # config/<file> with @name@ placeholders filled in.
   snippet = file: vars: builtins.replaceStrings (map (n: "@${n}@") (lib.attrNames vars)) (lib.attrValues vars)
     (builtins.readFile ./config/${file});
+
+  oauth2ProxyScript = pkgs.writeShellApplication {
+    name = "oauth2-proxy-site";
+    runtimeInputs = [ pkgs.oauth2-proxy pkgs.openssl pkgs.coreutils ];
+    text = builtins.readFile ./scripts/oauth2-proxy.sh;
+  };
 
   ssoCheck = s: lib.optionalString (s.sso != null) (builtins.readFile ./config/sso-check.conf);
 
@@ -402,18 +408,16 @@ in
             + lib.optionalString (gateway && (s.tokens != null || s.oauth || s.sso != null))
               "proxy_set_header X-Web-User $web_user;\n";
         }) s.locations
-        # Each location's RFC 9728 metadata, the resource is the location itself.
         // lib.optionalAttrs s.oauth (lib.mapAttrs' (prefix: _:
           lib.nameValuePair "= /.well-known/oauth-protected-resource${prefix}" {
-            extraConfig = ''
-              default_type application/json;
-              return 200 '${builtins.toJSON {
+            extraConfig = snippet "oauth-resource.conf" {
+              json = builtins.toJSON {
                 resource = "https://${lib.head s.domains}${prefix}";
                 authorization_servers = [ cfg.oauth.issuer ];
                 scopes_supported = cfg.oauth.scopes;
                 bearer_methods_supported = [ "header" ];
-              }}';
-            '';
+              };
+            };
           }) s.locations);
         extraConfig = lib.optionalString (s.oauth || s.sso != null || s.tokens != null) "access_log ${accessLog} user;\n"
           + lib.optionalString s.oauth (snippet "oauth-server.conf" {
@@ -476,21 +480,10 @@ in
       wantedBy = [ "multi-user.target" ];
       wants = [ "network-online.target" ];
       after = [ "network-online.target" ];
-      path = [ pkgs.openssl pkgs.coreutils ];
-      # Its own cookie key, derived from the host's: a session sealed for one site doesn't open another.
-      script = ''
-        if [ "$(wc -c < "$CREDENTIALS_DIRECTORY/cookie-secret")" -lt 32 ]; then
-          echo "oauth2-proxy-cookie-secret is under 32 bytes, see modules/services/sso/README.md" >&2
-          exit 1
-        fi
-        { cat "$CREDENTIALS_DIRECTORY/cookie-secret"; printf %s ${name}; } | openssl dgst -sha256 -binary \
-          | basenc --base64url | tr -d '\n' > "$RUNTIME_DIRECTORY/cookie-secret"
-        exec ${lib.getExe pkgs.oauth2-proxy} ${lib.escapeShellArgs
-          (proxyArgs name ++ (if ssoSites ? ${name} then ssoArgs name else oauthArgs))} \
-          --cookie-secret-file="$RUNTIME_DIRECTORY/cookie-secret" ${lib.optionalString (ssoSites ? ${name})
-            ''--client-secret-file="$CREDENTIALS_DIRECTORY/client-secret"''}
-      '';
+      environment.SITE = name;
       serviceConfig = {
+        ExecStart = utils.escapeSystemdExecArgs ([ (lib.getExe oauth2ProxyScript) ]
+          ++ proxyArgs name ++ (if ssoSites ? ${name} then ssoArgs name else oauthArgs));
         DynamicUser = true;
         RuntimeDirectory = proxyUnit name;
         RuntimeDirectoryMode = "0700";
