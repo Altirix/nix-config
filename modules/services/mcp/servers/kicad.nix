@@ -3,9 +3,9 @@
 # KiCad projects for agents (README.md, kicad). Each project is a clone of its source (GitHub, with a commit to start
 # from) in `dir`/<project> with its own KiCad MCP Pro server, published at /kicad/<project>/mcp and confined to it:
 # agents on different projects never share a server or files. Headless: kicad-cli runs ERC/DRC and exports, tools
-# that drive a running KiCad stay hidden. git-sync keeps it in step with its source every minute: commits there come
-# down, what agents commit (vcs_commit_checkpoint) goes up, rebased onto them. It stops on uncommitted changes or a
-# conflict, never overwriting work.
+# that drive a running KiCad stay hidden. Agents work on `pushBranch` (agent): every minute it's rebased onto the
+# source's `branch` (main) and pushed, so what they commit (vcs_commit_checkpoint) reaches you as a branch to merge,
+# never main itself. It stops on uncommitted changes or a conflict, never overwriting work.
 let
   cfg = config.homelab.mcp.kicad;
   inherit (lib) mkOption types;
@@ -69,9 +69,16 @@ in
         options = {
           port = mkOption { type = types.port; };
           url = mkOption { type = types.str; };
+          # What agents start from and keep up with.
           branch = mkOption {
             type = types.str;
             default = "main";
+          };
+          # Where their commits go, the VM's own: rebased onto `branch` as it moves, so force-pushed. A branch to
+          # merge into `branch` with a merge or rebase (a squash comes back as a conflict).
+          pushBranch = mkOption {
+            type = types.str;
+            default = "agent";
           };
         };
       });
@@ -102,6 +109,10 @@ in
         message = "kicad: project names are lowercase letters, digits and dashes";
       }
       {
+        assertion = lib.all (p: p.branch != p.pushBranch) (lib.attrValues cfg.projects);
+        message = "kicad: a project's pushBranch is the VM's own, not the branch it starts from";
+      }
+      {
         # The router's `labs: edge to mcp` and `labs: agents to mcp` only let these through.
         assertion = lib.all (p: p.port >= 9200 && p.port <= 9299) (lib.attrValues cfg.projects);
         message = "kicad: project ports are in 9200-9299, the router's range for them";
@@ -127,7 +138,7 @@ in
       enable = true;
       config = {
         safe.directory = map repo projects;
-        # Who git-sync's rebases and agents' commits are by, git can't make one up without a mail domain.
+        # Who the sync's rebases and agents' commits are by, git can't make one up without a mail domain.
         user = { name = "KiCad MCP"; email = "kicad@${config.networking.hostName}.incus"; };
       };
     };
@@ -174,13 +185,14 @@ in
         RemainAfterExit = true;
         Restart = "on-failure";
         RestartSec = "1min";
-        ExecStart = map utils.escapeSystemdExecArgs [
-          [ git "clone" "--quiet" "--branch" src.branch "--config" "core.sharedRepository=group" src.url (repo p) ]
-          [ git "-C" (repo p) "config" "branch.${src.branch}.sync" "true" ]
-          # git-sync refuses rather than committing uncommitted changes itself: an agent's half-done edits never go up.
-          [ git "-C" (repo p) "config" "branch.${src.branch}.autocommitscript"
-            "echo 'uncommitted changes: commit them (vcs_commit_checkpoint) or discard them' >&2; false" ]
-        ];
+        ExecStart = [ (utils.escapeSystemdExecArgs
+          [ git "clone" "--quiet" "--branch" src.branch "--config" "core.sharedRepository=group" src.url (repo p) ]) ]
+          # Onto the agents' branch: the source's if it has one already (a rebuilt VM picks up their work), else
+          # a new one from `branch`. "-": the one that doesn't apply fails.
+          ++ map (args: "-" + utils.escapeSystemdExecArgs args) [
+            [ git "-C" (repo p) "switch" "--quiet" src.pushBranch ]
+            [ git "-C" (repo p) "switch" "--quiet" "--create" src.pushBranch ]
+          ];
         # The server waited for it: start it, also after a clone that took a few tries (as root, "+").
         ExecStartPost = "+${config.systemd.package}/bin/systemctl start --no-block mcp-kicad-${p}.service";
       };
@@ -189,11 +201,16 @@ in
       description = "Keep KiCad project ${p} in step with ${src.url}";
       after = [ "kicad-repo-${p}.service" "network-online.target" ];
       requires = [ "kicad-repo-${p}.service" ];
-      path = [ pkgs.git pkgs.openssh ];
       serviceConfig = {
         WorkingDirectory = repo p;
-        ExecStart = "${pkgs.git-sync}/bin/git-sync";
-        # On a conflict git-sync stops mid-rebase, with markers in the files agents edit: undo it, so the project
+        # The rebase refuses uncommitted changes, an agent's half-done edits never go up. The lease guards the
+        # moment between fetch and push.
+        ExecStart = map utils.escapeSystemdExecArgs [
+          [ git "fetch" "--quiet" "--prune" "origin" ]
+          [ git "rebase" "--quiet" "origin/${src.branch}" src.pushBranch ]
+          [ git "push" "--quiet" "--force-with-lease" "origin" src.pushBranch ]
+        ];
+        # On a conflict the rebase stops halfway, with markers in the files agents edit: undo it, so the project
         # keeps its own commits and the next run tries again (the log says what conflicts).
         ExecStopPost = utils.escapeSystemdExecArgs [ "${pkgs.runtimeShell}" "-c"
           "[ \"$SERVICE_RESULT\" = success ] || exec ${git} rebase --abort" ];

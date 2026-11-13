@@ -142,23 +142,26 @@ in
         # Someone working in the source (as kicad-sync-t, which owns it) and an agent in the project.
         upstream = lambda cmd: f"runuser -u kicad-sync-t -- sh -c 'cd /tmp/t && {cmd}'"
         agent = lambda cmd: f"runuser -u mcp-kicad-t -- sh -c 'umask 002; cd /var/lib/kicad/t && {cmd}'"
-        log = "git -C /var/lib/kicad-src/t.git log --format=%s main"
+        log = lambda branch: f"git -C /var/lib/kicad-src/t.git log --format=%s {branch}"
 
         # The project is the source's clone.
         mcp.succeed(
             "test -f /var/lib/kicad/t/a",
             "runuser -u kicad-sync-t -- git clone -q /var/lib/kicad-src/t.git /tmp/t",
         )
-        # The source's commits come down, an agent's go up.
-        mcp.succeed("systemctl start kicad-sync-t")
-        mcp.succeed(agent("echo b > b && git add b && git commit -qm b"), "systemctl start kicad-sync-t", f"{log} | grep -qx b")
+        # The project starts on the agents' branch, which reaches the source on the first sync.
+        mcp.succeed("git -C /var/lib/kicad/t branch --show-current | grep -qx agent", "systemctl start kicad-sync-t",
+                    f"{log('agent')} | grep -qx a")
+        # An agent's commit goes up on the agents' branch, never on main.
+        mcp.succeed(agent("echo b > b && git add b && git commit -qm b"), "systemctl start kicad-sync-t",
+                    f"{log('agent')} | grep -qx b", f"! {log('main')} | grep -qx b")
 
-        # Both sides committed: the agent's is rebased onto the source's, under the VM's git identity.
+        # main moved and an agent committed: the agents' branch is rebased onto main, under the VM's git identity.
         mcp.succeed(
             upstream("git pull -q origin main && echo c > c && git add c && git commit -qm c && git push -q origin HEAD:main"),
             agent("echo d > d && git add d && git commit -qm d"),
             "systemctl start kicad-sync-t",
-            f"{log} | head -n 2 | tr '\\n' ' ' | grep -qx 'd c '",
+            f"{log('agent')} | head -n 3 | tr '\\n' ' ' | grep -qx 'd b c '",
             "test -f /var/lib/kicad/t/c",
         )
 
@@ -169,7 +172,7 @@ in
         )
         mcp.fail("systemctl start kicad-sync-t")
         mcp.succeed(
-            f"! {log} | grep -qx y",
+            f"! {log('agent')} | grep -qx y",
             "test ! -e /var/lib/kicad/t/.git/rebase-merge -a ! -e /var/lib/kicad/t/.git/rebase-apply",
             "git -C /var/lib/kicad/t log -1 --format=%s | grep -qx y",
         )
