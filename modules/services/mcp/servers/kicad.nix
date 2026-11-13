@@ -35,11 +35,11 @@ in
             type = types.str;
             default = "main";
           };
-          # Agents' commits go back up (git-sync). Off, the project only fast-forwards to the source: http(s) has
-          # no credentials here.
+          # Agents' commits go back up (git-sync). Off, the project only fast-forwards to the source: only ssh (with
+          # its deploy key) and local repos have credentials here.
           push = mkOption {
             type = types.bool;
-            default = !(lib.hasPrefix "https://" config.url || lib.hasPrefix "http://" config.url);
+            default = ssh config.url || lib.hasPrefix "/" config.url || lib.hasPrefix "file://" config.url;
           };
         };
       }));

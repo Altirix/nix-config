@@ -332,7 +332,7 @@ one that was a project of its own before it had one: move it aside and the next 
 homelab.mcp.kicad.sources.palmremote.url = "git@github.com:you/palmremote.git";
 ```
 
-An ssh source needs a deploy key with write access, one per repo (GitHub allows a key on one repo only): add the
+An empty source (a new repo) takes the project's commits. An ssh source needs a deploy key with write access, one per repo (GitHub allows a key on one repo only): add the
 public half to the repo (Settings, Deploy keys, Allow write access), the private half to the mcp VM's secrets. An
 http(s) source needs none and is pull-only (`push = false`): it fast-forwards, agents' commits stay on the VM.
 

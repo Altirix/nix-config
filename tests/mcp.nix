@@ -129,18 +129,40 @@ in
                 print(mcp.succeed(f"journalctl -u mcp-{name} -o cat | tail -n 40"))
 
     with subtest("kicad sync"):
+        # Someone working in the source (as kicad-sync, which owns it) and an agent in the project.
+        upstream = lambda cmd: f"runuser -u kicad-sync -- sh -c 'cd /tmp/t && {cmd}'"
+        agent = lambda cmd: f"runuser -u mcp-kicad-t -- sh -c 'umask 002; cd /var/lib/kicad/t && {cmd}'"
+        log = "git -C /var/lib/kicad-src/t.git log --format=%s main"
+
         mcp.succeed(
             "git init -q --bare -b main /var/lib/kicad-src/t.git",
             "git clone -q /var/lib/kicad-src/t.git /tmp/t",
-            "cd /tmp/t && echo a > a && git add a && git commit -qm a && git push -q origin HEAD:main",
-            "chown -R kicad-sync:kicad /var/lib/kicad-src",
+            "chown -R kicad-sync:kicad /var/lib/kicad-src /tmp/t",
+            upstream("echo a > a && git add a && git commit -qm a && git push -q origin HEAD:main"),
         )
         # The source's commits come down, an agent's go up.
         mcp.succeed("systemctl start kicad-sync-t", "test -f /var/lib/kicad/t/a")
+        mcp.succeed(agent("echo b > b && git add b && git commit -qm b"), "systemctl start kicad-sync-t", f"{log} | grep -qx b")
+
+        # Both sides committed: the agent's is rebased onto the source's, under the VM's git identity.
         mcp.succeed(
-            "runuser -u mcp-kicad-t -- sh -c 'umask 002; cd /var/lib/kicad/t && echo b > b && git add b && git commit -qm b'",
+            upstream("git pull -q origin main && echo c > c && git add c && git commit -qm c && git push -q origin HEAD:main"),
+            agent("echo d > d && git add d && git commit -qm d"),
             "systemctl start kicad-sync-t",
-            "git -C /var/lib/kicad-src/t.git log --format=%s main | grep -qx b",
+            f"{log} | head -n 2 | tr '\\n' ' ' | grep -qx 'd c '",
+            "test -f /var/lib/kicad/t/c",
+        )
+
+        # A conflict: nothing goes up, the project keeps its commit and isn't left mid-rebase.
+        mcp.succeed(
+            upstream("git pull -q origin main && echo x > a && git commit -qam x && git push -q origin HEAD:main"),
+            agent("echo y > a && git commit -qam y"),
+        )
+        mcp.fail("systemctl start kicad-sync-t")
+        mcp.succeed(
+            f"! {log} | grep -qx y",
+            "test ! -e /var/lib/kicad/t/.git/rebase-merge -a ! -e /var/lib/kicad/t/.git/rebase-apply",
+            "git -C /var/lib/kicad/t log -1 --format=%s | grep -qx y",
         )
 
     if "memory" in servers:
