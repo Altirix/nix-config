@@ -25,7 +25,7 @@ virtual/mcp/               MCP servers for agents holding tokens or data, KiCad 
 virtual/mcp-web/           MCP servers that read the open web: fetch, markitdown, playwright (see modules/services/mcp/README.md)
 virtual/paperless/         Paperless-ngx, documents for people and LLMs (docs.peacocks.me, behind Kanidm sign-in)
 virtual/partdb/            Part-DB, electronic parts inventory (parts.peacocks.me, behind Kanidm sign-in)
-virtual/rea-dynamic/       REA per project and session, dynamic analysis, no egress, reset from a snapshot (see modules/services/mcp/README.md)
+virtual/rea/               REA per project and session, dynamic analysis, no egress, reset from a snapshot (see modules/services/mcp/README.md)
 ```
 
 The template is an incus VM (`modules/virtual.nix`, one ext4 disk, a pinned labs address). `modules/compute.nix`

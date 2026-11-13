@@ -1,7 +1,7 @@
 self:
 { lib, pkgs, ... }:
 
-# REA as hosts/virtual/rea-dynamic runs it (homelab.mcp.rea), with two projects, driven from `client`
+# REA as hosts/virtual/rea runs it (homelab.mcp.rea), with two projects, driven from `client`
 # through its nginx: every session gets its own REA, each project its own URLs, directories, user and gateway,
 # none seeing another's files, and the gateways are only reachable through nginx. Who reaches nginx is the router's call, not tested here.
 let
@@ -110,7 +110,7 @@ in
             assert not err and "64" in text, text
 
         with subtest("rizin and objdump"):
-            # ESIL emulation, what agents reach for first on rea-dynamic.
+            # ESIL emulation, what agents reach for first on rea.
             [(text, err)] = call("alpha", [("execute_rizin_command", {"path": "/var/lib/rea/alpha/samples/hello", "command": "aei; aeim; ar"})])
             assert not err and "rip" in text, text
             [(text, err)] = call("alpha", [("inspect_with_objdump", {"path": "/var/lib/rea/alpha/samples/hello", "operation": "file_headers"})])

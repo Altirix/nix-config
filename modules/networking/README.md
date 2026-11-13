@@ -12,7 +12,7 @@ rules name zones, not hosts. Same VLAN, same bridge, a zone is only an address r
 | Range | Zone | For |
 |---|---|---|
 | `10.100.0.0/24` | shared | the router (`10.100.0.1`) and what every VM may reach on its ports: auth `.10`, logs `.11`, dls `.12`. They open nothing themselves |
-| `10.100.1.0/24` | agents | MCP and agent VMs, untrusted: mcp `.11`, rea-dynamic `.12`, mcp-web `.13` (modules/services/mcp/README.md, Router) |
+| `10.100.1.0/24` | agents | MCP and agent VMs, untrusted: mcp `.11`, rea `.12`, mcp-web `.13` (modules/services/mcp/README.md, Router) |
 | `10.100.2.0/24` | apps | everything else serving something: partdb `.10`, paperless `.11`, inventree `.12` |
 | `10.100.3.0/24` | work | VMs you work in (Windows, vGPU guests, dev boxes), home reaches every port |
 | `10.100.4.0/24`-`10.100.254.0/24` | | free, e.g. Kubernetes nodes |
@@ -59,7 +59,7 @@ The rules every service README names live here, in the order they go: all forwar
 add dst-address=10.100.0.0/16 action=lookup-only-in-table table=main place-before=0 comment="labs: to labs stays local"
 add dst-address=10.90.0.0/24 action=lookup-only-in-table table=main place-before=0 comment="labs: replies to mgmt stay local"
 
-# Time, the one thing labs may ask the router for (rea-dynamic opens nothing).
+# Time, the one thing labs may ask the router for (rea opens nothing).
 /system ntp client set enabled=yes servers=time.cloudflare.com
 /system ntp server set enabled=yes
 /ip firewall filter
@@ -82,7 +82,7 @@ add list=private address=169.254.0.0/16
 
 # Forward, in this order, each just above "labs: only home and tunnel in".
 /ip firewall filter
-add chain=forward action=drop   connection-state=new src-address=10.100.1.12 comment="labs: rea-dynamic opens nothing" place-before=[find comment="labs: only home and tunnel in"]
+add chain=forward action=drop   connection-state=new src-address=10.100.1.12 comment="labs: rea opens nothing" place-before=[find comment="labs: only home and tunnel in"]
 add chain=forward action=accept connection-state=new src-address-list=log-senders dst-address=10.100.0.11 protocol=tcp dst-port=9428 comment="labs: logs in" place-before=[find comment="labs: only home and tunnel in"]
 add chain=forward action=accept connection-state=new in-interface="VLAN 10 HomeNet" dst-address=10.100.0.11 protocol=tcp dst-port=9427 comment="labs: home reads logs" place-before=[find comment="labs: only home and tunnel in"]
 add chain=forward action=accept connection-state=new in-interface-list=LABS dst-address=10.100.0.12 protocol=tcp dst-port=443 comment="labs: dls in" place-before=[find comment="labs: only home and tunnel in"]
@@ -95,7 +95,7 @@ add chain=forward action=accept connection-state=new in-interface=wg-vpn src-add
 add chain=forward action=accept connection-state=new in-interface=wg-vpn src-address=10.0.0.1 dst-address=10.100.2.11 protocol=tcp dst-port=80 comment="labs: edge to paperless" place-before=[find comment="labs: only home and tunnel in"]
 add chain=forward action=accept connection-state=new in-interface=wg-vpn src-address=10.0.0.1 dst-address=10.100.1.11 protocol=tcp dst-port=8102,8104,8106-8107,8110-8111,9200-9299 comment="labs: edge to mcp" place-before=[find comment="labs: only home and tunnel in"]
 add chain=forward action=accept connection-state=new in-interface=wg-vpn src-address=10.0.0.1 dst-address=10.100.1.13 protocol=tcp dst-port=8105,8109 comment="labs: edge to mcp-web" place-before=[find comment="labs: only home and tunnel in"]
-add chain=forward action=accept connection-state=new in-interface=wg-vpn src-address=10.0.0.1 dst-address=10.100.1.12 protocol=tcp dst-port=8101 comment="labs: edge to rea-dynamic" place-before=[find comment="labs: only home and tunnel in"]
+add chain=forward action=accept connection-state=new in-interface=wg-vpn src-address=10.0.0.1 dst-address=10.100.1.12 protocol=tcp dst-port=8101 comment="labs: edge to rea" place-before=[find comment="labs: only home and tunnel in"]
 add chain=forward action=accept connection-state=new in-interface=wg-vpn src-address=10.0.0.1 dst-address=10.100.3.10 protocol=udp dst-port=8000-8010 comment="labs: edge to parsec" place-before=[find comment="labs: only home and tunnel in"]
 add chain=forward action=drop   connection-state=new in-interface=wg-vpn src-address=10.0.0.1 out-interface-list=LABS comment="labs: edge only to its sites" place-before=[find comment="labs: only home and tunnel in"]
 add chain=forward action=drop   connection-state=new in-interface=wg-vpn dst-address=10.100.1.0/24 comment="labs: tunnel to agents, nothing else" place-before=[find comment="labs: only home and tunnel in"]

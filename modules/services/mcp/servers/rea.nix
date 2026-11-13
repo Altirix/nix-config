@@ -74,7 +74,7 @@ let
 in
 {
   # The full build: capture_process_scenario and browser scenarios run whatever the caller names as
-  # the server's user. Only on a VM that is isolated and reset after use (hosts/virtual/rea-dynamic).
+  # the server's user. Only on a VM that is isolated and reset after use (hosts/virtual/rea).
   options.homelab.mcp.rea.dynamic = lib.mkEnableOption "REA's dynamic analysis";
 
   # binwalk/unblob for firmware extraction. They parse untrusted blobs with their own extractors, a
@@ -175,7 +175,7 @@ in
         wantedBy = [ "multi-user.target" ];
         requires = [ "rea-dirs.service" ];
         after = [ "rea-dirs.service" ];
-        # A host that mounts it from a volume of its own (rea-dynamic) never runs REA on the root disk.
+        # A host that mounts it from a volume of its own (rea) never runs REA on the root disk.
         unitConfig.RequiresMountsFor = [ "/var/lib/rea" ];
         # REA checks child process ownership with ps.
         path = [ pkgs.procps rea.jdk ]

@@ -3,7 +3,7 @@
 VictoriaLogs (`homelab.logs.collector`, `collector.nix`) on `hosts/virtual/logs` (`10.100.0.11`), the lab's logs in one place. Every host ships its journal to it
 (`homelab.logs.shipTo`, `systemd-journal-upload`, which resumes where it stopped after an outage; the edge's
 nginx access log goes to the journal as `nginx_access`), and Claude Code sends its tool calls over OpenTelemetry
-([MCP usage](../../../modules/services/mcp/README.md#usage)). `rea-dynamic` ships nothing, it may not open
+([MCP usage](../../../modules/services/mcp/README.md#usage)). `rea` ships nothing, it may not open
 connections. Kept 90 days.
 
 VictoriaLogs only listens on loopback. nginx on the VM serves `/insert/` alone on `9428` (every sender) and
@@ -24,7 +24,7 @@ _HOSTNAME:* | stats by (_HOSTNAME) count()                         # who's sendi
 
 ## Router (MikroTik)
 
-In modules/networking/README.md (Router): `labs: logs in` (every sender but `rea-dynamic`: the edge, mgmt, home and
+In modules/networking/README.md (Router): `labs: logs in` (every sender but `rea`: the edge, mgmt, home and
 labs), `labs: home reads logs` and `labs: edge reads logs`. Anyone on home can read every log (MCP calls' arguments
 included), narrow `labs: home reads logs` to the machines that need it if that's too wide.
 

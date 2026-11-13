@@ -27,7 +27,7 @@
     mcp = {
       domains = [ "mcp.peacocks.me" ];
       https = true;
-      from = [ "mcp" "mcp-web" "rea-dynamic" ];
+      from = [ "mcp" "mcp-web" "rea" ];
       tokens = [ "cloud" ];
       audit = true;
     };

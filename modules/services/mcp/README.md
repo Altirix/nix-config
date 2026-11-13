@@ -15,7 +15,7 @@ A VM is the boundary: servers on one share its egress, its root and whatever its
 |----|---------|---------|-----------|
 | `hosts/virtual/mcp` | `10.100.1.11` | nixos, context7, time, memory, fdfdb, paperless, KiCad projects | hold tokens or data (paperless' token, memory's graph, the projects), only talk to known APIs |
 | `hosts/virtual/mcp-web` | `10.100.1.13` | fetch, markitdown, playwright | read any page an agent names, playwright runs its code: nothing there to steal |
-| `hosts/virtual/rea-dynamic` | `10.100.1.12` | rea | runs the binaries it analyses, no egress, reset from a snapshot (rea) |
+| `hosts/virtual/rea` | `10.100.1.12` | rea | runs the binaries it analyses, no egress, reset from a snapshot (rea) |
 
 A new server goes on `mcp-web` if it reads arbitrary URLs or runs untrusted content, on `mcp` otherwise, on a VM of
 its own if it runs what it's given. Both pass through the router's `labs: nothing private`. No server opens another on its own VM either
@@ -44,12 +44,12 @@ a client over the network, see `tests/mcp.nix`.
 
 Everything that keeps the MCP VMs apart is on the router, so it holds with root lost on either VM. The
 hypervisors pin each VM to its address (`security.ipv4_filtering`, networking/README.md), so the router's
-`src-address` matches can't be spoofed from labs. Never give `mcp`, `mcp-web` or `rea-dynamic` the `labs-mesh` profile:
+`src-address` matches can't be spoofed from labs. Never give `mcp`, `mcp-web` or `rea` the `labs-mesh` profile:
 VXLAN goes VM to VM past the router.
 
 Who gets in, and what they open, is in modules/networking/README.md (Router): `labs: edge to mcp` (the public
-servers' ports, `public = true`, From outside), `labs: edge to mcp-web`, `labs: edge to rea-dynamic`, `labs: tunnel to agents, nothing else`
-(no other tunnel peer reaches either VM), `labs: rea-dynamic opens nothing` (not the router, labs, home or out the
+servers' ports, `public = true`, From outside), `labs: edge to mcp-web`, `labs: edge to rea`, `labs: tunnel to agents, nothing else`
+(no other tunnel peer reaches either VM), `labs: rea opens nothing` (not the router, labs, home or out the
 tunnel) and `labs: nothing private` (mcp and mcp-web reach the internet, for context7, nixos, fetch and playwright,
 but never home, mgmt, labs or the edge's tunnel address). ssh from home still reaches them for deploys (`labs: home ssh, rdp`).
 
@@ -60,7 +60,7 @@ one per machine, just above `labs: only home and tunnel in`:
 /ip firewall filter
 add chain=forward action=accept connection-state=new src-address=<agent> dst-address=10.100.1.11 protocol=tcp dst-port=8100-8199,9200-9299 comment="labs: agents to mcp" place-before=[find comment="labs: only home and tunnel in"]
 add chain=forward action=accept connection-state=new src-address=<agent> dst-address=10.100.1.13 protocol=tcp dst-port=8100-8199 comment="labs: agents to mcp-web" place-before=[find comment="labs: only home and tunnel in"]
-add chain=forward action=accept connection-state=new src-address=<agent> dst-address=10.100.1.12 protocol=tcp dst-port=8101 comment="labs: agents to rea-dynamic" place-before=[find comment="labs: only home and tunnel in"]
+add chain=forward action=accept connection-state=new src-address=<agent> dst-address=10.100.1.12 protocol=tcp dst-port=8101 comment="labs: agents to rea" place-before=[find comment="labs: only home and tunnel in"]
 ```
 
 The `mcp` VM uses `1.1.1.1` for DNS, so it needs nothing from the router itself but time. Every labs NIC drops
@@ -69,11 +69,11 @@ root egresses over it:
 
 ```routeros
 /ipv6 firewall filter
-add chain=forward action=drop connection-state=new src-address=<rea-dynamic v6> comment="labs: rea-dynamic opens nothing (v6)" place-before=0
-add chain=input action=drop connection-state=new src-address=<rea-dynamic v6> comment="labs: rea-dynamic opens nothing (v6)" place-before=0
+add chain=forward action=drop connection-state=new src-address=<rea v6> comment="labs: rea opens nothing (v6)" place-before=0
+add chain=input action=drop connection-state=new src-address=<rea v6> comment="labs: rea opens nothing (v6)" place-before=0
 ```
 
-Check with `/ip firewall filter print stats where comment~"mcp|rea-dynamic"`: the edge's 502s with
+Check with `/ip firewall filter print stats where comment~"mcp|rea"`: the edge's 502s with
 `labs: edge only to its sites` counting mean a port missing from `labs: edge to mcp`. If the router
 ever masquerades into labs, the edge arrives as `10.100.0.1` instead of `10.0.0.1` and every edge rule misses.
 
@@ -81,7 +81,7 @@ ever masquerades into labs, the edge arrives as `10.100.0.1` instead of `10.0.0.
 
 The servers marked `public` (nixos, context7, time, memory, fdfdb, paperless, the KiCad projects on `mcp`; fetch and
 markitdown on `mcp-web`) are published (`homelab.publish`), and the edge's `mcp` site
-(`hosts/edge/ionos-de/services.nix`, `from = [ "mcp" "mcp-web" "rea-dynamic" ]`)
+(`hosts/edge/ionos-de/services.nix`, `from = [ "mcp" "mcp-web" "rea" ]`)
 serves them at `https://mcp.peacocks.me/<server>/mcp`, proxied over the tunnel (streamable
 HTTP only, SSE is deprecated). playwright runs code, it gets no route. Every
 request needs `Authorization: Bearer <token>`, one token per client in `hosts/edge/ionos-de/secrets.yaml` so each
@@ -95,7 +95,7 @@ port in its VM's `labs: edge to` rule.
 
 REA is also routed, `https://mcp.peacocks.me/rea/` → its own VM's nginx `10.100.1.12:8101`, on the same
 token. It runs code a caller hands it but reaches nothing (no secrets, the router drops what it opens,
-snapshot reset), so a leaked token lands in a dead-end sandbox. That rests on `labs: rea-dynamic opens nothing`
+snapshot reset), so a leaked token lands in a dead-end sandbox. That rests on `labs: rea opens nothing`
 (Router) being live, and covering IPv6 too if labs carries it.
 
 Set it up: point an A record for `mcp.peacocks.me` at the VPS (ACME needs it before the first deploy), add a
@@ -205,10 +205,10 @@ Claude's connectors (claude.ai, the apps) only show up in the access log and age
 ## rea (8101)
 
 Decompiles with Ghidra, reads APKs with JADX, runs samples and unpacks firmware. It only runs on
-`hosts/virtual/rea-dynamic` (`10.100.1.12`): each project in `homelab.mcp.rea.projects` has a supergateway of its
+`hosts/virtual/rea` (`10.100.1.12`): each project in `homelab.mcp.rea.projects` has a supergateway of its
 own (`rea@<project>.service`, `config/rea-gateway.json`), which starts a REA for each MCP session, so agents never
 close or replace each other's target; a session idle for 30 minutes ends, and its REA with it. nginx on 8101
-(`homelab.mcp.rea.port`, `config/rea-nginx.conf`, reached through the router's `labs: edge to rea-dynamic`) is
+(`homelab.mcp.rea.port`, `config/rea-nginx.conf`, reached through the router's `labs: edge to rea`) is
 the only way in, the gateways (each project's port in `homelab.mcp.rea.projects`, 9100 up) only listen on loopback:
 
 ```
@@ -223,7 +223,7 @@ A repo's `.mcp.json` points at its project:
 { "mcpServers": { "rea": { "type": "http", "url": "https://mcp.peacocks.me/rea/<project>/mcp" } } }
 ```
 
-Adding a project is a line in `hosts/virtual/rea-dynamic` and a deploy, the edge needs nothing. Each session takes
+Adding a project is a line in `hosts/virtual/rea` and a deploy, the edge needs nothing. Each session takes
 about 1.5 times Ghidra's heap (`homelab.mcp.rea.ghidraHeap`, 1G here) once it has a target open, and all of them
 together, every project's, at most `homelab.mcp.rea.memoryMax` (75% of the VM, `rea.slice`): past that the kernel ends a session, not the VM.
 There's no cap on sessions, so size the VM's `limits.memory` for what runs at once.
@@ -288,9 +288,9 @@ their own extractors, which is why they stay on this VM.
 
 The VM serves nothing else (asserted), holds no secrets (it isn't a sops recipient) and is contained:
 
-- **Who connects**: the router, `labs: edge to rea-dynamic` (and `labs: agents to rea-dynamic` per LAN agent).
+- **Who connects**: the router, `labs: edge to rea` (and `labs: agents to rea` per LAN agent).
 
-- **Egress**: the router's `labs: rea-dynamic opens nothing` drops every connection the VM opens, so samples
+- **Egress**: the router's `labs: rea opens nothing` drops every connection the VM opens, so samples
   can't phone home or scan labs, and browser scenarios only load `http://127.0.0.1` pages. Nothing on the VM
   enforces it, so root there changes nothing. It has no DNS or NTP either, and deploys push the closure (no
   `--use-substitutes`).
@@ -300,17 +300,17 @@ The VM serves nothing else (asserted), holds no secrets (it isn't a sops recipie
 
   ```sh
   incus storage volume create ceph rea-data --type=block size=100GiB
-  incus config device add rea-dynamic data disk pool=ceph source=rea-data
-  ssh admin@rea-dynamic lsblk                                   # the new, empty disk, e.g. sdb
-  ssh admin@rea-dynamic 'sudo mkfs.ext4 -L rea-data /dev/sdb'
+  incus config device add rea data disk pool=ceph source=rea-data
+  ssh admin@rea.incus lsblk                                   # the new, empty disk, e.g. sdb
+  ssh admin@rea.incus 'sudo mkfs.ext4 -L rea-data /dev/sdb'
   ```
 
 - **Reset**: snapshot the VM stopped once installed (and again after each deploy), roll its root back when no
   session is running. It restarts every session, the volume (and whatever samples wrote to it) stays:
 
   ```sh
-  incus stop rea-dynamic && incus snapshot create rea-dynamic clean --reuse && incus start rea-dynamic
-  incus snapshot restore rea-dynamic clean
+  incus stop rea && incus snapshot create rea clean --reuse && incus start rea
+  incus snapshot restore rea clean
   ```
 
 ## KiCad (9200-9299)
