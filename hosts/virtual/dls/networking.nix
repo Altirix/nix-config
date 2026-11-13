@@ -1,4 +1,4 @@
 {
-  # Guests license over the mesh (`incus launch ... -p default -p labs-mesh`).
-  homelab.labsMesh.address = "10.254.0.10/24";
+  # Shared zone: every VM may reach it on 443 (modules/networking/README.md).
+  homelab.labs.address = "10.100.0.12";
 }
