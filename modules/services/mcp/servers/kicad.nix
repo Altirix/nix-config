@@ -18,6 +18,7 @@ let
   sshSources = lib.filterAttrs (_: s: ssh s.url) cfg.sources;
   # Each source's own user, owning only its project's deploy key.
   syncUser = p: "kicad-sync-${p}";
+  projects = lib.attrNames cfg.projects;
   # Hooks for every project, from the store: a repo's own .git/hooks are never run.
   hooks = pkgs.writeShellApplication {
     name = "post-receive";
@@ -38,11 +39,12 @@ let
 in
 {
   options.homelab.mcp.kicad = {
-    # Project names: a repo and an MCP server each. Lowercase, they end up in URLs and unit names. Add new ones at
-    # the end, the servers' ports follow the order.
+    # Project name -> its server's port (9200-9299, the router's range): a repo and an MCP server each. Names are
+    # lowercase, they end up in URLs and unit names. A port stays with its project, removing one moves no other.
     projects = mkOption {
-      type = types.listOf (types.strMatching "[a-z0-9][a-z0-9-]*");
-      default = [ ];
+      type = types.attrsOf types.port;
+      default = { };
+      example = { palmremote = 9200; };
     };
     # Projects that live in a repo elsewhere (GitHub). An ssh url takes a deploy key with write access,
     # kicad-deploy-key-<project> in the host's secrets.yaml (GitHub allows a key on one repo only).
@@ -80,19 +82,19 @@ in
       type = types.str;
       default = if cfg.mode == "write" then "builder" else "review";
     };
-    # The servers' ports, one per project in order from here.
-    basePort = mkOption {
-      type = types.port;
-      # Out of the way of the single servers' 81xx.
-      default = 9200;
-    };
   };
 
-  config = lib.mkIf (cfg.projects != [ ]) {
-    assertions = [{
-      assertion = lib.all (p: lib.elem p cfg.projects) (lib.attrNames cfg.sources);
-      message = "kicad: sources names projects that aren't in projects";
-    }];
+  config = lib.mkIf (cfg.projects != { }) {
+    assertions = [
+      {
+        assertion = lib.all (p: lib.elem p projects) (lib.attrNames cfg.sources);
+        message = "kicad: sources names projects that aren't in projects";
+      }
+      {
+        assertion = lib.all (p: builtins.match "[a-z0-9][a-z0-9-]*" p != null) projects;
+        message = "kicad: project names are lowercase letters, digits and dashes";
+      }
+    ];
 
     users.groups.kicad = { };
     # admin pushes and pulls over ssh, the servers edit, git-sync keeps sources in step.
@@ -102,28 +104,28 @@ in
       isSystemUser = true;
       group = "kicad";
     }) cfg.sources
-    // lib.listToAttrs (map (p: lib.nameValuePair "mcp-kicad-${p}" { extraGroups = [ "kicad" ]; }) cfg.projects);
+    // lib.listToAttrs (map (p: lib.nameValuePair "mcp-kicad-${p}" { extraGroups = [ "kicad" ]; }) projects);
 
     # Group-writable for everyone in kicad, new files stay so (setgid, git's sharedRepository).
     systemd.tmpfiles.settings."10-kicad" = {
       ${cfg.dir}.d = { user = "root"; group = "kicad"; mode = "2775"; };
-    } // lib.genAttrs (map repo cfg.projects) (_: { d = { user = "root"; group = "kicad"; mode = "2775"; }; });
+    } // lib.genAttrs (map repo projects) (_: { d = { user = "root"; group = "kicad"; mode = "2775"; }; });
 
     programs.git = {
       enable = true;
       config = {
-        safe.directory = map repo cfg.projects;
+        safe.directory = map repo projects;
         # Who git-sync's rebases and agents' commits are by, git can't make one up without a mail domain.
         user = { name = "KiCad MCP"; email = "kicad@${config.networking.hostName}.incus"; };
       };
     };
 
-    homelab.mcp.servers = lib.listToAttrs (lib.imap0 (i: p: lib.nameValuePair "kicad-${p}" {
+    homelab.mcp.servers = lib.mapAttrs' (p: port: lib.nameValuePair "kicad-${p}" {
       enable = true;
       public = true;
       publishAt = "/kicad/${p}/mcp";
       command = lib.getExe server;
-      port = cfg.basePort + i;
+      inherit port;
       path = [ kicad pkgs.git ];
       environment = {
         KICAD_MCP_PROJECT_DIR = repo p;
@@ -133,11 +135,13 @@ in
         KICAD_MCP_OPERATING_MODE = cfg.mode;
         KICAD_MCP_PROFILE = cfg.profile;
       };
-    }) cfg.projects);
+    }) cfg.projects;
 
     systemd.services = lib.listToAttrs (map (p: lib.nameValuePair "mcp-kicad-${p}" {
       after = [ "kicad-repo-${p}.service" ];
       requires = [ "kicad-repo-${p}.service" ];
+      # Restarted with it: its read-only .git/config is the file as it was at start, a rewrite replaces it.
+      partOf = [ "kicad-repo-${p}.service" ];
       serviceConfig = {
         # Only its own project there: the others aren't even readable.
         TemporaryFileSystem = cfg.dir;
@@ -147,7 +151,7 @@ in
         ReadWritePaths = [ (repo p) ];
         UMask = "0002";
       };
-    }) cfg.projects)
+    }) projects)
     // lib.mapAttrs' (p: src: lib.nameValuePair "kicad-sync-${p}" {
       description = "Keep KiCad project ${p} in step with ${src.url}";
       after = [ "kicad-repo-${p}.service" "network-online.target" ];
@@ -191,7 +195,7 @@ in
       };
       script = builtins.readFile ../scripts/kicad-repo.sh;
       serviceConfig = { Type = "oneshot"; RemainAfterExit = true; UMask = "0002"; };
-    }) cfg.projects);
+    }) projects);
 
     systemd.timers = lib.mapAttrs' (p: _: lib.nameValuePair "kicad-sync-${p}" {
       wantedBy = [ "timers.target" ];

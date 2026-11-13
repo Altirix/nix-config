@@ -208,7 +208,7 @@ Decompiles with Ghidra, reads APKs with JADX, runs samples and unpacks firmware.
 own (`rea@<project>.service`, `config/rea-gateway.json`), which starts a REA for each MCP session, so agents never
 close or replace each other's target; a session idle for 30 minutes ends, and its REA with it. nginx on 8101
 (`homelab.mcp.rea.port`, `config/rea-nginx.conf`, reached through the router's `labs: edge to rea-dynamic`) is
-the only way in, the gateways (from 9100, one per project in order) only listen on loopback:
+the only way in, the gateways (each project's port in `homelab.mcp.rea.projects`, 9100 up) only listen on loopback:
 
 ```
 https://mcp.peacocks.me/rea/<project>/mcp       the project's server
@@ -322,7 +322,7 @@ In `write` mode (the default) the `builder` tool set creates projects, edits sch
 (`vcs_commit_checkpoint`); `readonly` keeps agents to inspecting, checking and exporting. Its outputs still need your
 review before fabrication. To look at a design, pull the repo and open it in KiCad.
 
-Add a project to `projects` in `hosts/virtual/mcp/default.nix` (at the end, ports follow the order), deploy `mcp` and
+Add a project to `projects` in `hosts/virtual/mcp/default.nix` with a free port of its own (9200-9299), deploy `mcp` and
 `ionos-de` (the route) and widen nothing: `labs: edge to mcp` covers 9200-9299.
 
 A project with a `source` keeps in step with it through git-sync every minute: commits there come down, what agents

@@ -20,7 +20,7 @@ in
 
       homelab.mcp.rea = {
         dynamic = true;
-        projects = [ "alpha" "beta" ];
+        projects = { alpha = 9100; beta = 9101; };
         toolset = "firmware";
       };
 
@@ -45,7 +45,7 @@ in
     import json, shlex
 
     port = ${toString nodes.rea.homelab.mcp.rea.port}
-    gateway = ${toString nodes.rea.homelab.mcp.rea.gatewayPort}
+    gateway = ${toString nodes.rea.homelab.mcp.rea.projects.alpha}
     base = f"http://rea:{port}"
 
     def call(project, calls):
@@ -59,7 +59,7 @@ in
         rea.wait_for_unit(f"rea@{p}.service", timeout=900)
     rea.wait_for_unit("nginx.service")
     rea.wait_for_open_port(gateway, timeout=900)
-    rea.wait_for_open_port(gateway + 1, timeout=900)
+    rea.wait_for_open_port(${toString nodes.rea.homelab.mcp.rea.projects.beta}, timeout=900)
     rea.wait_for_open_port(port)
 
     with subtest("firmware toolset"):
@@ -141,6 +141,8 @@ in
             [(text, err)] = call("beta", [("open_binary", {"path": "/var/lib/rea/beta/samples/hello"})])
             assert not err, text
             rea.succeed("runuser -u rea-alpha -- test ! -r /var/lib/rea/beta/scratch")
+            # Each project's files moved to its own user once, the marker stops it running again.
+            rea.succeed("test -e /var/lib/rea/alpha/.owned", "stat -c %U /var/lib/rea/alpha/scratch | grep -qx rea-alpha")
     finally:
         print(rea.succeed("journalctl -u 'rea@*' -o cat | tail -n 40"))
 

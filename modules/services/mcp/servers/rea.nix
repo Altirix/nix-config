@@ -46,8 +46,13 @@ let
   tools = lib.optionalString (cfg.toolset != null)
     ''"tools": ${builtins.toJSON (toolList ../config/rea-tools-${cfg.toolset}.txt)},'';
 
-  # Each project's gateway port, from gatewayPort in the order of `projects`.
-  gatewayPort = p: cfg.gatewayPort + lib.lists.findFirstIndex (x: x == p) 0 cfg.projects;
+  projects = lib.attrNames cfg.projects;
+  gatewayPort = p: cfg.projects.${p};
+  migrate = pkgs.writeShellApplication {
+    name = "rea-migrate";
+    runtimeInputs = [ pkgs.coreutils ];
+    text = builtins.readFile ../scripts/rea-migrate.sh;
+  };
 
   # config/rea-gateway.json with the project's rea-gateway-project.json, checked by supergateway at build.
   gatewayConfig = p: pkgs.runCommand "rea-gateway-${p}.json" {
@@ -77,21 +82,18 @@ in
   options.homelab.mcp.rea.firmware = lib.mkEnableOption "REA's firmware extraction (binwalk, unblob)";
 
   # Each gets its URLs and /var/lib/rea/<project>, e.g. one per repo agents work from. Listing one turns REA on.
+  # Project name -> its gateway's port (loopback only, 9100 up, out of the way of the single servers' 81xx). A port
+  # stays with its project, removing one moves no other.
   options.homelab.mcp.rea.projects = lib.mkOption {
-    type = lib.types.listOf (lib.types.strMatching "[a-z0-9][a-z0-9-]*");
-    default = [ ];
+    type = lib.types.attrsOf lib.types.port;
+    default = { };
+    example = { firmware = 9100; };
   };
 
-  # nginx, opened in the firewall (who reaches it is the router's call). The projects' gateways listen from
-  # gatewayPort up, one each in the order of `projects`, loopback only.
+  # nginx, opened in the firewall (who reaches it is the router's call).
   options.homelab.mcp.rea.port = lib.mkOption {
     type = lib.types.port;
     default = 8101;
-  };
-  options.homelab.mcp.rea.gatewayPort = lib.mkOption {
-    type = lib.types.port;
-    # Out of the way of the single servers' 81xx.
-    default = 9100;
   };
 
   # Milliseconds a session may sit idle before its REA is stopped.
@@ -122,12 +124,20 @@ in
     default = "75%";
   };
 
-  config = lib.mkIf (cfg.projects != [ ]) (lib.mkMerge [
+  config = lib.mkIf (cfg.projects != { }) (lib.mkMerge [
     {
       assertions = [
         {
+          assertion = lib.all (p: builtins.match "[a-z0-9][a-z0-9-]*" p != null) projects;
+          message = "mcp: REA project names are lowercase letters, digits and dashes";
+        }
+        {
+          assertion = lib.allUnique (lib.attrValues cfg.projects ++ [ cfg.port ]);
+          message = "mcp: every REA project needs a port of its own, not nginx's";
+        }
+        {
           # nginx's map (config/rea-nginx.conf) would take them for its own parameters.
-          assertion = lib.all (p: !lib.elem p [ "default" "hostnames" "include" "volatile" ]) cfg.projects;
+          assertion = lib.all (p: !lib.elem p [ "default" "hostnames" "include" "volatile" ]) projects;
           message = "mcp: a REA project can't be named default, hostnames, include or volatile";
         }
         {
@@ -142,17 +152,17 @@ in
         # Each project's MCP endpoints on their own (the edge audits them), the rest of /rea/ as is.
         locations = { "/rea/".port = cfg.port; } // lib.listToAttrs (lib.concatMap (p: map (mcp:
           lib.nameValuePair "/rea/${p}/${mcp}" { port = cfg.port; path = "/${p}/${mcp}"; mcp = true; })
-          [ "mcp" "cli/mcp" ]) cfg.projects);
+          [ "mcp" "cli/mcp" ]) projects);
         maxBodySize = "1g";
       };
 
       # A user each, so projects can't reach each other's files or processes.
-      users.users = lib.genAttrs (map user cfg.projects) (u: {
+      users.users = lib.genAttrs (map user projects) (u: {
         isSystemUser = true;
         group = u;
         home = "/var/empty";
       });
-      users.groups = lib.genAttrs (map user cfg.projects) (_: { });
+      users.groups = lib.genAttrs (map user projects) (_: { });
 
       systemd.slices.rea = {
         description = "REA, every project";
@@ -206,7 +216,7 @@ in
           Restart = "on-failure";
           RestartSec = 5;
         } // import ../hardening.nix;
-      }) cfg.projects)
+      }) projects)
       # REA writes bundles 0600, whatever the umask, so nginx couldn't serve them.
       // lib.listToAttrs (map (p: lib.nameValuePair "rea-shared@${p}" {
         description = "Make what REA project ${p} shares readable to nginx";
@@ -216,7 +226,7 @@ in
           User = user p;
           ExecStart = "${pkgs.findutils}/bin/find /var/lib/rea/${p}/shared -user ${user p} ! -perm -g+r -exec ${pkgs.coreutils}/bin/chmod g+rX {} +";
         };
-      }) cfg.projects)
+      }) projects)
       // {
 
       # tmpfiles runs before a host's own mount of /var/lib/rea is up (at boot with nofail, and on switch), and
@@ -229,14 +239,17 @@ in
         serviceConfig = {
           Type = "oneshot";
           RemainAfterExit = true;
-          ExecStart = "${config.systemd.package}/bin/systemd-tmpfiles --create --prefix=/var/lib/rea";
+          ExecStart = [
+            "${config.systemd.package}/bin/systemd-tmpfiles --create --prefix=/var/lib/rea"
+            "${lib.getExe migrate} ${lib.escapeShellArgs projects}"
+          ];
         };
       };
 
       nginx = {
         unitConfig.RequiresMountsFor = [ "/var/lib/rea" ];
         serviceConfig = {
-          ReadWritePaths = map (p: "/var/lib/rea/${p}/samples") cfg.projects;
+          ReadWritePaths = map (p: "/var/lib/rea/${p}/samples") projects;
           # The bind mount above makes nginx copy uploads from its temp dir rather than rename them, and the copy
           # takes the umask (NixOS sets 0027), not dav_access: 0640 uploads REA can't read.
           UMask = lib.mkForce "0022";
@@ -254,16 +267,12 @@ in
           "d /var/lib/rea/${p}/shared/evidence 2750 ${u} nginx -"
           "d /var/lib/rea/${p}/scratch 0750 ${u} ${u} -"
           "d /var/lib/rea/${p}/home 0750 ${u} ${u} -"
-          # What a project made as the one rea user before, now its own (modes kept).
-          "Z /var/lib/rea/${p}/shared - ${u} nginx -"
-          "Z /var/lib/rea/${p}/scratch - ${u} ${u} -"
-          "Z /var/lib/rea/${p}/home - ${u} ${u} -"
-        ]) cfg.projects;
+        ]) projects;
 
       systemd.paths = lib.listToAttrs (map (p: lib.nameValuePair "rea-shared@${p}" {
         wantedBy = [ "multi-user.target" ];
         pathConfig.PathChanged = "/var/lib/rea/${p}/shared/evidence";
-      }) cfg.projects);
+      }) projects);
 
       services.nginx = {
         enable = true;
@@ -271,8 +280,8 @@ in
           [ "@port@" "@gateways@" "@projects@" ]
           [
             (toString cfg.port)
-            (lib.concatMapStrings (p: "    ${p} 127.0.0.1:${toString (gatewayPort p)};\n") cfg.projects)
-            (lib.concatStringsSep "|" cfg.projects)
+            (lib.concatMapStrings (p: "    ${p} 127.0.0.1:${toString (gatewayPort p)};\n") projects)
+            (lib.concatStringsSep "|" projects)
           ]
           (builtins.readFile ../config/rea-nginx.conf);
       };

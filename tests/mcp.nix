@@ -43,7 +43,7 @@ in
 
       # A project kept in step with a repo on the VM, which its pushes write to.
       homelab.mcp.kicad = {
-        projects = [ "t" ];
+        projects.t = 9200;
         sources.t.url = "/var/lib/kicad-src/t.git";
       };
       systemd.services.kicad-sync-t.serviceConfig.ReadWritePaths = [ "/var/lib/kicad-src" ];

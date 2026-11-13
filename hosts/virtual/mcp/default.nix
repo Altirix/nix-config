@@ -23,7 +23,7 @@
   # One per line of work: agents on different projects never share a server or files.
   # Those with a source follow its repo, agents' commits go back up with its deploy key (README.md, KiCad).
   homelab.mcp.kicad = {
-    projects = [ "palmremote" "polaris11" "navi14" ];
+    projects = { palmremote = 9200; polaris11 = 9201; navi14 = 9202; };
     sources = {
       palmremote.url = "git@github.com:Altirix/A1990-A2141-PalmRemote.git";
       polaris11.url = "git@github.com:Altirix/Polaris11.git";
