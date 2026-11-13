@@ -18,7 +18,8 @@ A VM is the boundary: servers on one share its egress, its root and whatever its
 | `hosts/virtual/rea-dynamic` | `10.100.1.12` | rea | runs the binaries it analyses, no egress, reset from a snapshot (rea) |
 
 A new server goes on `mcp-web` if it reads arbitrary URLs or runs untrusted content, on `mcp` otherwise, on a VM of
-its own if it runs what it's given. Both pass through the router's `labs: nothing private`.
+its own if it runs what it's given. Both pass through the router's `labs: nothing private`. No server opens another on its own VM either
+(`config/egress.nft`): past the edge's token check, a KiCad project's server would get another's.
 
 Presets in `servers/` only need enabling in the host, anything else is added directly:
 

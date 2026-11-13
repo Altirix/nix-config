@@ -165,6 +165,14 @@ in
             "git -C /var/lib/kicad/t log -1 --format=%s | grep -qx y",
         )
 
+    with subtest("no server opens another over loopback"):
+        curl = "${pkgs.curl}/bin/curl -sS --max-time 5 -o /dev/null"
+        target = f"http://127.0.0.1:{servers['kicad-t']['port']}/mcp"
+        mcp.fail(f"runuser -u mcp-time -- {curl} {target}")
+        mcp.fail(f"runuser -u mcp-time -- {curl} http://mcp:{servers['kicad-t']['port']}/mcp")
+        # Anyone else on the VM still does (it's the router that keeps others out).
+        mcp.succeed(f"{curl} {target}")
+
     if "memory" in servers:
         with subtest("memory graph in the state dir"):
             mcp.succeed("grep -q nixos-test /var/lib/mcp-memory/memory.jsonl")
