@@ -3,7 +3,8 @@
 # MCP servers, one systemd unit and port each. stdio servers are put behind mcp-proxy, which
 # serves streamable HTTP on /mcp and SSE on /sse and shares one server process between all clients.
 # There is no auth and no Host check. Every port is open on the VM, who reaches which is the router's call
-# (README.md, Router): a firewall on the VM is gone with root on it.
+# (README.md, Router): a firewall on the VM is gone with root on it. Where each server connects to is logged
+# (kernel, "mcp-egress <name>:") and goes to the logs VM with the journal.
 #
 # Presets for packaged servers live in servers/, every file there is imported. A preset sets
 # defaults and never `enable`, the host turns it on:
@@ -51,6 +52,17 @@ let
         type = types.listOf types.package;
         default = [ ];
       };
+      # Published at /<name>/mcp (homelab.publish) for a front door to serve (mcp.peacocks.me), low-risk servers only:
+      # never playwright (runs code). The router also has to let the edge in on its port.
+      public = mkOption {
+        type = types.bool;
+        default = false;
+      };
+      # Where it's published, /<name>/mcp unless set (e.g. /kicad/<project>/mcp for a server per project).
+      publishAt = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+      };
     };
   };
 
@@ -63,7 +75,7 @@ let
   proxy = [ (lib.getExe pkgs.mcp-proxy) "--host" "0.0.0.0" "--port" ];
 in
 {
-  imports = map (name: ./servers/${name}) presets;
+  imports = [ ../web/publish.nix ] ++ map (name: ./servers/${name}) presets;
 
   options.homelab.mcp = {
     servers = mkOption {
@@ -96,13 +108,43 @@ in
         Restart = "on-failure";
         RestartSec = 5;
 
-        # Each server is its own throwaway user with a private home for caches and state.
-        DynamicUser = true;
+        # Each server is its own user (named in the egress log) with a private home for caches and state.
+        User = "mcp-${name}";
+        Group = "mcp-${name}";
         StateDirectory = "mcp-${name}";
         WorkingDirectory = "/var/lib/mcp-${name}";
       } // import ./hardening.nix;
     }) enabled;
 
+    users.users = lib.mapAttrs' (name: _: lib.nameValuePair "mcp-${name}" {
+      isSystemUser = true;
+      group = "mcp-${name}";
+    }) enabled;
+    users.groups = lib.mapAttrs' (name: _: lib.nameValuePair "mcp-${name}" { }) enabled;
+
     networking.firewall.allowedTCPPorts = ports (lib.attrValues enabled);
+
+    # Where each server connects to (config/egress.nft).
+    networking.nftables.tables.mcp-egress = {
+      family = "inet";
+      content = builtins.replaceStrings [ "@servers@" "@users@" "@ports@" ]
+        [
+          (lib.concatMapStrings (name: builtins.replaceStrings [ "@name@" ] [ name ] (builtins.readFile ./config/egress-server.nft))
+            (lib.attrNames enabled))
+          (lib.concatMapStringsSep ", " (name: ''"mcp-${name}"'') (lib.attrNames enabled))
+          (lib.concatMapStringsSep ", " toString (lib.unique (ports (lib.attrValues enabled))))
+        ]
+        (builtins.readFile ./config/egress.nft);
+    };
+    # The build's ruleset check has none of these users.
+    networking.nftables.preCheckRuleset = ''
+      sed 's/"mcp-[a-z0-9-]*"/root/g' -i ruleset.conf
+    '';
+
+    homelab.publish.locations = lib.mapAttrs' (name: s: lib.nameValuePair (if s.publishAt != null then s.publishAt else "/${name}/mcp") {
+      inherit (s) port;
+      path = "/mcp";
+      mcp = true;
+    }) (lib.filterAttrs (_: s: s.public) enabled);
   };
 }

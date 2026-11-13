@@ -1,24 +1,28 @@
 self:
 { lib, pkgs, ... }:
 
-# The MCP servers hosts/virtual/mcp enables, run by the real module, each initialized and its tools
-# listed over streamable HTTP from `client`. Who reaches which port is the router's call, not tested here.
+# The MCP servers hosts/virtual/mcp and mcp-web enable, run by the real module on one VM, each initialized and its
+# tools listed over streamable HTTP from `client`. Who reaches which port is the router's call, not tested here.
 # The VMs have no internet, so tools are only called where they stay on the test network.
 let
-  # github needs the host's sops key for its token, which the test VM doesn't have.
-  enabled = lib.attrNames (lib.filterAttrs (name: s: s.enable && name != "github")
-    self.nixosConfigurations.mcp.config.homelab.mcp.servers);
+  # paperless needs the host's sops key for its token, which the test VM doesn't have. The host's KiCad projects
+  # follow GitHub, the test has one of its own (kicad-t) following a local repo.
+  skip = name: name == "paperless" || lib.hasPrefix "kicad-" name;
+  servers = host: lib.filterAttrs (name: s: s.enable && !skip name)
+    self.nixosConfigurations.${host}.config.homelab.mcp.servers;
+  enabled = lib.attrNames (servers "mcp" // servers "mcp-web") ++ [ "kicad-t" ];
 
   # A tool each server must list.
   tools = {
     nixos = "nix";
-    github = "get_me";
     context7 = "resolve-library-id";
     fetch = "fetch";
     time = "get_current_time";
     memory = "read_graph";
     playwright = "browser_navigate";
     markitdown = "convert_to_markdown";
+    fdfdb = "search_part_number";
+    kicad-t = "kicad_create_new_project";
   };
 
   page = pkgs.writeTextDir "index.html" "<html><head><title>mcp-test</title></head><body><h1>Hello from client</h1></body></html>";
@@ -28,7 +32,7 @@ in
 
   nodes = {
     mcp = {
-      # The github preset declares its sops secret, sops itself stays unused with github off.
+      # The paperless and KiCad presets declare sops secrets, sops itself stays unused with them off.
       imports = [
         self.inputs.sops-nix.nixosModules.sops
         ../modules/system/secrets.nix
@@ -36,6 +40,23 @@ in
       ];
 
       homelab.mcp.servers = lib.genAttrs enabled (_: { enable = true; });
+
+      # A project kept in step with a repo on the VM, which its pushes write to. The source has a commit before the
+      # clone, as a GitHub repo must.
+      homelab.mcp.kicad.projects.t = { port = 9200; url = "/var/lib/kicad-src/t.git"; };
+      systemd.services.kicad-sync-t.serviceConfig.ReadWritePaths = [ "/var/lib/kicad-src" ];
+      systemd.services.kicad-src-t = {
+        requiredBy = [ "kicad-repo-t.service" ];
+        before = [ "kicad-repo-t.service" ];
+        path = [ pkgs.git ];
+        serviceConfig.Type = "oneshot";
+        script = ''
+          git init -q --bare -b main /var/lib/kicad-src/t.git
+          git clone -q /var/lib/kicad-src/t.git /tmp/seed
+          cd /tmp/seed && echo a > a && git add a && git commit -qm a && git push -q origin HEAD:main
+          chown -R kicad-sync-t:kicad /var/lib/kicad-src
+        '';
+      };
 
       # As on the real host: modules/virtual.nix and modules/default.nix.
       networking.nftables.enable = true;
@@ -79,6 +100,10 @@ in
         ],
         "fetch": [("fetch", {"url": "http://client/"}, "Hello from client")],
         "markitdown": [("convert_to_markdown", {"uri": "http://client/"}, "Hello from client")],
+        "fdfdb": [
+            ("search_part_number", {"part_number": "MT29F512G08EEHAF"}, "2CA40832A100"),
+            ("search_flash_id", {"flash_id": "2C A4 08 32 A1 00"}, "MT29F512G08EEHAF"),
+        ],
         "playwright": [("browser_navigate", {"url": "http://client/"}, "mcp-test")],
     }
 
@@ -112,6 +137,53 @@ in
                 check(name)
             finally:
                 print(mcp.succeed(f"journalctl -u mcp-{name} -o cat | tail -n 40"))
+
+    with subtest("kicad sync"):
+        # Someone working in the source (as kicad-sync-t, which owns it) and an agent in the project.
+        upstream = lambda cmd: f"runuser -u kicad-sync-t -- sh -c 'cd /tmp/t && {cmd}'"
+        agent = lambda cmd: f"runuser -u mcp-kicad-t -- sh -c 'umask 002; cd /var/lib/kicad/t && {cmd}'"
+        log = lambda branch: f"git -C /var/lib/kicad-src/t.git log --format=%s {branch}"
+
+        # The project is the source's clone.
+        mcp.succeed(
+            "test -f /var/lib/kicad/t/a",
+            "runuser -u kicad-sync-t -- git clone -q /var/lib/kicad-src/t.git /tmp/t",
+        )
+        # The project starts on the agents' branch, which reaches the source on the first sync.
+        mcp.succeed("git -C /var/lib/kicad/t branch --show-current | grep -qx agent", "systemctl start kicad-sync-t",
+                    f"{log('agent')} | grep -qx a")
+        # An agent's commit goes up on the agents' branch, never on main.
+        mcp.succeed(agent("echo b > b && git add b && git commit -qm b"), "systemctl start kicad-sync-t",
+                    f"{log('agent')} | grep -qx b", f"! {log('main')} | grep -qx b")
+
+        # main moved and an agent committed: the agents' branch is rebased onto main, under the VM's git identity.
+        mcp.succeed(
+            upstream("git pull -q origin main && echo c > c && git add c && git commit -qm c && git push -q origin HEAD:main"),
+            agent("echo d > d && git add d && git commit -qm d"),
+            "systemctl start kicad-sync-t",
+            f"{log('agent')} | head -n 3 | tr '\\n' ' ' | grep -qx 'd b c '",
+            "test -f /var/lib/kicad/t/c",
+        )
+
+        # A conflict: nothing goes up, the project keeps its commit and isn't left mid-rebase.
+        mcp.succeed(
+            upstream("git pull -q origin main && echo x > a && git commit -qam x && git push -q origin HEAD:main"),
+            agent("echo y > a && git commit -qam y"),
+        )
+        mcp.fail("systemctl start kicad-sync-t")
+        mcp.succeed(
+            f"! {log('agent')} | grep -qx y",
+            "test ! -e /var/lib/kicad/t/.git/rebase-merge -a ! -e /var/lib/kicad/t/.git/rebase-apply",
+            "git -C /var/lib/kicad/t log -1 --format=%s | grep -qx y",
+        )
+
+    with subtest("no server opens another over loopback"):
+        curl = "${pkgs.curl}/bin/curl -sS --max-time 5 -o /dev/null"
+        target = f"http://127.0.0.1:{servers['kicad-t']['port']}/mcp"
+        mcp.fail(f"runuser -u mcp-time -- {curl} {target}")
+        mcp.fail(f"runuser -u mcp-time -- {curl} http://mcp:{servers['kicad-t']['port']}/mcp")
+        # Anyone else on the VM still does (it's the router that keeps others out).
+        mcp.succeed(f"{curl} {target}")
 
     if "memory" in servers:
         with subtest("memory graph in the state dir"):

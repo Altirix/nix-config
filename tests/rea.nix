@@ -2,8 +2,8 @@ self:
 { lib, pkgs, ... }:
 
 # REA as hosts/virtual/rea-dynamic runs it (homelab.mcp.rea), with two projects, driven from `client`
-# through its nginx: every session gets its own REA, each project its own URLs and directories, and the
-# gateway is only reachable through nginx. Who reaches nginx is the router's call, not tested here.
+# through its nginx: every session gets its own REA, each project its own URLs, directories, user and gateway,
+# none seeing another's files, and the gateways are only reachable through nginx. Who reaches nginx is the router's call, not tested here.
 let
   hello = lib.getExe pkgs.hello;
 in
@@ -20,7 +20,7 @@ in
 
       homelab.mcp.rea = {
         dynamic = true;
-        projects = [ "alpha" "beta" ];
+        projects = { alpha = 9100; beta = 9101; };
         toolset = "firmware";
       };
 
@@ -45,7 +45,7 @@ in
     import json, shlex
 
     port = ${toString nodes.rea.homelab.mcp.rea.port}
-    gateway = ${toString nodes.rea.homelab.mcp.rea.gatewayPort}
+    gateway = ${toString nodes.rea.homelab.mcp.rea.projects.alpha}
     base = f"http://rea:{port}"
 
     def call(project, calls):
@@ -55,9 +55,12 @@ in
         return [("\n".join(c.get("text", "") for c in r["content"]), r.get("isError", False)) for r in out["results"]]
 
     start_all()
-    rea.wait_for_unit("rea.service", timeout=900)
+    for p in ["alpha", "beta"]:
+        rea.wait_for_unit(f"rea@{p}.service", timeout=900)
     rea.wait_for_unit("nginx.service")
     rea.wait_for_open_port(gateway, timeout=900)
+    beta_gateway = ${toString nodes.rea.homelab.mcp.rea.projects.beta}
+    rea.wait_for_open_port(beta_gateway, timeout=900)
     rea.wait_for_open_port(port)
 
     with subtest("firmware toolset"):
@@ -95,7 +98,7 @@ in
                                  f"-H 'Mcp-Method: server/discover' -d {shlex.quote(discover)}")
             assert "Unsupported protocol version" in out, out
             # mcp-call DELETEs its session: its REA is gone.
-            rea.wait_until_succeeds("! pgrep -u rea -f 'rea.mjs mcp'", timeout=60)
+            rea.wait_until_succeeds("! pgrep -u rea-alpha -f 'rea.mjs mcp'", timeout=60)
 
         with subtest("cli endpoint"):
             # The project's CLI tools in a REA of their own: rizin beside an open Ghidra session.
@@ -131,11 +134,28 @@ in
             assert not err, text
             # An undeclared project has no server.
             client.fail(f"mcp-call {base}/gamma/mcp '[]'")
+
+        with subtest("projects can't see each other"):
+            client.succeed(f"curl -fsS -T ${hello} {base}/beta/samples/hello")
+            [(text, err)] = call("alpha", [("open_binary", {"path": "/var/lib/rea/beta/samples/hello"})])
+            assert err, text
+            [(text, err)] = call("beta", [("open_binary", {"path": "/var/lib/rea/beta/samples/hello"})])
+            assert not err, text
+            rea.succeed("runuser -u rea-alpha -- test ! -r /var/lib/rea/beta/scratch")
+            # Nor through loopback: not beta's gateway, not nginx. root still gets in.
+            for target in [f"127.0.0.1:{beta_gateway}/beta/mcp", f"127.0.0.1:{port}/beta/mcp"]:
+                rea.fail(f"runuser -u rea-alpha -- ${pkgs.curl}/bin/curl -sS --max-time 5 http://{target}")
+            rea.succeed(f"${pkgs.curl}/bin/curl -sS --max-time 5 -o /dev/null http://127.0.0.1:{port}/alpha/samples/")
+            # nginx serves no link a sample planted, so nothing of beta's through alpha's URLs.
+            rea.succeed("runuser -u rea-alpha -- ln -s /var/lib/rea/beta/samples/hello /var/lib/rea/alpha/shared/beta-hello")
+            client.fail(f"curl -fsS {base}/alpha/shared/beta-hello")
+            # Each project's files moved to its own user once, the marker stops it running again.
+            rea.succeed("test -e /var/lib/rea/alpha/.owned", "stat -c %U /var/lib/rea/alpha/scratch | grep -qx rea-alpha")
     finally:
-        print(rea.succeed("journalctl -u rea -o cat | tail -n 40"))
+        print(rea.succeed("journalctl -u 'rea@*' -o cat | tail -n 40"))
 
     with subtest("memory cap"):
-        rea.succeed("systemctl show -p MemoryMax rea | grep -v infinity")
+        rea.succeed("systemctl show -p MemoryMax rea.slice | grep -v infinity")
 
     with subtest("gateway only listens for nginx"):
         client.fail(f"curl -sS --connect-timeout 5 http://rea:{gateway}/alpha/mcp")

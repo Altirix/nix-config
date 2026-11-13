@@ -17,13 +17,16 @@
     dynamic = true;
     firmware = true;
     # mcp.peacocks.me/rea/<project>/mcp. Add one per line of work that shouldn't share state.
-    projects = [ "default" "ig5236" ];
+    projects = { ig5236 = 9100; mptools = 9101; };
     # 24G VM, REA gets 75%: a dozen sessions with Ghidra open at 1G (~1.5G each with the JVM's overhead).
     ghidraHeap = "1G";
   };
 
   # In no sops group (.sops.yaml) and no secrets.yaml of its own, so it holds nothing to decrypt. Samples run here.
   sops.secrets = lib.mkForce { };
+
+  # It opens no connections (the router drops them), so it ships no logs either.
+  homelab.logs.shipTo = null;
 
   system.stateVersion = "26.05";
 }

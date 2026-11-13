@@ -5,7 +5,21 @@ sit behind mcp-proxy: streamable HTTP on `http://<host>:<port>/mcp`, SSE on `/ss
 the router decides who reaches which port (Router), and only the edge's nginx (with tokens) puts the low-risk
 ones on the internet (From outside). The VMs open every port they serve: a firewall on a VM is gone with root
 on it, so none of what keeps them apart lives there. stdio servers share one process, and with it any state,
-between clients. `hosts/virtual/mcp` (`10.100.1.11`) serves them on labs.
+between clients. They run on labs, split by what a compromise of one gives away (Where servers run).
+
+## Where servers run
+
+A VM is the boundary: servers on one share its egress, its root and whatever its other servers hold.
+
+| VM | Address | Servers | Why there |
+|----|---------|---------|-----------|
+| `hosts/virtual/mcp` | `10.100.1.11` | nixos, context7, time, memory, fdfdb, paperless, KiCad projects | hold tokens or data (paperless' token, memory's graph, the projects), only talk to known APIs |
+| `hosts/virtual/mcp-web` | `10.100.1.13` | fetch, markitdown, playwright | read any page an agent names, playwright runs its code: nothing there to steal |
+| `hosts/virtual/rea-dynamic` | `10.100.1.12` | rea | runs the binaries it analyses, no egress, reset from a snapshot (rea) |
+
+A new server goes on `mcp-web` if it reads arbitrary URLs or runs untrusted content, on `mcp` otherwise, on a VM of
+its own if it runs what it's given. Both pass through the router's `labs: nothing private`. No server opens another on its own VM either
+(`config/egress.nft`): past the edge's token check, a KiCad project's server would get another's.
 
 Presets in `servers/` only need enabling in the host, anything else is added directly:
 
@@ -23,61 +37,35 @@ Add it to a client:
 claude mcp add --transport http sequential-thinking http://<host>:8100/mcp
 ```
 
-`nix build .#checks.x86_64-linux.mcp` boots the servers `hosts/virtual/mcp` enables in a VM and calls each from
+`nix build .#checks.x86_64-linux.mcp` boots the servers `hosts/virtual/mcp` and `mcp-web` enable in a VM and calls each from
 a client over the network, see `tests/mcp.nix`.
 
 ## Router (MikroTik)
 
 Everything that keeps the MCP VMs apart is on the router, so it holds with root lost on either VM. The
 hypervisors pin each VM to its address (`security.ipv4_filtering`, networking/README.md), so the router's
-`src-address` matches can't be spoofed from labs. Never give `mcp` or `rea-dynamic` the `labs-mesh` profile:
+`src-address` matches can't be spoofed from labs. Never give `mcp`, `mcp-web` or `rea-dynamic` the `labs-mesh` profile:
 VXLAN goes VM to VM past the router.
 
-Who gets in. These go before `labs: only home and tunnel in`, after `labs: home ssh, rdp` (ssh from home still
-reaches both for deploys). The edge is its tunnel address `10.0.0.1`, and only on the ports
-`hosts/edge/ionos-de/mcp.nix` routes:
+Who gets in, and what they open, is in modules/networking/README.md (Router): `labs: edge to mcp` (the public
+servers' ports, `public = true`, From outside), `labs: edge to mcp-web`, `labs: edge to rea-dynamic`, `labs: tunnel to agents, nothing else`
+(no other tunnel peer reaches either VM), `labs: rea-dynamic opens nothing` (not the router, labs, home or out the
+tunnel) and `labs: nothing private` (mcp and mcp-web reach the internet, for context7, nixos, fetch and playwright,
+but never home, mgmt, labs or the edge's tunnel address). ssh from home still reaches them for deploys (`labs: home ssh, rdp`).
 
-```routeros
-/ip firewall address-list
-add list=mcp-vms address=10.100.1.11 comment="mcp"
-add list=mcp-vms address=10.100.1.12 comment="rea-dynamic"
-
-/ip firewall filter
-add chain=forward action=accept connection-state=new in-interface=wg-vpn src-address=10.0.0.1 dst-address=10.100.1.11 protocol=tcp dst-port=8102,8104-8107,8109 comment="labs: edge to mcp" place-before=[find comment="labs: only home and tunnel in"]
-add chain=forward action=accept connection-state=new in-interface=wg-vpn src-address=10.0.0.1 dst-address=10.100.1.12 protocol=tcp dst-port=8101 comment="labs: edge to rea-dynamic" place-before=[find comment="labs: only home and tunnel in"]
-add chain=forward action=drop connection-state=new in-interface=wg-vpn dst-address-list=mcp-vms comment="labs: tunnel to mcp vms, nothing else" place-before=[find comment="labs: only home and tunnel in"]
-```
-
-Agents on the LAN that should reach the servers directly (every port on `mcp`, including playwright and github),
-one per machine, also before `labs: tunnel to mcp vms, nothing else`:
+Agents on the LAN that should reach the servers directly (every port, playwright included),
+one per machine, just above `labs: only home and tunnel in`:
 
 ```routeros
 /ip firewall filter
-add chain=forward action=accept connection-state=new src-address=<agent> dst-address=10.100.1.11 protocol=tcp dst-port=8100-8199 comment="labs: agents to mcp" place-before=[find comment="labs: tunnel to mcp vms, nothing else"]
-add chain=forward action=accept connection-state=new src-address=<agent> dst-address=10.100.1.12 protocol=tcp dst-port=8101 comment="labs: agents to rea-dynamic" place-before=[find comment="labs: tunnel to mcp vms, nothing else"]
+add chain=forward action=accept connection-state=new src-address=<agent> dst-address=10.100.1.11 protocol=tcp dst-port=8100-8199,9200-9299 comment="labs: agents to mcp" place-before=[find comment="labs: only home and tunnel in"]
+add chain=forward action=accept connection-state=new src-address=<agent> dst-address=10.100.1.13 protocol=tcp dst-port=8100-8199 comment="labs: agents to mcp-web" place-before=[find comment="labs: only home and tunnel in"]
+add chain=forward action=accept connection-state=new src-address=<agent> dst-address=10.100.1.12 protocol=tcp dst-port=8101 comment="labs: agents to rea-dynamic" place-before=[find comment="labs: only home and tunnel in"]
 ```
 
-What they open. `rea-dynamic` opens nothing, not to the router, labs, home or out the tunnel. `mcp` needs the
-internet (fetch, context7, playwright, nixos) but nothing private, so fetch and playwright can't be pointed at
-home, mgmt, labs or the edge's tunnel address. Both at the top, ahead of the labs egress rules:
-
-```routeros
-/ip firewall address-list
-add list=private address=10.0.0.0/8
-add list=private address=172.16.0.0/12
-add list=private address=192.168.0.0/16
-add list=private address=100.64.0.0/10
-add list=private address=169.254.0.0/16
-
-/ip firewall filter
-add chain=input action=drop connection-state=new src-address=10.100.1.12 comment="labs: rea-dynamic opens nothing" place-before=0
-add chain=forward action=drop connection-state=new src-address=10.100.1.12 comment="labs: rea-dynamic opens nothing" place-before=0
-add chain=input action=drop connection-state=new src-address=10.100.1.11 comment="labs: mcp to the internet only" place-before=0
-add chain=forward action=drop connection-state=new src-address=10.100.1.11 dst-address-list=private comment="labs: mcp to the internet only" place-before=0
-```
-
-The `mcp` VM uses `1.1.1.1` for DNS, so it needs nothing from the router itself. If labs ever carries IPv6, the
-same holds for v6 or a VM with root egresses over it:
+The `mcp` VM uses `1.1.1.1` for DNS, so it needs nothing from the router itself but time. Every labs NIC drops
+IPv6 today (`ipv6_filtering`, no pinned v6 address); if labs ever carries IPv6, the same holds for v6 or a VM with
+root egresses over it:
 
 ```routeros
 /ipv6 firewall filter
@@ -86,20 +74,24 @@ add chain=input action=drop connection-state=new src-address=<rea-dynamic v6> co
 ```
 
 Check with `/ip firewall filter print stats where comment~"mcp|rea-dynamic"`: the edge's 502s with
-`labs: tunnel to mcp vms, nothing else` counting mean a port missing from `labs: edge to mcp`. If the router
+`labs: edge only to its sites` counting mean a port missing from `labs: edge to mcp`. If the router
 ever masquerades into labs, the edge arrives as `10.100.0.1` instead of `10.0.0.1` and every edge rule misses.
 
 ## From outside
 
-`hosts/edge/ionos-de/mcp.nix` serves nixos, context7, fetch, time, memory and markitdown at
-`https://mcp.peacocks.me/<server>/mcp`, proxied over the tunnel (streamable
-HTTP only, SSE is deprecated). playwright runs code, github holds a token, they get no route. Every
+The servers marked `public` (nixos, context7, time, memory, fdfdb, paperless, the KiCad projects on `mcp`; fetch and
+markitdown on `mcp-web`) are published (`homelab.publish`), and the edge's `mcp` site
+(`hosts/edge/ionos-de/services.nix`, `from = [ "mcp" "mcp-web" "rea-dynamic" ]`)
+serves them at `https://mcp.peacocks.me/<server>/mcp`, proxied over the tunnel (streamable
+HTTP only, SSE is deprecated). playwright runs code, it gets no route. Every
 request needs `Authorization: Bearer <token>`, one token per client in `hosts/edge/ionos-de/secrets.yaml` so each
-can be revoked, and the access log names the client. The router only lets the edge's tunnel
+can be revoked, and the access log (the journal's `nginx_access`, on to the logs VM) names the client. OAuth
+sign-in through Kanidm (`modules/services/sso`) is ready to replace the tokens later (`oauth` in place of `tokens` on
+the site, its `mcp` and `mcp-cli` clients already exist), MCP doesn't use it yet. The router only lets the edge's tunnel
 address `10.0.0.1` in on the exposed servers' ports (`labs: edge to mcp`, Router), so a compromised edge still
-doesn't reach the others. Never add a wireguard forward to `10.100.1.11` or `10.100.1.12`: forwards arrive from
-`10.0.0.1` too and would skip the token. Exposing another server takes both, `servers` in `mcp.nix` and its port
-in `labs: edge to mcp`.
+doesn't reach the others. Never add a wireguard forward to `10.100.1.11`, `.12` or `.13`: forwards arrive from
+`10.0.0.1` too and would skip the token. Exposing another server takes both, `public = true` on it and its
+port in its VM's `labs: edge to` rule.
 
 REA is also routed, `https://mcp.peacocks.me/rea/` → its own VM's nginx `10.100.1.12:8101`, on the same
 token. It runs code a caller hands it but reaches nothing (no secrets, the router drops what it opens,
@@ -107,14 +99,14 @@ snapshot reset), so a leaked token lands in a dead-end sandbox. That rests on `l
 (Router) being live, and covering IPv6 too if labs carries it.
 
 Set it up: point an A record for `mcp.peacocks.me` at the VPS (ACME needs it before the first deploy), add a
-token per client named in `mcp.nix` (`openssl rand -hex 32`), add the router rules (Router), deploy `mcp`, then
+token per client named in the site's `tokens` (`openssl rand -hex 32`), add the router rules (Router), deploy `mcp`, then
 `ionos-de`. ionos-de doesn't build with the tokens missing.
 
 ```sh
 sops hosts/edge/ionos-de/secrets.yaml   # mcp-token-cloud: <hex>
 ```
 
-Revoke one by removing it from `clients` in `mcp.nix` and from `hosts/edge/ionos-de/secrets.yaml`, rotate one by
+Revoke one by removing it from the site's `tokens` and from `hosts/edge/ionos-de/secrets.yaml`, rotate one by
 editing the secret alone (nginx reloads on deploy). Check from anywhere:
 
 ```sh
@@ -153,18 +145,71 @@ Claude Code cloud sessions read the same `.mcp.json` from the repo they run in. 
 settings, allow `mcp.peacocks.me` under Network access (Allowed domains, or Full), and add the `cloud` token
 as a network secret for `mcp.peacocks.me` so the agent proxy adds `Authorization: Bearer <token>` outside the VM
 and the token never reaches the session. Leave out the `headers` then. That the proxy injects it for MCP traffic
-isn't documented, so check after deploy that requests show up as `cloud` in `/var/log/nginx/access.log` on
-ionos-de. If they arrive as 401, set `MCP_TOKEN` as an environment variable of the environment instead and keep
+isn't documented, so check after deploy that requests show up as `cloud` in ionos-de's access log
+(`journalctl -t nginx_access`). If they arrive as 401, set `MCP_TOKEN` as an environment variable of the environment instead and keep
 the `headers` (the session can then read the token).
+
+## Usage
+
+Four views, all in VictoriaLogs (`modules/services/logs`):
+
+- **Every client, per request**: the edge's access log (`SYSLOG_IDENTIFIER:nginx_access`) has the client, path,
+  status and duration of each request through `mcp.peacocks.me`.
+- **Every client, per tool call**: `mcp.peacocks.me` is audited (`audit = true` in
+  `hosts/edge/ionos-de/services.nix`): its MCP endpoints go through agentgateway on the edge, which understands
+  MCP. Each call goes to the logs VM over OTLP with the tool (`mcp.tool.name`, `mcp.tool.target` the server), its
+  arguments and result (`mcp.arguments`, `mcp.result`, `mcp.error`) and the client (`web.user`, from the token);
+  a shorter line without arguments and results goes to the edge's journal (`_SYSTEMD_UNIT:agentgateway.service`).
+  Arguments and results can hold whatever the tools were given or fetched, the logs VM keeps them for its
+  retention. REA's uploads and shared files aren't MCP and pass straight through.
+
+  ```
+  mcp.tool.name:* | fields _time, web.user, mcp.tool.target, mcp.tool.name, mcp.arguments, mcp.result
+  mcp.tool.name:* | stats by (web.user, mcp.tool.target, mcp.tool.name) count()
+  mcp.error:* | fields _time, mcp.tool.target, mcp.tool.name, mcp.error
+  ```
+
+- **Where servers reach out to**: the `mcp` VM logs each server's first TCP or UDP connection to every address and
+  port, then none to that one for an hour (each runs as its own `mcp-<name>` user), kernel lines like
+  `mcp-egress fetch: ... DST=1.2.3.4 ... DPT=443`. Addresses only, the name it looked up isn't there.
+
+  ```
+  _HOSTNAME:mcp "mcp-egress" | extract "mcp-egress <server>: " | extract "DST=<dst> " | extract "DPT=<port> " | stats by (server, dst, port) count()
+  ```
+
+- **Claude Code, per tool call**: Claude Code's own OpenTelemetry export has a `claude_code.tool_result` event for
+  every tool it calls, MCP or not, with the tool, its MCP server, success, error and duration, and with
+  `OTEL_LOG_TOOL_DETAILS=1` its parameters (which can hold secrets). VictoriaLogs takes OTLP directly. In
+  `~/.claude/settings.json` on each machine that should report (one that reaches the logs VM, `labs: logs in`), not
+  this repo's `.claude/settings.json`, which cloud sessions also read and couldn't send from:
+
+  ```json
+  {
+    "env": {
+      "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+      "OTEL_LOGS_EXPORTER": "otlp",
+      "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
+      "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://10.100.0.11:9428/insert/opentelemetry/v1/logs",
+      "OTEL_LOG_TOOL_DETAILS": "1"
+    }
+  }
+  ```
+
+  ```
+  claude_code.tool_result mcp_server_name:* | stats by (mcp_server_name, mcp_tool_name, success) count()
+  claude_code.tool_result success:false | fields _time, mcp_tool_name, error, tool_parameters
+  ```
+
+Claude's connectors (claude.ai, the apps) only show up in the access log and agentgateway's, they export nothing.
 
 ## rea (8101)
 
 Decompiles with Ghidra, reads APKs with JADX, runs samples and unpacks firmware. It only runs on
-`hosts/virtual/rea-dynamic` (`10.100.1.12`): one supergateway (`rea.service`, `config/rea-gateway.json`) serves
-every project in `homelab.mcp.rea.projects` and starts a REA for each MCP session, so agents never close or
-replace each other's target; a session idle for 30 minutes ends, and its REA with it. nginx on 8101
+`hosts/virtual/rea-dynamic` (`10.100.1.12`): each project in `homelab.mcp.rea.projects` has a supergateway of its
+own (`rea@<project>.service`, `config/rea-gateway.json`), which starts a REA for each MCP session, so agents never
+close or replace each other's target; a session idle for 30 minutes ends, and its REA with it. nginx on 8101
 (`homelab.mcp.rea.port`, `config/rea-nginx.conf`, reached through the router's `labs: edge to rea-dynamic`) is
-the only way in, the gateway (8102) only listens on loopback:
+the only way in, the gateways (each project's port in `homelab.mcp.rea.projects`, 9100 up) only listen on loopback:
 
 ```
 https://mcp.peacocks.me/rea/<project>/mcp       the project's server
@@ -172,23 +217,23 @@ https://mcp.peacocks.me/rea/<project>/samples/  its uploads, /var/lib/rea/<proje
 https://mcp.peacocks.me/rea/<project>/shared/   what its sessions share, read-only, /var/lib/rea/<project>/shared
 ```
 
-A repo's `.mcp.json` points at its project (this one at `default`):
+A repo's `.mcp.json` points at its project:
 
 ```json
-{ "mcpServers": { "rea": { "type": "http", "url": "https://mcp.peacocks.me/rea/default/mcp" } } }
+{ "mcpServers": { "rea": { "type": "http", "url": "https://mcp.peacocks.me/rea/<project>/mcp" } } }
 ```
 
 Adding a project is a line in `hosts/virtual/rea-dynamic` and a deploy, the edge needs nothing. Each session takes
 about 1.5 times Ghidra's heap (`homelab.mcp.rea.ghidraHeap`, 1G here) once it has a target open, and all of them
-together at most `homelab.mcp.rea.memoryMax` (75% of the VM): past that the kernel ends a session, not the VM.
+together, every project's, at most `homelab.mcp.rea.memoryMax` (75% of the VM, `rea.slice`): past that the kernel ends a session, not the VM.
 There's no cap on sessions, so size the VM's `limits.memory` for what runs at once.
 
 REA's tools take paths on the VM, so samples are uploaded first and opened by that path:
 
 ```sh
-curl -T sample.apk https://mcp.peacocks.me/rea/default/samples/sample.apk
-curl https://mcp.peacocks.me/rea/default/samples/                           # list
-curl -X DELETE https://mcp.peacocks.me/rea/default/samples/sample.apk
+curl -T sample.apk https://mcp.peacocks.me/rea/<project>/samples/sample.apk
+curl https://mcp.peacocks.me/rea/<project>/samples/                           # list
+curl -X DELETE https://mcp.peacocks.me/rea/<project>/samples/sample.apk
 ```
 
 From a cloud session the agent proxy adds the token. Uploads are up to 1G, one level (no subdirectories), land
@@ -196,8 +241,10 @@ From a cloud session the agent proxy adds the token. Uploads are up to 1G, one l
 
 ### Projects and sharing
 
-Projects keep work apart, they don't isolate it: everything runs as the `rea` user, and a sample one project
-runs can reach every project's files. The VM is a disposable sandbox, what matters lives in the projects' repos.
+Projects are isolated from each other: each runs as its own user (`rea-<project>`) and sees only its own
+directory, so a sample one project runs can't read or change another's files, nor reach its processes. That's
+against samples, not agents: every client's token opens every project's URLs, so keep apart there by client, not
+by project. The VM is still a disposable sandbox, what matters lives in the projects' repos.
 Each project's sessions pass work along through its shared directory:
 
 ```
@@ -210,7 +257,7 @@ Each project's sessions pass work along through its shared directory:
 
 Agents on the same branch import each other's evidence, a different branch starts its own. REA only writes into
 existing directories, so the names stay flat (`/` in a branch becomes `-`), and writes them `0600`, so
-`rea-shared.path` makes them group-readable for nginx a moment after they land.
+`rea-shared@<project>.path` makes them group-readable for nginx a moment after they land.
 
 Bundles carry findings as evidence records, not a Ghidra database: importing one doesn't rename anything in the
 importing session's binary, and REA's snapshots are the same records (no Ghidra analysis in them), so every
@@ -221,9 +268,9 @@ export after every finding worth keeping. To keep a bundle beyond the VM (in the
 it, and upload it as a sample to import it again:
 
 ```sh
-curl -fsS https://mcp.peacocks.me/rea/default/shared/evidence/                  # list
-curl -fsSO https://mcp.peacocks.me/rea/default/shared/evidence/main__agent-1.json
-curl -fsS -T main__agent-1.json https://mcp.peacocks.me/rea/default/samples/main__agent-1.json
+curl -fsS https://mcp.peacocks.me/rea/<project>/shared/evidence/                  # list
+curl -fsSO https://mcp.peacocks.me/rea/<project>/shared/evidence/main__agent-1.json
+curl -fsS -T main__agent-1.json https://mcp.peacocks.me/rea/<project>/samples/main__agent-1.json
 ```
 
 ### Dynamic analysis
@@ -266,16 +313,50 @@ The VM serves nothing else (asserted), holds no secrets (it isn't a sops recipie
   incus snapshot restore rea-dynamic clean
   ```
 
-## github (8103)
+## KiCad (9200-9299)
 
-Read-only with one server-side token, so every client reads as its owner. Use a fine-grained PAT with read-only
-Contents, Issues, Pull requests and Metadata on the repos it should see (a classic one needs `repo`, which also
-allows writes). It lives in the mcp VM's own `hosts/virtual/mcp/secrets.yaml`, so no other host can decrypt
-it. The host doesn't build with it enabled and no token.
+`homelab.mcp.kicad` (`servers/kicad.nix`) gives each project in `projects` a git repo in `/var/lib/kicad/<project>`
+and its own KiCad MCP Pro server, at `https://mcp.peacocks.me/kicad/<project>/mcp`, confined to that repo. Agents on
+different projects never share a server or files; agents on the same one share both, so give each line of work its
+own project. Headless: ERC/DRC, BOM and exports run through `kicad-cli`, tools that drive a running KiCad stay hidden.
+In `write` mode (the default) the `builder` tool set creates projects, edits schematics and boards and commits
+(`vcs_commit_checkpoint`); `readonly` keeps agents to inspecting, checking and exporting. Its outputs still need your
+review before fabrication.
+
+Each project is a clone of its source, a repo with something committed (GitHub's "Add a README" will do). Agents
+work on the `agent` branch (`pushBranch`): every minute it's rebased onto the source's `main` (`branch`) and
+force-pushed, so their work reaches you as a branch to review and merge, never `main` itself. Merge it with a merge
+commit or a rebase, a squash comes back as a conflict on the next sync. On uncommitted changes or a conflict it stops
+and leaves the repo as it was (`journalctl -u kicad-sync-<project>` says why). To look at a design, or change it
+yourself, work in the source. Protect `main` on GitHub (a ruleset restricting updates, no bypass for deploy keys) so
+nothing on the VM could push there even if it tried. Add a project in
+`hosts/virtual/mcp/default.nix` with a free port of its own (9200-9299), deploy `mcp` and `ionos-de` (the route) and
+widen nothing: `labs: edge to mcp` covers 9200-9299.
+
+```nix
+homelab.mcp.kicad.projects.palmremote = { port = 9200; url = "git@github.com:you/palmremote.git"; };
+```
+
+An ssh source needs a deploy key with write access, one per repo (GitHub allows a key on one repo only): add the
+public half to the repo (Settings, Deploy keys, Allow write access), the private half to the mcp VM's secrets. Until
+it's there the clone retries every minute, and the project's server starts once it's through.
 
 ```sh
-sops hosts/virtual/mcp/secrets.yaml   # github-mcp-token: github_pat_...
+ssh-keygen -t ed25519 -N '' -C kicad-palmremote -f kicad-deploy-key-palmremote
+sops hosts/virtual/mcp/secrets.yaml   # kicad-deploy-key-palmremote: | <the private key, indented>
 ```
+
+The clone is made once. To point a project at another source, change its url and move its repo aside (it clones
+again on the next start).
+
+## fdfdb (8110)
+
+NAND flash by part number or by the ID its READ ID returns, with the controllers that support it, from
+[iTXTech/fdfdb](https://github.com/iTXTech/fdfdb) (CC BY-NC-SA 4.0): the flash tables of Silicon Motion, Phison,
+Maxio, JMicron, Innostor, YEESTOR, ChipsBank, Alcor, FirstChip and SandForce tools. `packages/fdfdb-mcp.py` reads
+them into one index at build time, so a table whose format changed fails the build. Part numbers keep each
+table's spelling (package and mode suffixes), so searches match on substrings and IDs on shared prefixes. Bump
+`rev` and `hash` in `packages/fdfdb.nix` for new tables.
 
 ## context7 (8104)
 
