@@ -10,6 +10,11 @@ let
   cfg = config.homelab.mcp.kicad;
   inherit (lib) mkOption types;
   kicad = pkgs.kicad-small;
+  # Its symbol and footprint libraries (no 3D models in -small), in store paths of their own.
+  symbols = "${kicad.libraries.symbols}/share/kicad";
+  footprints = "${kicad.libraries.footprints}/share/kicad";
+  # KiCad's config directory for this version, where its global library tables live.
+  kicadConfig = p: "/var/lib/mcp-kicad-${p}/.config/kicad/${lib.versions.majorMinor kicad.version}";
   server = pkgs.callPackage ../packages/kicad-mcp-pro.nix { };
   git = lib.getExe pkgs.git;
   repo = p: "${cfg.dir}/${p}";
@@ -132,7 +137,17 @@ in
     # Group-writable for everyone in kicad, new files stay so (setgid, git's sharedRepository).
     systemd.tmpfiles.settings."10-kicad" = {
       ${cfg.dir}.d = { user = "root"; group = "kicad"; mode = "2775"; };
-    } // lib.genAttrs (map repo projects) (_: { d = { user = "root"; group = "kicad"; mode = "2775"; }; });
+    } // lib.genAttrs (map repo projects) (_: { d = { user = "root"; group = "kicad"; mode = "2775"; }; })
+    # KiCad's default global library tables, which only its first GUI start would copy in: every standard symbol
+    # and footprint library for ERC, DRC and the server. Read-only from the store, a server's own config beside
+    # them stays its own.
+    // lib.listToAttrs (lib.concatMap (p: let u = "mcp-kicad-${p}"; c = kicadConfig p; in [
+      (lib.nameValuePair "/var/lib/${u}/.config" { d = { user = u; group = u; mode = "0700"; }; })
+      (lib.nameValuePair "/var/lib/${u}/.config/kicad" { d = { user = u; group = u; mode = "0700"; }; })
+      (lib.nameValuePair c { d = { user = u; group = u; mode = "0700"; }; })
+      (lib.nameValuePair "${c}/sym-lib-table" { "L+".argument = "${symbols}/template/sym-lib-table"; })
+      (lib.nameValuePair "${c}/fp-lib-table" { "L+".argument = "${footprints}/template/fp-lib-table"; })
+    ]) projects);
 
     programs.git = {
       enable = true;
@@ -157,6 +172,12 @@ in
         KICAD_MCP_HEADLESS = "true";
         KICAD_MCP_OPERATING_MODE = cfg.mode;
         KICAD_MCP_PROFILE = cfg.profile;
+        # It looks for the libraries beside kicad-cli, which they aren't on NixOS.
+        KICAD_MCP_SYMBOL_LIBRARY_DIR = "${symbols}/symbols";
+        KICAD_MCP_FOOTPRINT_LIBRARY_DIR = "${footprints}/footprints";
+        # What the library tables' ${KICAD10_...} stand for (kicad-cli's wrapper sets them, the server too).
+        KICAD10_SYMBOL_DIR = "${symbols}/symbols";
+        KICAD10_FOOTPRINT_DIR = "${footprints}/footprints";
       };
     }) cfg.projects;
 
