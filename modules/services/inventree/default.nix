@@ -39,18 +39,11 @@ in
     services.nginx.virtualHosts.${host} = {
       listen = [{ addr = "0.0.0.0"; port = 80; }];
       locations."/" = {
-        # The front door's view of the request, not this hop's (the module's own lines are kept).
+        # The module's own lines are kept.
         recommendedProxySettings = lib.mkForce false;
-        extraConfig = ''
-          proxy_set_header Host $host;
-          proxy_set_header X-Forwarded-For $http_x_forwarded_for;
-          proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
-          proxy_set_header X-Forwarded-User $http_x_forwarded_user;
-        '';
+        extraConfig = builtins.readFile ../web/config/published-headers.conf;
       };
-      extraConfig = ''
-        ${lib.concatMapStrings (a: "allow ${a};\n") cfg.trustedProxies}deny all;
-      '';
+      extraConfig = lib.concatMapStrings (a: "allow ${a};\n") cfg.trustedProxies + "deny all;\n";
     };
 
     homelab.publish = {

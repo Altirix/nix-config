@@ -30,26 +30,18 @@ in
       enable = true;
       recommendedProxySettings = true;
       virtualHosts = {
-        # systemd-journal-upload holds one chunked request open and streams entries into it.
         insert = {
           listen = [{ addr = "0.0.0.0"; port = 9428; }];
           locations."/insert/".proxyPass = "http://127.0.0.1:9429";
           locations."/".return = "404";
-          extraConfig = ''
-            client_max_body_size 0;
-            client_body_timeout 1h;
-            proxy_request_buffering off;
-            proxy_read_timeout 1h;
-            proxy_send_timeout 1h;
-          '';
+          extraConfig = builtins.readFile ./config/insert.conf;
         };
         query = {
           listen = [{ addr = "0.0.0.0"; port = 9427; }];
           locations."/select/".proxyPass = "http://127.0.0.1:9429";
           locations."= /".return = "302 /select/vmui/";
           locations."/".return = "404";
-          # Relative, behind the front door an absolute one would name this port.
-          extraConfig = "absolute_redirect off;";
+          extraConfig = builtins.readFile ./config/query.conf;
         };
       };
     };

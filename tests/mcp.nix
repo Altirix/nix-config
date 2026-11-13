@@ -5,9 +5,9 @@ self:
 # tools listed over streamable HTTP from `client`. Who reaches which port is the router's call, not tested here.
 # The VMs have no internet, so tools are only called where they stay on the test network.
 let
-  # github and paperless need the host's sops key for their tokens, which the test VM doesn't have; the KiCad
-  # servers come from their own preset, with project repos.
-  skip = name: lib.elem name [ "github" "paperless" ] || lib.hasPrefix "kicad-" name;
+  # paperless needs the host's sops key for its token, which the test VM doesn't have; the KiCad servers come from
+  # their own preset, with project repos.
+  skip = name: name == "paperless" || lib.hasPrefix "kicad-" name;
   servers = host: lib.filterAttrs (name: s: s.enable && !skip name)
     self.nixosConfigurations.${host}.config.homelab.mcp.servers;
   enabled = lib.attrNames (servers "mcp" // servers "mcp-web");
@@ -15,7 +15,6 @@ let
   # A tool each server must list.
   tools = {
     nixos = "nix";
-    github = "get_me";
     context7 = "resolve-library-id";
     fetch = "fetch";
     time = "get_current_time";
@@ -32,7 +31,7 @@ in
 
   nodes = {
     mcp = {
-      # The github preset declares its sops secret, sops itself stays unused with github off.
+      # The paperless and KiCad presets declare sops secrets, sops itself stays unused with them off.
       imports = [
         self.inputs.sops-nix.nixosModules.sops
         ../modules/system/secrets.nix

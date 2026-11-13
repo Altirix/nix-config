@@ -29,7 +29,7 @@ in
       default = "200m";
     };
     # A sops file with paperless-mcp-token (40 hex), shared with the MCP server's host: a view-only mcp user with
-    # that token, made and kept here (mcp-user.py). null makes none.
+    # that token, made and kept here (scripts/mcp-user.py). null makes none.
     mcpTokenFile = lib.mkOption {
       type = lib.types.nullOr lib.types.path;
       default = null;
@@ -78,30 +78,18 @@ in
           locations."/" = {
             proxyPass = paperless;
             proxyWebsockets = true;
-            # The front door's view of the request, not this hop's.
             recommendedProxySettings = false;
-            extraConfig = ''
-              proxy_set_header Host $host;
-              proxy_set_header X-Forwarded-For $http_x_forwarded_for;
-              proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
-              proxy_set_header X-Forwarded-User $http_x_forwarded_user;
-            '';
+            extraConfig = builtins.readFile ../web/config/published-headers.conf;
           };
-          extraConfig = ''
-            ${lib.concatMapStrings (a: "allow ${a};\n") cfg.trustedProxies}deny all;
-            client_max_body_size ${cfg.maxBodySize};
-            # Uploads stream through to Paperless, the front door already passes them on as they arrive.
-            proxy_request_buffering off;
-          '';
+          extraConfig = lib.concatMapStrings (a: "allow ${a};\n") cfg.trustedProxies + "deny all;\n"
+            + builtins.replaceStrings [ "@maxBodySize@" ] [ cfg.maxBodySize ] (builtins.readFile ./config/front-door.conf);
         };
-        # Token clients: only the API, and nobody names a user.
+        # Token clients: only the API.
         paperless-api = {
           listen = [{ addr = "0.0.0.0"; port = cfg.apiPort; }];
           locations."/api/" = {
             proxyPass = paperless;
-            extraConfig = ''
-              proxy_set_header X-Forwarded-User "";
-            '';
+            extraConfig = builtins.readFile ./config/api.conf;
           };
           locations."/".return = "404";
           extraConfig = "client_max_body_size ${cfg.maxBodySize};";
@@ -126,11 +114,9 @@ in
         Type = "oneshot";
         User = config.services.paperless.user;
       };
-      script = ''
-        paperless-manage shell -c "$(cat ${pkgs.replaceVars ./mcp-user.py {
-          token = config.sops.secrets.paperless-mcp-token.path;
-        }})"
-      '';
+      environment.TOKEN_FILE = config.sops.secrets.paperless-mcp-token.path;
+      # Django's shell runs what it's given on stdin.
+      script = "paperless-manage shell < ${./scripts/mcp-user.py}";
     };
 
     systemd.timers.paperless-mcp-user = lib.mkIf (cfg.mcpTokenFile != null) {

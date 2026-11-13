@@ -1,0 +1,2 @@
+  meta nfproto ipv4 meta skuid "mcp-@name@" log prefix "mcp-egress @name@: " add @seen4 { meta skuid . ip daddr . th dport }
+  meta nfproto ipv6 meta skuid "mcp-@name@" log prefix "mcp-egress @name@: " add @seen6 { meta skuid . ip6 daddr . th dport }

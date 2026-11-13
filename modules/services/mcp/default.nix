@@ -53,7 +53,7 @@ let
         default = [ ];
       };
       # Published at /<name>/mcp (homelab.publish) for a front door to serve (mcp.peacocks.me), low-risk servers only:
-      # never playwright (runs code) or github (holds a token). The router also has to let the edge in on its port.
+      # never playwright (runs code). The router also has to let the edge in on its port.
       public = mkOption {
         type = types.bool;
         default = false;
@@ -124,24 +124,13 @@ in
 
     networking.firewall.allowedTCPPorts = ports (lib.attrValues enabled);
 
-    # A server's first TCP or UDP connection to each address and port, then nothing more to it for an hour (what it
-    # called there is in the audit log): every destination shows, a loop to one doesn't flood the journal. It logs
-    # before remembering, so with a set full (65536 in an hour) repeats show again rather than new ones going.
+    # Where each server connects to (config/egress.nft).
     networking.nftables.tables.mcp-egress = {
       family = "inet";
-      content = lib.concatLines ([
-        "set seen4 { typeof meta skuid . ip daddr . th dport; flags timeout; timeout 1h; size 65536; }"
-        "set seen6 { typeof meta skuid . ip6 daddr . th dport; flags timeout; timeout 1h; size 65536; }"
-        "chain output {"
-        "  type filter hook output priority filter; policy accept;"
-        "  oifname \"lo\" accept"
-        "  ct state != new accept"
-        "  meta skuid . ip daddr . th dport @seen4 accept"
-        "  meta skuid . ip6 daddr . th dport @seen6 accept"
-      ] ++ lib.concatMap (name: [
-        "  meta nfproto ipv4 meta skuid \"mcp-${name}\" log prefix \"mcp-egress ${name}: \" add @seen4 { meta skuid . ip daddr . th dport }"
-        "  meta nfproto ipv6 meta skuid \"mcp-${name}\" log prefix \"mcp-egress ${name}: \" add @seen6 { meta skuid . ip6 daddr . th dport }"
-      ]) (lib.attrNames enabled) ++ [ "}" ]);
+      content = builtins.replaceStrings [ "@servers@" ]
+        [ (lib.concatMapStrings (name: builtins.replaceStrings [ "@name@" ] [ name ] (builtins.readFile ./config/egress-server.nft))
+          (lib.attrNames enabled)) ]
+        (builtins.readFile ./config/egress.nft);
     };
     # The build's ruleset check has none of these users.
     networking.nftables.preCheckRuleset = ''

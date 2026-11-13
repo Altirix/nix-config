@@ -105,8 +105,8 @@ in
     }) cfg.projects);
 
     systemd.services = lib.listToAttrs (map (p: lib.nameValuePair "mcp-kicad-${p}" {
-      after = [ "kicad-projects.service" ];
-      requires = [ "kicad-projects.service" ];
+      after = [ "kicad-repo-${p}.service" ];
+      requires = [ "kicad-repo-${p}.service" ];
       serviceConfig = {
         ReadWritePaths = [ (repo p) ];
         UMask = "0002";
@@ -114,27 +114,17 @@ in
     }) cfg.projects)
     // lib.mapAttrs' (p: src: lib.nameValuePair "kicad-sync-${p}" {
       description = "Keep KiCad project ${p} in step with ${src.url}";
-      after = [ "kicad-projects.service" "network-online.target" ];
+      after = [ "kicad-repo-${p}.service" "network-online.target" ];
+      requires = [ "kicad-repo-${p}.service" ];
       wants = [ "network-online.target" ];
       path = [ pkgs.git-sync pkgs.git pkgs.openssh ];
-      environment.GIT_SSH_COMMAND = "ssh -o UserKnownHostsFile=/var/lib/kicad-sync/known_hosts"
-        + " -o StrictHostKeyChecking=accept-new"
-        + lib.optionalString (ssh src.url) " -i ${config.sops.secrets.${keySecret p}.path} -o IdentitiesOnly=yes";
-      # git-sync needs a branch to sync, an empty repo takes the source's first.
-      preStart = ''
-        git rev-parse --quiet --verify HEAD >/dev/null || {
-          git fetch --quiet origin ${src.branch} && git reset --quiet --hard FETCH_HEAD
-        }
-      '';
-      # On a conflict git-sync stops mid-rebase, with markers in the files agents edit: undo it, so the project keeps
-      # its own commits and the next run tries again (its log says what conflicts).
-      script = ''
-        git-sync || {
-          status=$?
-          git rebase --abort 2>/dev/null || true
-          exit $status
-        }
-      '';
+      environment = {
+        BRANCH = src.branch;
+        GIT_SSH_COMMAND = "ssh -o UserKnownHostsFile=/var/lib/kicad-sync/known_hosts"
+          + " -o StrictHostKeyChecking=accept-new"
+          + lib.optionalString (ssh src.url) " -i ${config.sops.secrets.${keySecret p}.path} -o IdentitiesOnly=yes";
+      };
+      script = builtins.readFile ../scripts/kicad-sync.sh;
       serviceConfig = {
         Type = "oneshot";
         User = "kicad-sync";
@@ -149,32 +139,20 @@ in
         NoNewPrivileges = true;
       };
     }) cfg.sources
-    // {
-      # Each project a repository a push lands in directly (its checkout follows), shared by the group, set up for
-      # git-sync where it has a source. git-sync refuses rather than committing uncommitted changes itself, an
-      # agent's half-done edits never go up.
-      kicad-projects = {
-        description = "KiCad project repositories";
-        wantedBy = [ "multi-user.target" ];
-        after = [ "systemd-tmpfiles-setup.service" ];
-        path = [ pkgs.git ];
-        serviceConfig = { Type = "oneshot"; RemainAfterExit = true; UMask = "0002"; };
-        script = lib.concatMapStrings (p: ''
-          [ -e ${repo p}/.git ] || git init -q -b main --shared=group ${repo p}
-          git -C ${repo p} config receive.denyCurrentBranch updateInstead
-        '' + lib.optionalString (cfg.sources ? ${p}) (let src = cfg.sources.${p}; b = src.branch; in ''
-          git -C ${repo p} remote get-url origin >/dev/null 2>&1 || git -C ${repo p} remote add origin ${src.url}
-          git -C ${repo p} remote set-url origin ${src.url}
-          git -C ${repo p} config branch.${b}.remote origin
-          git -C ${repo p} config branch.${b}.merge refs/heads/${b}
-          git -C ${repo p} config branch.${b}.sync true
-          git -C ${repo p} config branch.${b}.autocommitscript \
-            'echo "uncommitted changes: commit them (vcs_commit_checkpoint) or discard them"; exit 1'
-        '') + ''
-          chgrp -R kicad ${repo p}/.git
-        '') cfg.projects;
+    // lib.listToAttrs (map (p: lib.nameValuePair "kicad-repo-${p}" {
+      description = "KiCad project repository ${p}";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "systemd-tmpfiles-setup.service" ];
+      path = [ pkgs.git ];
+      environment = {
+        REPO = repo p;
+      } // lib.optionalAttrs (cfg.sources ? ${p}) {
+        URL = cfg.sources.${p}.url;
+        BRANCH = cfg.sources.${p}.branch;
       };
-    };
+      script = builtins.readFile ../scripts/kicad-repo.sh;
+      serviceConfig = { Type = "oneshot"; RemainAfterExit = true; UMask = "0002"; };
+    }) cfg.projects);
 
     systemd.timers = lib.mapAttrs' (p: _: lib.nameValuePair "kicad-sync-${p}" {
       wantedBy = [ "timers.target" ];

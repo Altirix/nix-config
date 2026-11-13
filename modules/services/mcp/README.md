@@ -13,7 +13,7 @@ A VM is the boundary: servers on one share its egress, its root and whatever its
 
 | VM | Address | Servers | Why there |
 |----|---------|---------|-----------|
-| `hosts/virtual/mcp` | `10.100.1.11` | nixos, context7, time, memory, fdfdb, github, paperless, KiCad projects | hold tokens or data (github's PAT, paperless' token, memory's graph, the projects), only talk to known APIs |
+| `hosts/virtual/mcp` | `10.100.1.11` | nixos, context7, time, memory, fdfdb, paperless, KiCad projects | hold tokens or data (paperless' token, memory's graph, the projects), only talk to known APIs |
 | `hosts/virtual/mcp-web` | `10.100.1.13` | fetch, markitdown, playwright | read any page an agent names, playwright runs its code: nothing there to steal |
 | `hosts/virtual/rea-dynamic` | `10.100.1.12` | rea | runs the binaries it analyses, no egress, reset from a snapshot (rea) |
 
@@ -49,10 +49,10 @@ VXLAN goes VM to VM past the router.
 Who gets in, and what they open, is in modules/networking/README.md (Router): `labs: edge to mcp` (the public
 servers' ports, `public = true`, From outside), `labs: edge to mcp-web`, `labs: edge to rea-dynamic`, `labs: tunnel to agents, nothing else`
 (no other tunnel peer reaches either VM), `labs: rea-dynamic opens nothing` (not the router, labs, home or out the
-tunnel) and `labs: nothing private` (mcp and mcp-web reach the internet, for context7, nixos, GitHub, fetch and playwright,
+tunnel) and `labs: nothing private` (mcp and mcp-web reach the internet, for context7, nixos, fetch and playwright,
 but never home, mgmt, labs or the edge's tunnel address). ssh from home still reaches them for deploys (`labs: home ssh, rdp`).
 
-Agents on the LAN that should reach the servers directly (every port, including playwright and github),
+Agents on the LAN that should reach the servers directly (every port, playwright included),
 one per machine, just above `labs: only home and tunnel in`:
 
 ```routeros
@@ -82,7 +82,7 @@ The servers marked `public` (nixos, context7, time, memory, fdfdb, paperless, th
 markitdown on `mcp-web`) are published (`homelab.publish`), and the edge's `mcp` site
 (`hosts/edge/ionos-de/services.nix`, `from = [ "mcp" "mcp-web" "rea-dynamic" ]`)
 serves them at `https://mcp.peacocks.me/<server>/mcp`, proxied over the tunnel (streamable
-HTTP only, SSE is deprecated). playwright runs code, github holds a token, they get no route. Every
+HTTP only, SSE is deprecated). playwright runs code, it gets no route. Every
 request needs `Authorization: Bearer <token>`, one token per client in `hosts/edge/ionos-de/secrets.yaml` so each
 can be revoked, and the access log (the journal's `nginx_access`, on to the logs VM) names the client. OAuth
 sign-in through Kanidm (`modules/services/sso`) is ready to replace the tokens later (`oauth` in place of `tokens` on
@@ -309,17 +309,6 @@ The VM serves nothing else (asserted), holds no secrets (it isn't a sops recipie
   incus stop rea-dynamic && incus snapshot create rea-dynamic clean --reuse && incus start rea-dynamic
   incus snapshot restore rea-dynamic clean
   ```
-
-## github (8103)
-
-Read-only with one server-side token, so every client reads as its owner. Use a fine-grained PAT with read-only
-Contents, Issues, Pull requests and Metadata on the repos it should see (a classic one needs `repo`, which also
-allows writes). It lives in the mcp VM's own `hosts/virtual/mcp/secrets.yaml`, so no other host can decrypt
-it. The host doesn't build with it enabled and no token.
-
-```sh
-sops hosts/virtual/mcp/secrets.yaml   # github-mcp-token: github_pat_...
-```
 
 ## KiCad (8200-8299)
 
