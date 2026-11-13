@@ -323,13 +323,11 @@ In `write` mode (the default) the `builder` tool set creates projects, edits sch
 (`vcs_commit_checkpoint`); `readonly` keeps agents to inspecting, checking and exporting. Its outputs still need your
 review before fabrication.
 
-Each project is a clone of its source, a repo with something committed (GitHub's "Add a README" will do). Agents
-work on the `agent` branch (`pushBranch`): every minute it's rebased onto the source's `main` (`branch`) and
-force-pushed, so their work reaches you as a branch to review and merge, never `main` itself. Merge it with a merge
-commit or a rebase, a squash comes back as a conflict on the next sync. On uncommitted changes or a conflict it stops
-and leaves the repo as it was (`journalctl -u kicad-sync-<project>` says why). To look at a design, or change it
-yourself, work in the source. Protect `main` on GitHub (a ruleset restricting updates, no bypass for deploy keys) so
-nothing on the VM could push there even if it tried. Add a project in
+Each project is a clone of its source, a repo with something committed (GitHub's "Add a README" will do), on one
+branch (`branch`, main): every minute the project's commits are rebased onto it and pushed, so commits pushed there
+from anywhere else (you, an agent on your PC) come down and the server agents' go up, nobody's overwritten. On
+uncommitted changes or a conflict it stops and leaves the repo as it was (`journalctl -u kicad-sync-<project>` says
+why). For a review step, set `branch = "agent";` and merge agent into main yourself. Add a project in
 `hosts/virtual/mcp/default.nix` with a free port of its own (9200-9299), deploy `mcp` and `ionos-de` (the route) and
 widen nothing: `labs: edge to mcp` covers 9200-9299.
 

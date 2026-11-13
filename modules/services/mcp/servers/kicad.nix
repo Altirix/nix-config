@@ -3,9 +3,9 @@
 # KiCad projects for agents (README.md, kicad). Each project is a clone of its source (GitHub, with a commit to start
 # from) in `dir`/<project> with its own KiCad MCP Pro server, published at /kicad/<project>/mcp and confined to it:
 # agents on different projects never share a server or files. Headless: kicad-cli runs ERC/DRC and exports, tools
-# that drive a running KiCad stay hidden. Agents work on `pushBranch` (agent): every minute it's rebased onto the
-# source's `branch` (main) and pushed, so what they commit (vcs_commit_checkpoint) reaches you as a branch to merge,
-# never main itself. It stops on uncommitted changes or a conflict, never overwriting work.
+# that drive a running KiCad stay hidden. Every minute the project's commits (vcs_commit_checkpoint) are rebased onto
+# its source's `branch` and pushed there, so the source's new commits come down and the agents' go up, whoever else
+# pushes to it too. It stops on uncommitted changes or a conflict, never overwriting work.
 let
   cfg = config.homelab.mcp.kicad;
   inherit (lib) mkOption types;
@@ -74,16 +74,10 @@ in
         options = {
           port = mkOption { type = types.port; };
           url = mkOption { type = types.str; };
-          # What agents start from and keep up with.
+          # The one branch the project follows and pushes to. Another than main (e.g. agent) to merge from yourself.
           branch = mkOption {
             type = types.str;
             default = "main";
-          };
-          # Where their commits go, the VM's own: rebased onto `branch` as it moves, so force-pushed. A branch to
-          # merge into `branch` with a merge or rebase (a squash comes back as a conflict).
-          pushBranch = mkOption {
-            type = types.str;
-            default = "agent";
           };
         };
       });
@@ -112,10 +106,6 @@ in
       {
         assertion = lib.all (p: builtins.match "[a-z0-9][a-z0-9-]*" p != null) projects;
         message = "kicad: project names are lowercase letters, digits and dashes";
-      }
-      {
-        assertion = lib.all (p: p.branch != p.pushBranch) (lib.attrValues cfg.projects);
-        message = "kicad: a project's pushBranch is the VM's own, not the branch it starts from";
       }
       {
         # The router's `labs: edge to mcp` and `labs: agents to mcp` only let these through.
@@ -206,14 +196,8 @@ in
         RemainAfterExit = true;
         Restart = "on-failure";
         RestartSec = "1min";
-        ExecStart = [ (utils.escapeSystemdExecArgs
-          [ git "clone" "--quiet" "--branch" src.branch "--config" "core.sharedRepository=group" src.url (repo p) ]) ]
-          # Onto the agents' branch: the source's if it has one already (a rebuilt VM picks up their work), else
-          # a new one from `branch`. "-": the one that doesn't apply fails.
-          ++ map (args: "-" + utils.escapeSystemdExecArgs args) [
-            [ git "-C" (repo p) "switch" "--quiet" src.pushBranch ]
-            [ git "-C" (repo p) "switch" "--quiet" "--create" src.pushBranch ]
-          ];
+        ExecStart = utils.escapeSystemdExecArgs
+          [ git "clone" "--quiet" "--branch" src.branch "--config" "core.sharedRepository=group" src.url (repo p) ];
         # The server waited for it: start it, also after a clone that took a few tries (as root, "+").
         ExecStartPost = "+${config.systemd.package}/bin/systemctl start --no-block mcp-kicad-${p}.service";
       };
@@ -224,12 +208,12 @@ in
       requires = [ "kicad-repo-${p}.service" ];
       serviceConfig = {
         WorkingDirectory = repo p;
-        # The rebase refuses uncommitted changes, an agent's half-done edits never go up. The lease guards the
-        # moment between fetch and push.
+        # The rebase refuses uncommitted changes, an agent's half-done edits never go up. A plain push: if someone
+        # pushed in between, it's refused and the next run rebases onto theirs.
         ExecStart = map utils.escapeSystemdExecArgs [
           [ git "fetch" "--quiet" "--prune" "origin" ]
-          [ git "rebase" "--quiet" "origin/${src.branch}" src.pushBranch ]
-          [ git "push" "--quiet" "--force-with-lease" "origin" src.pushBranch ]
+          [ git "rebase" "--quiet" "origin/${src.branch}" src.branch ]
+          [ git "push" "--quiet" "origin" src.branch ]
         ];
         # On a conflict the rebase stops halfway, with markers in the files agents edit: undo it, so the project
         # keeps its own commits and the next run tries again (the log says what conflicts).

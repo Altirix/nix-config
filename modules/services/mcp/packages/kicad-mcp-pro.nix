@@ -135,6 +135,9 @@ python.pkgs.buildPythonApplication (finalAttrs: {
     typer
     urllib3
     websockets
+    # sch_render_png and the visual diffs: SVG to PNG (upstream lists them as dev-only, they're runtime).
+    cairosvg
+    pillow
   ] ++ mcp.optional-dependencies.cli or [ ];
 
   pythonImportsCheck = [ "kicad_mcp" ];
