@@ -90,7 +90,8 @@ in
   };
   options.homelab.mcp.rea.gatewayPort = lib.mkOption {
     type = lib.types.port;
-    default = 8102;
+    # Out of the way of the single servers' 81xx.
+    default = 9100;
   };
 
   # Milliseconds a session may sit idle before its REA is stopped.

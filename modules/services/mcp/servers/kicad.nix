@@ -83,7 +83,8 @@ in
     # The servers' ports, one per project in order from here.
     basePort = mkOption {
       type = types.port;
-      default = 8200;
+      # Out of the way of the single servers' 81xx.
+      default = 9200;
     };
   };
 

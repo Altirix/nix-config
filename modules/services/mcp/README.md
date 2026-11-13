@@ -57,7 +57,7 @@ one per machine, just above `labs: only home and tunnel in`:
 
 ```routeros
 /ip firewall filter
-add chain=forward action=accept connection-state=new src-address=<agent> dst-address=10.100.1.11 protocol=tcp dst-port=8100-8299 comment="labs: agents to mcp" place-before=[find comment="labs: only home and tunnel in"]
+add chain=forward action=accept connection-state=new src-address=<agent> dst-address=10.100.1.11 protocol=tcp dst-port=8100-8199,9200-9299 comment="labs: agents to mcp" place-before=[find comment="labs: only home and tunnel in"]
 add chain=forward action=accept connection-state=new src-address=<agent> dst-address=10.100.1.13 protocol=tcp dst-port=8100-8199 comment="labs: agents to mcp-web" place-before=[find comment="labs: only home and tunnel in"]
 add chain=forward action=accept connection-state=new src-address=<agent> dst-address=10.100.1.12 protocol=tcp dst-port=8101 comment="labs: agents to rea-dynamic" place-before=[find comment="labs: only home and tunnel in"]
 ```
@@ -208,7 +208,7 @@ Decompiles with Ghidra, reads APKs with JADX, runs samples and unpacks firmware.
 own (`rea@<project>.service`, `config/rea-gateway.json`), which starts a REA for each MCP session, so agents never
 close or replace each other's target; a session idle for 30 minutes ends, and its REA with it. nginx on 8101
 (`homelab.mcp.rea.port`, `config/rea-nginx.conf`, reached through the router's `labs: edge to rea-dynamic`) is
-the only way in, the gateways (from 8102, one per project in order) only listen on loopback:
+the only way in, the gateways (from 9100, one per project in order) only listen on loopback:
 
 ```
 https://mcp.peacocks.me/rea/<project>/mcp       the project's server
@@ -312,7 +312,7 @@ The VM serves nothing else (asserted), holds no secrets (it isn't a sops recipie
   incus snapshot restore rea-dynamic clean
   ```
 
-## KiCad (8200-8299)
+## KiCad (9200-9299)
 
 `homelab.mcp.kicad` (`servers/kicad.nix`) gives each project in `projects` a git repo in `/var/lib/kicad/<project>`
 and its own KiCad MCP Pro server, at `https://mcp.peacocks.me/kicad/<project>/mcp`, confined to that repo. Agents on
@@ -323,7 +323,7 @@ In `write` mode (the default) the `builder` tool set creates projects, edits sch
 review before fabrication. To look at a design, pull the repo and open it in KiCad.
 
 Add a project to `projects` in `hosts/virtual/mcp/default.nix` (at the end, ports follow the order), deploy `mcp` and
-`ionos-de` (the route) and widen nothing: `labs: edge to mcp` covers 8200-8299.
+`ionos-de` (the route) and widen nothing: `labs: edge to mcp` covers 9200-9299.
 
 A project with a `source` keeps in step with it through git-sync every minute: commits there come down, what agents
 commit goes up, rebased onto them. On uncommitted changes or a conflict it stops and leaves the repo as it was
