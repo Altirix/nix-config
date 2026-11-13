@@ -1,6 +1,11 @@
 # Keeps a KiCad project in step with its source's $BRANCH, run in its repository (servers/kicad.nix). One fetch a run
 # once set up, git-sync's own: the checks below use origin/$BRANCH as the last run left it.
 if ! git rev-parse --quiet --verify "refs/remotes/origin/$BRANCH" >/dev/null; then
+  # An empty source and an empty project: nothing changes here until one of them has a commit, ask the source hourly.
+  if ! git rev-parse --quiet --verify HEAD >/dev/null \
+    && [ $(($(date +%s) - $(git config --default 0 kicad.emptyChecked))) -lt 3600 ]; then
+    exit 0
+  fi
   status=0
   git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null || status=$?
   # An empty source (a new repo) takes the project's commits, if there are any and it may push.
@@ -8,6 +13,7 @@ if ! git rev-parse --quiet --verify "refs/remotes/origin/$BRANCH" >/dev/null; th
     if [ "$PUSH" = true ] && git rev-parse --quiet --verify HEAD >/dev/null; then
       exec git push --quiet origin "HEAD:refs/heads/$BRANCH"
     fi
+    git config kicad.emptyChecked "$(date +%s)"
     exit 0
   fi
   [ "$status" = 0 ] || exit "$status"

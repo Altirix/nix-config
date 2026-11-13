@@ -16,6 +16,25 @@ let
   ssh = url: lib.hasPrefix "ssh://" url || builtins.match "[^/:]+@[^/:]+:.*" url != null;
   keySecret = p: "kicad-deploy-key-${p}";
   sshSources = lib.filterAttrs (_: s: ssh s.url) cfg.sources;
+  # Each source's own user, owning only its project's deploy key.
+  syncUser = p: "kicad-sync-${p}";
+  # Hooks for every project, from the store: a repo's own .git/hooks are never run.
+  hooks = pkgs.writeShellApplication {
+    name = "post-receive";
+    runtimeInputs = [ pkgs.findutils pkgs.coreutils ];
+    text = builtins.readFile ../scripts/kicad-post-receive.sh;
+  };
+  # What git-sync must never take from a repo agents write to, whatever its config says: hooks, an fsmonitor, a
+  # signing program, transports other than these.
+  gitGuard = lib.imap0 (i: kv: { "GIT_CONFIG_KEY_${toString i}" = lib.head kv; "GIT_CONFIG_VALUE_${toString i}" = lib.last kv; }) [
+    [ "core.hooksPath" "/dev/null" ]
+    [ "core.fsmonitor" "false" ]
+    [ "commit.gpgSign" "false" ]
+    [ "protocol.allow" "never" ]
+    [ "protocol.ssh.allow" "always" ]
+    [ "protocol.https.allow" "always" ]
+    [ "protocol.file.allow" "always" ]
+  ];
 in
 {
   options.homelab.mcp.kicad = {
@@ -78,11 +97,11 @@ in
     # admin pushes and pulls over ssh, the servers edit, git-sync keeps sources in step.
     users.users = {
       admin.extraGroups = [ "kicad" ];
-      kicad-sync = {
-        isSystemUser = true;
-        group = "kicad";
-      };
-    } // lib.listToAttrs (map (p: lib.nameValuePair "mcp-kicad-${p}" { extraGroups = [ "kicad" ]; }) cfg.projects);
+    } // lib.mapAttrs' (p: _: lib.nameValuePair (syncUser p) {
+      isSystemUser = true;
+      group = "kicad";
+    }) cfg.sources
+    // lib.listToAttrs (map (p: lib.nameValuePair "mcp-kicad-${p}" { extraGroups = [ "kicad" ]; }) cfg.projects);
 
     # Group-writable for everyone in kicad, new files stay so (setgid, git's sharedRepository).
     systemd.tmpfiles.settings."10-kicad" = {
@@ -119,6 +138,11 @@ in
       after = [ "kicad-repo-${p}.service" ];
       requires = [ "kicad-repo-${p}.service" ];
       serviceConfig = {
+        # Only its own project there: the others aren't even readable.
+        TemporaryFileSystem = cfg.dir;
+        BindPaths = [ (repo p) ];
+        # Commits, never the repo's config or hooks, which others' git (sync, your pushes) would run.
+        BindReadOnlyPaths = [ "${repo p}/.git/config" "${repo p}/.git/hooks" ];
         ReadWritePaths = [ (repo p) ];
         UMask = "0002";
       };
@@ -132,18 +156,19 @@ in
       environment = {
         BRANCH = src.branch;
         PUSH = lib.boolToString src.push;
-        GIT_SSH_COMMAND = "ssh -o UserKnownHostsFile=/var/lib/kicad-sync/known_hosts"
+        GIT_CONFIG_COUNT = toString (lib.length gitGuard);
+        GIT_SSH_COMMAND = "ssh -o UserKnownHostsFile=/var/lib/${syncUser p}/known_hosts"
           + " -o StrictHostKeyChecking=accept-new"
           + lib.optionalString (ssh src.url) " -i ${config.sops.secrets.${keySecret p}.path} -o IdentitiesOnly=yes";
-      };
+      } // lib.mergeAttrsList gitGuard;
       script = builtins.readFile ../scripts/kicad-sync.sh;
       serviceConfig = {
         Type = "oneshot";
-        User = "kicad-sync";
+        User = syncUser p;
         Group = "kicad";
         UMask = "0002";
         WorkingDirectory = repo p;
-        StateDirectory = "kicad-sync";
+        StateDirectory = syncUser p;
         ReadWritePaths = [ (repo p) ];
         ProtectSystem = "strict";
         ProtectHome = true;
@@ -158,6 +183,7 @@ in
       path = [ pkgs.git ];
       environment = {
         REPO = repo p;
+        HOOKS = "${hooks}/bin";
       } // lib.optionalAttrs (cfg.sources ? ${p}) {
         URL = cfg.sources.${p}.url;
         BRANCH = cfg.sources.${p}.branch;
@@ -174,6 +200,6 @@ in
       };
     }) cfg.sources;
 
-    sops.secrets = lib.mapAttrs' (p: _: lib.nameValuePair (keySecret p) { owner = "kicad-sync"; }) sshSources;
+    sops.secrets = lib.mapAttrs' (p: _: lib.nameValuePair (keySecret p) { owner = syncUser p; }) sshSources;
   };
 }

@@ -129,15 +129,15 @@ in
                 print(mcp.succeed(f"journalctl -u mcp-{name} -o cat | tail -n 40"))
 
     with subtest("kicad sync"):
-        # Someone working in the source (as kicad-sync, which owns it) and an agent in the project.
-        upstream = lambda cmd: f"runuser -u kicad-sync -- sh -c 'cd /tmp/t && {cmd}'"
+        # Someone working in the source (as kicad-sync-t, which owns it) and an agent in the project.
+        upstream = lambda cmd: f"runuser -u kicad-sync-t -- sh -c 'cd /tmp/t && {cmd}'"
         agent = lambda cmd: f"runuser -u mcp-kicad-t -- sh -c 'umask 002; cd /var/lib/kicad/t && {cmd}'"
         log = "git -C /var/lib/kicad-src/t.git log --format=%s main"
 
         mcp.succeed(
             "git init -q --bare -b main /var/lib/kicad-src/t.git",
             "git clone -q /var/lib/kicad-src/t.git /tmp/t",
-            "chown -R kicad-sync:kicad /var/lib/kicad-src /tmp/t",
+            "chown -R kicad-sync-t:kicad /var/lib/kicad-src /tmp/t",
             upstream("echo a > a && git add a && git commit -qm a && git push -q origin HEAD:main"),
         )
         # The source's commits come down, an agent's go up.
