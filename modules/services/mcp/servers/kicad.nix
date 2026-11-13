@@ -168,8 +168,12 @@ in
       wantedBy = [ "multi-user.target" ];
       after = [ "systemd-tmpfiles-setup.service" "network-online.target" ];
       unitConfig.ConditionPathExists = "!${repo p}/.git";
+      # A failed clone (no deploy key yet, GitHub away) tries again until it's there, the server waits for it.
+      startLimitIntervalSec = 0;
       serviceConfig = {
         RemainAfterExit = true;
+        Restart = "on-failure";
+        RestartSec = "1min";
         ExecStart = map utils.escapeSystemdExecArgs [
           [ git "clone" "--quiet" "--branch" src.branch "--config" "core.sharedRepository=group" src.url (repo p) ]
           [ git "-C" (repo p) "config" "branch.${src.branch}.sync" "true" ]
@@ -181,7 +185,7 @@ in
     })) cfg.projects
     // lib.mapAttrs' (p: src: lib.nameValuePair "kicad-sync-${p}" (lib.recursiveUpdate (sourceUnit p src) {
       description = "Keep KiCad project ${p} in step with ${src.url}";
-      after = [ "kicad-repo-${p}.service" ];
+      after = [ "kicad-repo-${p}.service" "network-online.target" ];
       requires = [ "kicad-repo-${p}.service" ];
       path = [ pkgs.git pkgs.openssh ];
       serviceConfig = {
@@ -193,6 +197,12 @@ in
           "[ \"$SERVICE_RESULT\" = success ] || exec ${git} rebase --abort" ];
       };
     })) cfg.projects;
+
+    # The server starts once its clone is there, also after a clone that took a few tries.
+    systemd.paths = lib.listToAttrs (map (p: lib.nameValuePair "mcp-kicad-${p}" {
+      wantedBy = [ "multi-user.target" ];
+      pathConfig.PathExists = "${repo p}/.git/config";
+    }) projects);
 
     systemd.timers = lib.mapAttrs' (p: _: lib.nameValuePair "kicad-sync-${p}" {
       wantedBy = [ "timers.target" ];
