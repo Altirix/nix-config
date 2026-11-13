@@ -48,11 +48,6 @@ let
 
   projects = lib.attrNames cfg.projects;
   gatewayPort = p: cfg.projects.${p};
-  migrate = pkgs.writeShellApplication {
-    name = "rea-migrate";
-    runtimeInputs = [ pkgs.coreutils ];
-    text = builtins.readFile ../scripts/rea-migrate.sh;
-  };
 
   # config/rea-gateway.json with the project's rea-gateway-project.json, checked by supergateway at build.
   gatewayConfig = p: pkgs.runCommand "rea-gateway-${p}.json" {
@@ -239,10 +234,7 @@ in
         serviceConfig = {
           Type = "oneshot";
           RemainAfterExit = true;
-          ExecStart = [
-            "${config.systemd.package}/bin/systemd-tmpfiles --create --prefix=/var/lib/rea"
-            "${lib.getExe migrate} ${lib.escapeShellArgs projects}"
-          ];
+          ExecStart = "${config.systemd.package}/bin/systemd-tmpfiles --create --prefix=/var/lib/rea";
         };
       };
 

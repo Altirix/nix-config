@@ -149,8 +149,7 @@ in
             # nginx serves no link a sample planted, so nothing of beta's through alpha's URLs.
             rea.succeed("runuser -u rea-alpha -- ln -s /var/lib/rea/beta/samples/hello /var/lib/rea/alpha/shared/beta-hello")
             client.fail(f"curl -fsS {base}/alpha/shared/beta-hello")
-            # Each project's files moved to its own user once, the marker stops it running again.
-            rea.succeed("test -e /var/lib/rea/alpha/.owned", "stat -c %U /var/lib/rea/alpha/scratch | grep -qx rea-alpha")
+            rea.succeed("stat -c %U /var/lib/rea/alpha/scratch | grep -qx rea-alpha")
     finally:
         print(rea.succeed("journalctl -u 'rea@*' -o cat | tail -n 40"))
 
