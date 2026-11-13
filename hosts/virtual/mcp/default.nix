@@ -20,15 +20,12 @@
   };
 
   # A KiCad MCP server per project (modules/services/mcp/servers/kicad.nix), at mcp.peacocks.me/kicad/<project>/mcp.
-  # One per line of work: agents on different projects never share a server or files.
-  # Those with a source follow its repo, agents' commits go back up with its deploy key (README.md, KiCad).
-  homelab.mcp.kicad = {
-    projects = { palmremote = 9200; polaris11 = 9201; navi14 = 9202; };
-    sources = {
-      palmremote.url = "git@github.com:Altirix/A1990-A2141-PalmRemote.git";
-      polaris11.url = "git@github.com:Altirix/Polaris11.git";
-      navi14.url = "git@github.com:Altirix/Navi14.git";
-    };
+  # One per line of work: agents on different projects never share a server or files. Each follows its repo, which
+  # needs something committed first, agents' commits go back up with its deploy key (README.md, KiCad).
+  homelab.mcp.kicad.projects = {
+    palmremote = { port = 9200; url = "git@github.com:Altirix/A1990-A2141-PalmRemote.git"; };
+    polaris11 = { port = 9201; url = "git@github.com:Altirix/Polaris11.git"; };
+    navi14 = { port = 9202; url = "git@github.com:Altirix/Navi14.git"; };
   };
 
   system.stateVersion = "26.05";

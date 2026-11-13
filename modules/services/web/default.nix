@@ -234,19 +234,28 @@ let
         };
       };
     };
-    # Every address, but the firewall only opens 80 and 443.
-    binds = [{
+    # Loopback only, for nginx: nothing reaches the endpoints behind it without nginx's token check, whatever the
+    # firewall allows.
+    gateways.mcp = {
       port = gatewayPort;
-      listeners = [{
-        protocol = "HTTP";
-        routes = map (r: {
-          inherit (r) name;
-          matches = [{ path.pathPrefix = r.prefix; }];
-          backends = [{ mcp.targets = [{ name = r.target; mcp.host = r.url; }]; }];
-        }) gatewayRoutes;
-      }];
-    }];
+      bindAddress = "127.0.0.1";
+      protocol = "HTTP";
+    };
+    routes = map (r: {
+      inherit (r) name;
+      gateways = "mcp";
+      matches = [{ path.pathPrefix = r.prefix; }];
+      backends = [{ mcp.targets = [{ name = r.target; mcp.host = r.url; }]; }];
+    }) gatewayRoutes;
   };
+  agentgateway = pkgs.callPackage ./packages/agentgateway.nix { };
+  # Checked by agentgateway itself at build, a config it would refuse never deploys.
+  gatewayConfigFile = pkgs.runCommand "agentgateway.yaml" {
+    config = (pkgs.formats.yaml { }).generate "agentgateway-unchecked.yaml" gatewayConfig;
+  } ''
+    ${lib.getExe agentgateway} --validate-only -f "$config"
+    cp "$config" $out
+  '';
   logsHost = if config.homelab.logs.shipTo == null then null
     else nodes.${config.homelab.logs.shipTo}.config.homelab.labs.address;
   logsUser = oauth || ssoSites != { } || tokens;
@@ -500,8 +509,7 @@ in
         wants = [ "network-online.target" ];
         after = [ "network-online.target" ];
         serviceConfig = {
-          ExecStart = "${lib.getExe (pkgs.callPackage ./packages/agentgateway.nix { })} -f ${
-            (pkgs.formats.yaml { }).generate "agentgateway.yaml" gatewayConfig}";
+          ExecStart = "${lib.getExe agentgateway} -f ${gatewayConfigFile}";
           DynamicUser = true;
           Restart = "always";
           RestartSec = 5;

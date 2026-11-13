@@ -41,12 +41,22 @@ in
 
       homelab.mcp.servers = lib.genAttrs enabled (_: { enable = true; });
 
-      # A project kept in step with a repo on the VM, which its pushes write to.
-      homelab.mcp.kicad = {
-        projects.t = 9200;
-        sources.t.url = "/var/lib/kicad-src/t.git";
-      };
+      # A project kept in step with a repo on the VM, which its pushes write to. The source has a commit before the
+      # clone, as a GitHub repo must.
+      homelab.mcp.kicad.projects.t = { port = 9200; url = "/var/lib/kicad-src/t.git"; };
       systemd.services.kicad-sync-t.serviceConfig.ReadWritePaths = [ "/var/lib/kicad-src" ];
+      systemd.services.kicad-src-t = {
+        requiredBy = [ "kicad-repo-t.service" ];
+        before = [ "kicad-repo-t.service" ];
+        path = [ pkgs.git ];
+        serviceConfig.Type = "oneshot";
+        script = ''
+          git init -q --bare -b main /var/lib/kicad-src/t.git
+          git clone -q /var/lib/kicad-src/t.git /tmp/seed
+          cd /tmp/seed && echo a > a && git add a && git commit -qm a && git push -q origin HEAD:main
+          chown -R kicad-sync-t:kicad /var/lib/kicad-src
+        '';
+      };
 
       # As on the real host: modules/virtual.nix and modules/default.nix.
       networking.nftables.enable = true;
@@ -134,14 +144,13 @@ in
         agent = lambda cmd: f"runuser -u mcp-kicad-t -- sh -c 'umask 002; cd /var/lib/kicad/t && {cmd}'"
         log = "git -C /var/lib/kicad-src/t.git log --format=%s main"
 
+        # The project is the source's clone.
         mcp.succeed(
-            "git init -q --bare -b main /var/lib/kicad-src/t.git",
-            "git clone -q /var/lib/kicad-src/t.git /tmp/t",
-            "chown -R kicad-sync-t:kicad /var/lib/kicad-src /tmp/t",
-            upstream("echo a > a && git add a && git commit -qm a && git push -q origin HEAD:main"),
+            "test -f /var/lib/kicad/t/a",
+            "runuser -u kicad-sync-t -- git clone -q /var/lib/kicad-src/t.git /tmp/t",
         )
         # The source's commits come down, an agent's go up.
-        mcp.succeed("systemctl start kicad-sync-t", "test -f /var/lib/kicad/t/a")
+        mcp.succeed("systemctl start kicad-sync-t")
         mcp.succeed(agent("echo b > b && git add b && git commit -qm b"), "systemctl start kicad-sync-t", f"{log} | grep -qx b")
 
         # Both sides committed: the agent's is rebased onto the source's, under the VM's git identity.

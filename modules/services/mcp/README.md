@@ -321,34 +321,30 @@ different projects never share a server or files; agents on the same one share b
 own project. Headless: ERC/DRC, BOM and exports run through `kicad-cli`, tools that drive a running KiCad stay hidden.
 In `write` mode (the default) the `builder` tool set creates projects, edits schematics and boards and commits
 (`vcs_commit_checkpoint`); `readonly` keeps agents to inspecting, checking and exporting. Its outputs still need your
-review before fabrication. To look at a design, pull the repo and open it in KiCad.
+review before fabrication.
 
-Add a project to `projects` in `hosts/virtual/mcp/default.nix` with a free port of its own (9200-9299), deploy `mcp` and
-`ionos-de` (the route) and widen nothing: `labs: edge to mcp` covers 9200-9299.
-
-A project with a `source` keeps in step with it through git-sync every minute: commits there come down, what agents
-commit goes up, rebased onto them. On uncommitted changes or a conflict it stops and leaves the repo as it was
-(`journalctl -u kicad-sync-<project>` says why). It also refuses a repo with no history in common with its source,
-one that was a project of its own before it had one: move it aside and the next run checks the source out.
+Each project is a clone of its source, a repo with something committed (GitHub's "Add a README" will do), and
+git-sync keeps it in step every minute: commits there come down, what agents commit goes up, rebased onto them. On
+uncommitted changes or a conflict it stops and leaves the repo as it was (`journalctl -u kicad-sync-<project>` says
+why). To look at a design, or change it yourself, work in the source. Add a project in
+`hosts/virtual/mcp/default.nix` with a free port of its own (9200-9299), deploy `mcp` and `ionos-de` (the route) and
+widen nothing: `labs: edge to mcp` covers 9200-9299.
 
 ```nix
-homelab.mcp.kicad.sources.palmremote.url = "git@github.com:you/palmremote.git";
+homelab.mcp.kicad.projects.palmremote = { port = 9200; url = "git@github.com:you/palmremote.git"; };
 ```
 
-An empty source (a new repo) takes the project's commits. An ssh source needs a deploy key with write access, one per repo (GitHub allows a key on one repo only): add the
-public half to the repo (Settings, Deploy keys, Allow write access), the private half to the mcp VM's secrets. An
-http(s) source needs none and is pull-only (`push = false`): it fast-forwards, agents' commits stay on the VM.
+An ssh source needs a deploy key with write access, one per repo (GitHub allows a key on one repo only): add the
+public half to the repo (Settings, Deploy keys, Allow write access), the private half to the mcp VM's secrets. Until
+it's there, the clone fails and so does the project's server.
 
 ```sh
 ssh-keygen -t ed25519 -N '' -C kicad-palmremote -f kicad-deploy-key-palmremote
 sops hosts/virtual/mcp/secrets.yaml   # kicad-deploy-key-palmremote: | <the private key, indented>
 ```
 
-A project without a source is a repo you push to over ssh, its checkout follows the push:
-
-```sh
-git push admin@mcp.incus:/var/lib/kicad/<project> main
-```
+The clone is made once. To point a project at another source, change its url and move its repo aside (it clones
+again on the next start).
 
 ## fdfdb (8110)
 
