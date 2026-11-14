@@ -209,6 +209,9 @@ in
         ExecStart = utils.escapeSystemdExecArgs [ "${kicad}/bin/kicad-cli" "api-server" "--socket" (apiSocket p) ];
         User = "mcp-kicad-${p}";
         Group = "mcp-kicad-${p}";
+        # Its HOME is the server's state directory, which tmpfiles would otherwise make root's when it adds the
+        # library tables below it, before the server first starts: both units claim it.
+        StateDirectory = "mcp-kicad-${p}";
         RuntimeDirectory = "kicad-api-${p}";
         RuntimeDirectoryMode = "0700";
         Restart = "on-failure";
@@ -217,7 +220,7 @@ in
         TemporaryFileSystem = cfg.dir;
         BindPaths = [ (repo p) ];
         BindReadOnlyPaths = [ "${repo p}/.git/config" "${repo p}/.git/hooks" ];
-        ReadWritePaths = [ (repo p) "/var/lib/mcp-kicad-${p}" ];
+        ReadWritePaths = [ (repo p) ];
       } // import ../hardening.nix;
     }) projects)
     # The clone, once: a project's repo is its source's. To change the source, move the repo aside.
@@ -252,9 +255,10 @@ in
           [ git "push" "--quiet" "origin" src.branch ]
         ];
         # On a conflict the rebase stops halfway, with markers in the files agents edit: undo it, so the project
-        # keeps its own commits and the next run tries again (the log says what conflicts).
+        # keeps its own commits and the next run tries again (the log says what conflicts). Only then: a failed fetch
+        # or push left no rebase to undo.
         ExecStopPost = utils.escapeSystemdExecArgs [ "${pkgs.runtimeShell}" "-c"
-          "[ \"$SERVICE_RESULT\" = success ] || exec ${git} rebase --abort" ];
+          "[ \"$SERVICE_RESULT\" = success ] || ! [ -d .git/rebase-merge ] || exec ${git} rebase --abort" ];
       };
     })) cfg.projects;
 
