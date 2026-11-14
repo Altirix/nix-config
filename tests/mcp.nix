@@ -198,6 +198,19 @@ in
                 print(f"kicad-t {name}: {text[:300]!r}")
                 assert not result.get("isError"), text
             mcp.succeed(f"grep -q '(segment' {repo}/{name}.kicad_pcb")
+        # A board whose file changed on disk (a pull) is closed unsaved when the agent moves on: KiCad's older copy
+        # never goes over it.
+        a = f"{repo}/board_a.kicad_pcb"
+        session("kicad-t", [
+            ["tools/call", {"name": "kicad_set_project", "arguments": {"project_dir": repo, "pcb_file": a}}],
+            ["tools/call", {"name": "pcb_add_track", "arguments": {"x1_mm": 10, "y1_mm": 60, "x2_mm": 40, "y2_mm": 60}}],
+        ])
+        mcp.succeed(f"cp {a} /tmp/board_a && sleep 1 && touch {a}")
+        session("kicad-t", [
+            ["tools/call", {"name": "kicad_set_project", "arguments": {"project_dir": repo, "pcb_file": f"{repo}/board_b.kicad_pcb"}}],
+            ["tools/call", {"name": "pcb_add_track", "arguments": {"x1_mm": 10, "y1_mm": 70, "x2_mm": 40, "y2_mm": 70}}],
+        ])
+        mcp.succeed(f"cmp {a} /tmp/board_a")
         # A board that doesn't exist is an error, not a new board.
         out = session("kicad-t", [
             ["tools/call", {"name": "kicad_set_project", "arguments": {"project_dir": repo, "pcb_file": f"{repo}/nope.kicad_pcb"}}],

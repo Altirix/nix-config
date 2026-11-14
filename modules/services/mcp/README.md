@@ -326,13 +326,14 @@ Boards are edited live through KiCad itself, headless: each project has a `kicad
 `kicad-cli api-server`, KiCad's API without a GUI, sandboxed to the project's repo like its server. An agent picks
 the board with `kicad_set_project` (`pcb_file`), works on it (placing, routing, zones, `pcb_save`), commits, then
 selects the next board in the same project: the one before is saved and closed. A board whose file changed on disk
-since KiCad opened it (the sync brought in a commit) is opened again first, so a save never writes an older copy over
-it; unsaved live edits go with it. Selecting a board that doesn't exist is an error, boards are generated or created
+since KiCad opened it (the sync brought in a commit) is never saved over: it's opened again, or closed unsaved when
+the agent moves on, and its unsaved live edits go with it (so do they after the server restarts). Selecting a board that doesn't exist is an error, boards are generated or created
 first.
 
 That API server only exists in KiCad's development branch (what becomes KiCad 11), so every KiCad on the server is
 that one (`packages/kicad-master.nix`, pinned, compiled by the build host, an hour or so), with KiCad MCP Pro patched
-to open the selected board (`packages/kicad-mcp-pro-headless.patch`) and kicad-python built from git against it.
+to open the selected board (`packages/kicad-mcp-pro-headless.patch`) and kicad-python built from git against it
+(with `packages/kicad-python-create-items.patch`, its fix for creating items).
 **It saves in its own file format (10.99), which KiCad 10 doesn't open**: to look at or edit a board yourself, use a
 KiCad nightly. Bump KiCad and kicad-python together, their API definitions have to match.
 

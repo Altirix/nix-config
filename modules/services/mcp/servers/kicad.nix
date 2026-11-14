@@ -2,8 +2,8 @@
 
 # KiCad projects for agents (README.md, kicad). Each project is a clone of its source (GitHub, with a commit to start
 # from) in `dir`/<project> with its own KiCad MCP Pro server, published at /kicad/<project>/mcp and confined to it:
-# agents on different projects never share a server or files. Headless: kicad-cli runs ERC/DRC and exports, tools
-# that drive a running KiCad stay hidden. Every minute the project's commits (vcs_commit_checkpoint) are rebased onto
+# agents on different projects never share a server or files. Headless: kicad-cli runs ERC/DRC and exports, and the
+# project's own headless KiCad (kicad-api-<project>) takes live board edits, one board at a time. Every minute the project's commits (vcs_commit_checkpoint) are rebased onto
 # its source's `branch` and pushed there, so the source's new commits come down and the agents' go up, whoever else
 # pushes to it too. It stops on uncommitted changes or a conflict, never overwriting work.
 let
@@ -121,7 +121,7 @@ in
         message = "kicad: project names are lowercase letters, digits and dashes";
       }
       {
-        # The router's `labs: edge to mcp` and `labs: agents to mcp` only let these through.
+        # The router's `labs: edge to mcp` only lets these through.
         assertion = lib.all (p: p.port >= 9200 && p.port <= 9299) (lib.attrValues cfg.projects);
         message = "kicad: project ports are in 9200-9299, the router's range for them";
       }
