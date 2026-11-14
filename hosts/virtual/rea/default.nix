@@ -25,8 +25,8 @@
   # In no sops group (.sops.yaml) and no secrets.yaml of its own, so it holds nothing to decrypt. Samples run here.
   sops.secrets = lib.mkForce { };
 
-  # It opens no connections (the router drops them), so it ships no logs either.
-  homelab.logs.shipTo = null;
+  # Its journal goes to the logs VM like every host's, the one connection the router lets it open
+  # (`labs: rea ships logs`, modules/networking/README.md).
 
   system.stateVersion = "26.05";
 }

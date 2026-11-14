@@ -59,7 +59,7 @@ The rules every service README names live here, in the order they go: all forwar
 add dst-address=10.100.0.0/16 action=lookup-only-in-table table=main place-before=0 comment="labs: to labs stays local"
 add dst-address=10.90.0.0/24 action=lookup-only-in-table table=main place-before=0 comment="labs: replies to mgmt stay local"
 
-# Time, the one thing labs may ask the router for (rea opens nothing).
+# Time, the one thing labs may ask the router for (rea opens nothing but its log shipping).
 /system ntp client set enabled=yes servers=time.cloudflare.com
 /system ntp server set enabled=yes
 /ip firewall filter
@@ -82,6 +82,7 @@ add list=private address=169.254.0.0/16
 
 # Forward, in this order, each just above "labs: only home and tunnel in".
 /ip firewall filter
+add chain=forward action=accept connection-state=new src-address=10.100.1.12 dst-address=10.100.0.11 protocol=tcp dst-port=9428 comment="labs: rea ships logs" place-before=[find comment="labs: only home and tunnel in"]
 add chain=forward action=drop   connection-state=new src-address=10.100.1.12 comment="labs: rea opens nothing" place-before=[find comment="labs: only home and tunnel in"]
 add chain=forward action=accept connection-state=new src-address-list=log-senders dst-address=10.100.0.11 protocol=tcp dst-port=9428 comment="labs: logs in" place-before=[find comment="labs: only home and tunnel in"]
 add chain=forward action=accept connection-state=new in-interface="VLAN 10 HomeNet" dst-address=10.100.0.11 protocol=tcp dst-port=9427 comment="labs: home reads logs" place-before=[find comment="labs: only home and tunnel in"]

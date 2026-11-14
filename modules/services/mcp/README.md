@@ -290,8 +290,8 @@ The VM serves nothing else (asserted), holds no secrets (it isn't a sops recipie
 
 - **Who connects**: the router, `labs: edge to rea` (and `labs: agents to rea` per LAN agent).
 
-- **Egress**: the router's `labs: rea opens nothing` drops every connection the VM opens, so samples
-  can't phone home or scan labs, and browser scenarios only load `http://127.0.0.1` pages. Nothing on the VM
+- **Egress**: the router's `labs: rea opens nothing` drops every connection the VM opens but its journal's to the
+  logs VM's insert port (`labs: rea ships logs`), so samples can't phone home or scan labs, and browser scenarios only load `http://127.0.0.1` pages. Nothing on the VM
   enforces it, so root there changes nothing. It has no DNS or NTP either, and deploys push the closure (no
   `--use-substitutes`).
 
