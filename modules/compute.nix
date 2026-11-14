@@ -8,7 +8,7 @@ let
   # Isolated ports can't reach each other, only the uplink, so instances on labs only ever talk to the router.
   # IP filtering lets an instance send only from the address pinned to it (its profile below). labs has no DHCP in
   # incus, so an instance without a pin can't send IPv4 or IPv6 at all: no instance picks an address, and with it
-  # a zone's router rules (networking/README.md), for itself.
+  # a zone's router rules (Altirix/Mikrotik), for itself.
   labsNic = {
     name = "eth0";
     network = "labs";
@@ -38,13 +38,6 @@ in
     ./services/incus
     ./services/vgpu/host.nix
   ];
-
-  # Every labs instance and its address, for the router's names (networking/dns.nix).
-  options.homelab.labs.instances = lib.mkOption {
-    type = lib.types.attrsOf lib.types.str;
-    readOnly = true;
-    default = labsAddresses;
-  };
 
   config = {
     assertions = [

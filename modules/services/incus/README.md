@@ -17,7 +17,7 @@ Host *.incus
 ```
 
 Relay failures only show on the member running the VM: `journalctl -u 'incus-ssh-relay@*'`. Once the
-router lets home into labs ([networking/README.md](../../networking/README.md)), `ssh admin@<labs address>`
+router lets home into labs (`labs: home ssh, rdp`, Altirix/Mikrotik), `ssh admin@<labs address>`
 works too, vsock stays the way in when a VM's network is broken.
 
 ## Windows VMs
@@ -72,7 +72,7 @@ Set-DnsClientServerAddress -InterfaceAlias $nic -ServerAddresses 1.1.1.1,1.0.0.1
 
 Hypervisors keep the card and hand out mediated slices (`modules/services/vgpu/host.nix`), list the types with
 `incus info --resources`. Guests license against `dls` (`10.100.0.12`) over labs, through the router
-(`labs: dls in`, networking/README.md).
+(`labs: dls in`, Altirix/Mikrotik).
 
 A Windows guest takes the slice before it starts:
 

@@ -69,9 +69,6 @@
 
       inherit (chromebooks) packages;
 
-      # Router config made from the hosts' (modules/networking/README.md).
-      router.dns = import ./modules/networking/dns.nix { inherit lib; nodes = hostConfigs; };
-
       checks.x86_64-linux = import ./tests { inherit self chromebooks; pkgs = nixpkgs.legacyPackages.x86_64-linux; };
     };
 }

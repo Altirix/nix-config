@@ -37,7 +37,7 @@
       dns = [ "1.1.1.1" "1.0.0.1" ];
     };
 
-    # Time from the router's NTP server, the one thing labs may open on it (networking/README.md): every zone keeps
+    # Time from the router's NTP server, the one thing labs may open on it (Altirix/Mikrotik): every zone keeps
     # its clock without reaching out, the shared zone included (Kanidm's tokens and passkeys depend on it).
     networking.timeServers = [ config.homelab.labs.gateway ];
 

@@ -9,12 +9,12 @@ removed.
 
 ## Router (MikroTik)
 
-`labs: edge to paperless` (80) and `labs: mcp to paperless` (8000) in modules/networking/README.md (Router).
+`labs: edge to paperless` (80) and `labs: mcp to paperless` (8000) on the router (Altirix/Mikrotik).
 
 ## Set up
 
 1. Point an A record for `docs.peacocks.me` at the VPS. Deploy the hypervisors, install the VM
-   ([hosts/README.md](../../../hosts/README.md#add-a-vm)), add the router rules.
+   ([hosts/README.md](../../../hosts/README.md#add-a-vm)), add the router rules (Altirix/Mikrotik).
 2. Give its sign-in client a secret, then deploy `auth` (it makes the client, `ionos-de-paperless`) and `ionos-de`:
 
    ```sh
