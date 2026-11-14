@@ -1,6 +1,6 @@
 diff -ru a/src/kicad_mcp/ipc/capabilities.py b/src/kicad_mcp/ipc/capabilities.py
---- a/src/kicad_mcp/ipc/capabilities.py	2026-11-14 16:11:37.170538280 +0000
-+++ b/src/kicad_mcp/ipc/capabilities.py	2026-11-14 16:11:37.536493503 +0000
+--- a/src/kicad_mcp/ipc/capabilities.py	2026-11-14 17:39:29.035098744 +0000
++++ b/src/kicad_mcp/ipc/capabilities.py	2026-11-14 17:39:14.850733808 +0000
 @@ -391,6 +391,9 @@
      match = _VERSION_RE.search(version)
      if match is None:
@@ -12,18 +12,24 @@ diff -ru a/src/kicad_mcp/ipc/capabilities.py b/src/kicad_mcp/ipc/capabilities.py
  
  
 diff -ru a/src/kicad_mcp/kicad/session.py b/src/kicad_mcp/kicad/session.py
---- a/src/kicad_mcp/kicad/session.py	2026-11-14 16:11:37.171551534 +0000
-+++ b/src/kicad_mcp/kicad/session.py	2026-11-14 16:11:37.536836349 +0000
-@@ -61,6 +61,40 @@
+--- a/src/kicad_mcp/kicad/session.py	2026-11-14 17:39:29.035313308 +0000
++++ b/src/kicad_mcp/kicad/session.py	2026-11-14 17:39:14.851144726 +0000
+@@ -61,6 +61,64 @@
  )
  
  
++# The board open in headless KiCad and its file's modification time when KiCad last had it as on disk.
++_open_board: dict[str, object] = {}
++
++
 +def _ensure_selected_board_open(client: object, cfg: object) -> None:
 +    """Headless KiCad (``kicad-cli api-server``) opens nothing by itself: keep the selected board open in it.
 +
-+    The board selected with ``kicad_set_project`` (``pcb_file``) is opened, or created when the file doesn't
-+    exist yet; whichever board was open before is saved and closed first, so a project's boards can be worked on
-+    one after another. A KiCad GUI, which opens its own, is left alone.
++    The board selected with ``kicad_set_project`` (``pcb_file``) is the one open, and only it: the board before
++    is saved and closed first, so a project's boards can be worked on one after another. If its file changed on
++    disk since KiCad last had it (a git pull brought in someone else's commit), it's opened again before anything
++    else, so a save never writes KiCad's older copy over theirs; edits KiCad hadn't saved yet go with it. A file
++    that doesn't exist is an error, not a new board. A KiCad GUI, which opens its own, is left alone.
 +    """
 +    pcb_file = getattr(cfg, "pcb_file", None)
 +    open_document = getattr(client, "open_document", None)
@@ -32,30 +38,48 @@ diff -ru a/src/kicad_mcp/kicad/session.py b/src/kicad_mcp/kicad/session.py
 +    from kipy.proto.common.types import DocumentType
 +
 +    target = Path(pcb_file).resolve()
++    if not target.exists():
++        raise KiCadBoardNotOpenError(
++            f"The selected board {target} doesn't exist. Generate it, or select an existing one with "
++            "kicad_set_project."
++        )
 +    try:
 +        documents = list(client.get_open_documents(DocumentType.DOCTYPE_PCB))  # type: ignore[attr-defined]
 +    except Exception:  # none open: the headless server has no editor to ask yet
 +        documents = []
-+    for document in documents:
++    mtime = target.stat().st_mtime_ns
++
++    def is_target(document: object) -> bool:
 +        project_dir = getattr(getattr(document, "project", None), "path", "") or str(target.parent)
-+        if (Path(project_dir) / document.board_filename).resolve() == target:
++        return (Path(project_dir) / document.board_filename).resolve() == target  # type: ignore[attr-defined]
++
++    if any(is_target(d) for d in documents) and _open_board.get("path") == str(target):
++        if _open_board.get("mtime") == mtime:
 +            return
-+    for document in documents:
-+        try:
-+            client.get_board().save()  # type: ignore[attr-defined]
-+        finally:
++        # Changed underneath KiCad: what it holds is older than the file. Reopen, never save over it.
++        for document in documents:
 +            client.close_document(document)  # type: ignore[attr-defined]
-+    if target.exists():
-+        open_document(str(target), DocumentType.DOCTYPE_PCB)
 +    else:
-+        create_document = getattr(client, "create_document")
-+        create_document(str(target), DocumentType.DOCTYPE_PCB)
++        # Another board: save it (the one open board, see below) and close it.
++        if documents:
++            client.get_board().save()  # type: ignore[attr-defined]
++            for document in documents:
++                client.close_document(document)  # type: ignore[attr-defined]
++    open_document(str(target), DocumentType.DOCTYPE_PCB)
++    _open_board.update(path=str(target), mtime=target.stat().st_mtime_ns)
++
++
++def _note_board_saved() -> None:
++    """After KiCad saved the open board, the file on disk is KiCad's own again."""
++    path = _open_board.get("path")
++    if isinstance(path, str) and Path(path).exists():
++        _open_board["mtime"] = Path(path).stat().st_mtime_ns
 +
 +
  def _default_config() -> SessionConfig:
      from ..config import get_config
  
-@@ -329,6 +363,7 @@
+@@ -329,6 +387,7 @@
  
          for attempt in range(1, attempts + 1):
              client = self.client()  # reconnects if the cache was invalidated
@@ -63,3 +87,16 @@ diff -ru a/src/kicad_mcp/kicad/session.py b/src/kicad_mcp/kicad/session.py
              get_board = getattr(client, "get_board", None)
              if not callable(get_board):
                  raise KiCadBoardNotOpenError("KiCad client does not expose get_board().")
+diff -ru a/src/kicad_mcp/tools/pcb.py b/src/kicad_mcp/tools/pcb.py
+--- a/src/kicad_mcp/tools/pcb.py	2026-11-14 17:39:29.038761730 +0000
++++ b/src/kicad_mcp/tools/pcb.py	2026-11-14 17:39:28.249016930 +0000
+@@ -3470,6 +3470,9 @@
+         def _save() -> None:
+             save = cast(Callable[[], None], get_board().save)
+             save()
++            from ..kicad.session import _note_board_saved
++
++            _note_board_saved()
+ 
+         _run_queued_ipc_mutation("pcb_save", _save)
+         return "Board saved."

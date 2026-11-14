@@ -318,10 +318,23 @@ The VM serves nothing else (asserted), holds no secrets (it isn't a sops recipie
 `homelab.mcp.kicad` (`servers/kicad.nix`) gives each project in `projects` a git repo in `/var/lib/kicad/<project>`
 and its own KiCad MCP Pro server, at `https://mcp.peacocks.me/kicad/<project>/mcp`, confined to that repo. Agents on
 different projects never share a server or files; agents on the same one share both, so give each line of work its
-own project. Headless: ERC/DRC, BOM and exports run through `kicad-cli`, tools that drive a running KiCad stay hidden.
-In `write` mode (the default) the `builder` tool set creates projects, edits schematics and boards and commits
-(`vcs_commit_checkpoint`); `readonly` keeps agents to inspecting, checking and exporting. Its outputs still need your
-review before fabrication.
+own project. ERC/DRC, BOM and exports run through `kicad-cli`. In `write` mode (the default) the `builder` tool set
+creates projects, edits schematics and boards and commits (`vcs_commit_checkpoint`); `readonly` keeps agents to
+inspecting, checking and exporting. Its outputs still need your review before fabrication.
+
+Boards are edited live through KiCad itself, headless: each project has a `kicad-api-<project>` service running
+`kicad-cli api-server`, KiCad's API without a GUI, sandboxed to the project's repo like its server. An agent picks
+the board with `kicad_set_project` (`pcb_file`), works on it (placing, routing, zones, `pcb_save`), commits, then
+selects the next board in the same project: the one before is saved and closed. A board whose file changed on disk
+since KiCad opened it (the sync brought in a commit) is opened again first, so a save never writes an older copy over
+it; unsaved live edits go with it. Selecting a board that doesn't exist is an error, boards are generated or created
+first.
+
+That API server only exists in KiCad's development branch (what becomes KiCad 11), so every KiCad on the server is
+that one (`packages/kicad-master.nix`, pinned, compiled by the build host, an hour or so), with KiCad MCP Pro patched
+to open the selected board (`packages/kicad-mcp-pro-headless.patch`) and kicad-python built from git against it.
+**It saves in its own file format (10.99), which KiCad 10 doesn't open**: to look at or edit a board yourself, use a
+KiCad nightly. Bump KiCad and kicad-python together, their API definitions have to match.
 
 Each project is a clone of its source, a repo with something committed (GitHub's "Add a README" will do), on one
 branch (`branch`, main): every minute the project's commits are rebased onto it and pushed, so commits pushed there

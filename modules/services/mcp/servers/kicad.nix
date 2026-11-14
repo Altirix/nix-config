@@ -19,6 +19,14 @@ let
   # tables live.
   kicadConfig = p: "/var/lib/mcp-kicad-${p}/.config/kicad/10.99";
   server = pkgs.callPackage ../packages/kicad-mcp-pro.nix { inherit kicad; };
+  # Where the libraries are, for the server (and its kicad-cli) and the headless KiCad alike: what the library
+  # tables' ${KICAD10_...} and ${KICAD11_...} stand for.
+  libraryEnv = {
+    KICAD10_SYMBOL_DIR = "${symbols}/symbols";
+    KICAD10_FOOTPRINT_DIR = "${footprints}/footprints";
+    KICAD11_SYMBOL_DIR = "${symbols}/symbols";
+    KICAD11_FOOTPRINT_DIR = "${footprints}/footprints";
+  };
   # Each project's headless KiCad, its API socket only the project's server reaches.
   apiSocket = p: "/run/kicad-api-${p}/api.sock";
   git = lib.getExe pkgs.git;
@@ -173,12 +181,7 @@ in
         # It looks for the libraries beside kicad-cli, which they aren't on NixOS.
         KICAD_MCP_SYMBOL_LIBRARY_DIR = "${symbols}/symbols";
         KICAD_MCP_FOOTPRINT_LIBRARY_DIR = "${footprints}/footprints";
-        # What the library tables' ${KICAD10_...} stand for (kicad-cli's wrapper sets them, the server too).
-        KICAD10_SYMBOL_DIR = "${symbols}/symbols";
-        KICAD10_FOOTPRINT_DIR = "${footprints}/footprints";
-        KICAD11_SYMBOL_DIR = "${symbols}/symbols";
-        KICAD11_FOOTPRINT_DIR = "${footprints}/footprints";
-      };
+      } // libraryEnv;
     }) cfg.projects;
 
     systemd.services = lib.listToAttrs (map (p: lib.nameValuePair "mcp-kicad-${p}" {
@@ -201,13 +204,7 @@ in
       description = "Headless KiCad for project ${p}";
       after = [ "kicad-repo-${p}.service" ];
       requires = [ "kicad-repo-${p}.service" ];
-      environment = {
-        HOME = "/var/lib/mcp-kicad-${p}";
-        KICAD10_SYMBOL_DIR = "${symbols}/symbols";
-        KICAD10_FOOTPRINT_DIR = "${footprints}/footprints";
-        KICAD11_SYMBOL_DIR = "${symbols}/symbols";
-        KICAD11_FOOTPRINT_DIR = "${footprints}/footprints";
-      };
+      environment = { HOME = "/var/lib/mcp-kicad-${p}"; } // libraryEnv;
       serviceConfig = {
         ExecStart = utils.escapeSystemdExecArgs [ "${kicad}/bin/kicad-cli" "api-server" "--socket" (apiSocket p) ];
         User = "mcp-kicad-${p}";

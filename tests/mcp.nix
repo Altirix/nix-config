@@ -25,6 +25,12 @@ let
     kicad-t = "kicad_create_new_project";
   };
 
+  # An empty two-layer board, for the KiCad project's live editing.
+  board = pkgs.writeText "board.kicad_pcb" ''
+    (kicad_pcb (version 20241229) (generator "pcbnew") (generator_version "10.0") (general (thickness 1.6))
+      (paper "A4") (layers (0 "F.Cu" signal) (2 "B.Cu" signal) (25 "Edge.Cuts" user)) (setup (pad_to_mask_clearance 0)))
+  '';
+
   page = pkgs.writeTextDir "index.html" "<html><head><title>mcp-test</title></head><body><h1>Hello from client</h1></body></html>";
 in
 {
@@ -53,7 +59,8 @@ in
         script = ''
           git init -q --bare -b main /var/lib/kicad-src/t.git
           git clone -q /var/lib/kicad-src/t.git /tmp/seed
-          cd /tmp/seed && echo a > a && git add a && git commit -qm a && git push -q origin HEAD:main
+          cd /tmp/seed && echo a > a && cp ${board} board_a.kicad_pcb && cp ${board} board_b.kicad_pcb
+          git add . && git commit -qm a && git push -q origin HEAD:main
           chown -R kicad-sync-t:kicad /var/lib/kicad-src
         '';
       };
@@ -175,6 +182,29 @@ in
             "test ! -e /var/lib/kicad/t/.git/rebase-merge -a ! -e /var/lib/kicad/t/.git/rebase-apply",
             "git -C /var/lib/kicad/t log -1 --format=%s | grep -qx y",
         )
+
+    with subtest("kicad live board editing, one board after another"):
+        # Through the project's headless KiCad (kicad-api-t): select a board, draw on it, save; then the next.
+        mcp.wait_for_unit("kicad-api-t.service")
+        repo = "/var/lib/kicad/t"
+        for name, y in (("board_a", 20), ("board_b", 40)):
+            out = session("kicad-t", [
+                ["tools/call", {"name": "kicad_set_project", "arguments": {"project_dir": repo, "pcb_file": f"{repo}/{name}.kicad_pcb"}}],
+                ["tools/call", {"name": "pcb_add_track", "arguments": {"x1_mm": 10, "y1_mm": y, "x2_mm": 40, "y2_mm": y}}],
+                ["tools/call", {"name": "pcb_save", "arguments": {}}],
+            ])
+            for result in out["results"]:
+                text = "\n".join(c.get("text", "") for c in result["content"])
+                print(f"kicad-t {name}: {text[:300]!r}")
+                assert not result.get("isError"), text
+            mcp.succeed(f"grep -q '(segment' {repo}/{name}.kicad_pcb")
+        # A board that doesn't exist is an error, not a new board.
+        out = session("kicad-t", [
+            ["tools/call", {"name": "kicad_set_project", "arguments": {"project_dir": repo, "pcb_file": f"{repo}/nope.kicad_pcb"}}],
+            ["tools/call", {"name": "pcb_add_track", "arguments": {"x1_mm": 0, "y1_mm": 0, "x2_mm": 1, "y2_mm": 0}}],
+        ])
+        assert out["results"][1].get("isError"), out
+        mcp.fail(f"test -e {repo}/nope.kicad_pcb")
 
     with subtest("no server opens another over loopback"):
         curl = "${pkgs.curl}/bin/curl -sS --max-time 5 -o /dev/null"
