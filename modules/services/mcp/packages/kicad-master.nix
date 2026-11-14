@@ -1,4 +1,4 @@
-{ kicad-unstable-small, fetchFromGitLab, runCommand, callPackage, glslang, spirv-tools, spirv-cross, sqlite }:
+{ kicad-unstable-small, fetchFromGitLab, fetchurl, runCommand, callPackage, glslang, spirv-tools, spirv-cross, sqlite }:
 
 # KiCad's development branch (what becomes KiCad 11), for its headless API server: `kicad-cli api-server` with
 # OpenDocument, so a project's agents load one board after another (servers/kicad.nix). Pinned to the revision
@@ -13,12 +13,18 @@ let
     inherit rev;
     hash = "sha256-Ew0YaWUXcSkZDCUNdx6CsGJgd2NnGla6qanOCLQYSMg=";
   };
+  # The revision's own build fix, the day after: GCC 15 refuses format_as(KI_ERROR)'s deduced return type.
+  explicitReturnType = fetchurl {
+    url = "https://gitlab.com/kicad/code/kicad/-/commit/4b753b460125b7f8fe90f19877d16dd04d913108.diff";
+    hash = "sha256-qdgZrANg5NYZ4LN5aCcBCvdNU5cvWQTj2/V3LUzUAzk=";
+  };
   # nixpkgs' runtime_stock_data_path.patch anchors on GetStockDataPath's build-dir check, which KiCad since moved
   # into RunningFromBuildDir(): put that one line back as it was so the patch applies. It only matters when KiCad
   # runs from its own build tree.
   src = runCommand "kicad-source-${builtins.substring 0 10 rev}" { } ''
     cp -r ${fetched} $out
     chmod -R u+w $out
+    patch -d $out -p1 < ${explicitReturnType}
     substituteInPlace $out/common/paths.cpp --replace-fail \
       'if( aRespectRunFromBuildDir && RunningFromBuildDir() )' \
       'if( aRespectRunFromBuildDir && wxGetEnv( wxT( "KICAD_RUN_FROM_BUILD_DIR" ), nullptr ) )'
