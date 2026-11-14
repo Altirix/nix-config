@@ -3,7 +3,7 @@
 # MCP servers, one systemd unit and port each. stdio servers are put behind mcp-proxy, which
 # serves streamable HTTP on /mcp and SSE on /sse and shares one server process between all clients.
 # There is no auth and no Host check. Every port is open on the VM, who reaches which is the router's call
-# (README.md, Router): a firewall on the VM is gone with root on it. Where each server connects to is logged
+# (README.md): a firewall on the VM is gone with root on it. Where each server connects to is logged
 # (kernel, "mcp-egress <name>:") and goes to the logs VM with the journal.
 #
 # Presets for packaged servers live in servers/, every file there is imported. A preset sets

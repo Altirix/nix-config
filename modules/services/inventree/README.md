@@ -8,12 +8,12 @@ user.
 
 ## Router (MikroTik)
 
-`labs: edge to inventree` in modules/networking/README.md (Router).
+`labs: edge to inventree` on the router (Altirix/Mikrotik).
 
 ## Set up
 
 1. Point an A record for `inventree.peacocks.me` at the VPS. Deploy the hypervisors, install the VM
-   ([hosts/README.md](../../../hosts/README.md#add-a-vm)), add the router rule.
+   ([hosts/README.md](../../../hosts/README.md#add-a-vm)), add the router rule (Altirix/Mikrotik).
 2. Give its sign-in client a secret, then deploy `auth` (it makes the client, `ionos-de-inventree`) and `ionos-de`:
 
    ```sh

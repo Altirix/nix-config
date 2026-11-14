@@ -2,7 +2,7 @@
 
 `homelab.mcp.servers` runs MCP servers for agents, each as its own `mcp-<name>` unit and port. stdio servers
 sit behind mcp-proxy: streamable HTTP on `http://<host>:<port>/mcp`, SSE on `/sse`. Nothing authenticates, so
-the router decides who reaches which port (Router), and only the edge's nginx (with tokens) puts the low-risk
+the router decides who reaches which port (Altirix/Mikrotik), and only the edge's nginx (with tokens) puts the low-risk
 ones on the internet (From outside). The VMs open every port they serve: a firewall on a VM is gone with root
 on it, so none of what keeps them apart lives there. stdio servers share one process, and with it any state,
 between clients. They run on labs, split by what a compromise of one gives away (Where servers run).
@@ -47,7 +47,7 @@ hypervisors pin each VM to its address (`security.ipv4_filtering`, networking/RE
 `src-address` matches can't be spoofed from labs. Never give `mcp`, `mcp-web` or `rea` the `labs-mesh` profile:
 VXLAN goes VM to VM past the router.
 
-Who gets in, and what they open, is in modules/networking/README.md (Router): `labs: edge to mcp` (the public
+Who gets in, and what they open, is on the router (Altirix/Mikrotik): `labs: edge to mcp` (the public
 servers' ports, `public = true`, From outside), `labs: edge to mcp-web`, `labs: edge to rea`, `labs: tunnel to agents, nothing else`
 (no other tunnel peer reaches either VM), `labs: rea opens nothing` (not the router, labs, home or out the
 tunnel) and `labs: nothing private` (mcp and mcp-web reach the internet, for context7, nixos, fetch and playwright,
@@ -88,7 +88,7 @@ request needs `Authorization: Bearer <token>`, one token per client in `hosts/ed
 can be revoked, and the access log (the journal's `nginx_access`, on to the logs VM) names the client. OAuth
 sign-in through Kanidm (`modules/services/sso`) is ready to replace the tokens later (`oauth` in place of `tokens` on
 the site, its `mcp` and `mcp-cli` clients already exist), MCP doesn't use it yet. The router only lets the edge's tunnel
-address `10.0.0.1` in on the exposed servers' ports (`labs: edge to mcp`, Router), so a compromised edge still
+address `10.0.0.1` in on the exposed servers' ports (`labs: edge to mcp`), so a compromised edge still
 doesn't reach the others. Never add a wireguard forward to `10.100.1.11`, `.12` or `.13`: forwards arrive from
 `10.0.0.1` too and would skip the token. Exposing another server takes both, `public = true` on it and its
 port in its VM's `labs: edge to` rule.
@@ -96,10 +96,10 @@ port in its VM's `labs: edge to` rule.
 REA is also routed, `https://mcp.peacocks.me/rea/` → its own VM's nginx `10.100.1.12:8101`, on the same
 token. It runs code a caller hands it but reaches nothing (no secrets, the router drops what it opens,
 snapshot reset), so a leaked token lands in a dead-end sandbox. That rests on `labs: rea opens nothing`
-(Router) being live, and covering IPv6 too if labs carries it.
+being live, and covering IPv6 too if labs carries it.
 
 Set it up: point an A record for `mcp.peacocks.me` at the VPS (ACME needs it before the first deploy), add a
-token per client named in the site's `tokens` (`openssl rand -hex 32`), add the router rules (Router), deploy `mcp`, then
+token per client named in the site's `tokens` (`openssl rand -hex 32`), add the router rules (Altirix/Mikrotik), deploy `mcp`, then
 `ionos-de`. ionos-de doesn't build with the tokens missing.
 
 ```sh

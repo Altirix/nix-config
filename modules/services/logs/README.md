@@ -25,14 +25,14 @@ _HOSTNAME:* | stats by (_HOSTNAME) count()                         # who's sendi
 
 ## Router (MikroTik)
 
-In modules/networking/README.md (Router): `labs: logs in` (the edge, mgmt, home and labs), `labs: rea ships logs`
+On the router (Altirix/Mikrotik): `labs: logs in` (the edge, mgmt, home and labs), `labs: rea ships logs`
 (ahead of `labs: rea opens nothing`), `labs: home reads logs` and `labs: edge reads logs`. Anyone on home can read every log (MCP calls' arguments
 included), narrow `labs: home reads logs` to the machines that need it if that's too wide.
 
 ## Set up
 
 1. Deploy the hypervisors so they pin `10.100.0.11` (the VM has no network until then), then install the VM
-   ([hosts/README.md](../../README.md#add-a-vm)). Add the router rules.
+   ([hosts/README.md](../../README.md#add-a-vm)). Add the router rules (Altirix/Mikrotik).
 2. Give it a data volume (VictoriaLogs won't start without it):
 
    ```sh

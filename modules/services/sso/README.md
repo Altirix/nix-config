@@ -27,7 +27,7 @@ How the MCP servers check them: [modules/services/mcp/README.md](../../../module
 
 ## Router (MikroTik)
 
-Only the edge gets in, `labs: edge to auth` in modules/networking/README.md (Router).
+Only the edge gets in, `labs: edge to auth` on the router (Altirix/Mikrotik).
 
 ## Set up
 
@@ -47,7 +47,7 @@ Only the edge gets in, `labs: edge to auth` in modules/networking/README.md (Rou
 
    To replace it, do the same and deploy `auth` and `ionos-de`. Then deploy the hypervisors so they pin
    `10.100.0.10` (the VM has no network until then), install the VM ([hosts/README.md](../../README.md#add-a-vm)) and
-   add the router rule.
+   add the router rule (Altirix/Mikrotik).
 3. Add `oauth2-proxy-cookie-secret` (`openssl rand -base64 32 | tr -- '+/' '-_'`, a full AES-256 key) to
    ionos-de's secrets, and a secret per `sso` site to `secrets/sso.yaml`, keyed by its client (`<gateway>-<site>`).
    Kanidm sets each client's secret from it and the gateway's oauth2-proxies read the same value, so neither copies

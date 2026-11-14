@@ -26,7 +26,7 @@
   sops.secrets = lib.mkForce { };
 
   # Its journal goes to the logs VM like every host's, the one connection the router lets it open
-  # (`labs: rea ships logs`, modules/networking/README.md): add that rule before deploying, or the upload fails
+  # (`labs: rea ships logs`, Altirix/Mikrotik): add that rule before deploying, or the upload fails
   # (and a clean snapshot taken then keeps failing).
 
   system.stateVersion = "26.05";
