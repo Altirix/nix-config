@@ -211,6 +211,25 @@ in
             ["tools/call", {"name": "pcb_add_track", "arguments": {"x1_mm": 10, "y1_mm": 70, "x2_mm": 40, "y2_mm": 70}}],
         ])
         mcp.succeed(f"cmp {a} /tmp/board_a")
+        # Schematic to board with the standard libraries (the library tables tmpfiles links in), then DRC.
+        demo = f"{repo}/demo"
+        call = lambda name, args: ["tools/call", {"name": name, "arguments": args}]
+        out = session("kicad-t", [
+            call("kicad_create_new_project", {"path": repo, "name": "demo"}),
+            call("kicad_set_project", {"project_dir": demo, "pcb_file": f"{demo}/demo.kicad_pcb", "sch_file": f"{demo}/demo.kicad_sch"}),
+            call("sch_add_symbol", {"library": "Device", "symbol_name": "R", "x_mm": 50, "y_mm": 50, "reference": "R1",
+                                    "value": "10k", "footprint": "Resistor_SMD:R_0603_1608Metric"}),
+            # Its ERC gate would stop the sync on R1's open pins.
+            call("pcb_sync_from_schematic", {"allow_open_board": True, "force": True}),
+            call("pcb_place_component", {"reference": "R1", "x_mm": 20, "y_mm": 20}),
+            call("pcb_save", {}),
+            call("run_drc", {}),
+        ])
+        for result in out["results"]:
+            text = "\n".join(c.get("text", "") for c in result["content"])
+            print(f"kicad-t demo: {text[:300]!r}")
+            assert not result.get("isError"), text
+        mcp.succeed(f"grep -q 'R_0603_1608Metric' {demo}/demo.kicad_pcb")
         # A board that doesn't exist is an error, not a new board.
         out = session("kicad-t", [
             ["tools/call", {"name": "kicad_set_project", "arguments": {"project_dir": repo, "pcb_file": f"{repo}/nope.kicad_pcb"}}],
