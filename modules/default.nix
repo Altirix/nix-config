@@ -25,7 +25,7 @@
   boot.loader.efi.canTouchEfiVariables = lib.mkDefault true;
 
   # --- Logs ---
-  # Every host's journal goes to the logs VM (modules/services/logs), rea opts out.
+  # Every host's journal goes to the logs VM (modules/services/logs).
   homelab.logs.shipTo = lib.mkDefault "logs";
 
   # --- Locale / time ---
