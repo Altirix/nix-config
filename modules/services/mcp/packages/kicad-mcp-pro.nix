@@ -1,9 +1,9 @@
-{ lib, python313, fetchPypi }:
+{ lib, python313, fetchPypi, fetchFromGitLab, kicad }:
 
 # KiCad MCP Pro: schematic and board reading and editing, KiCad's own ERC/DRC, DFM, BOM and manufacturing exports
 # (kicad-cli, on the server's PATH). Newer than nixpkgs on several fronts, so it gets a Python package set of its
-# own: the MCP SDK 2.x (with mcp-types, httpx2 and httpcore2 to match), kicad-python 0.8 and kicad-sch-api. Nothing
-# outside this server sees them. Tests are off for the
+# own: the MCP SDK 2.x (with mcp-types, httpx2 and httpcore2 to match), kicad-python from git (built against `kicad`,
+# the KiCad it talks to) and kicad-sch-api. Nothing outside this server sees them. Tests are off for the
 # overridden ones, upstream runs them; check `kicad-mcp-pro --help` after a bump.
 let
   pypi = pname: version: hash: fetchPypi { inherit pname version hash; };
@@ -66,15 +66,28 @@ let
         doCheck = false;
       });
 
+      # Its main branch, for the headless API (open_document, create_document) that KiCad's development branch
+      # serves: its bindings are generated from `kicad`'s own API definitions, the revision it pins
+      # (packages/kicad-master.nix), in place of its git submodule. Bump both together.
       kicad-python = pysuper.kicad-python.overridePythonAttrs (old: {
-        version = "0.8.0";
-        src = pypi "kicad_python" "0.8.0" "sha256-bVG5owmPMZaSf5zhJK3BYEUIYs8ofcOZTexN5Plo4Po=";
-        # The sdist has the generated code already: no build.py (it needs the proto sources and their git).
-        preBuild = "";
-        # Its generated code is protobuf 5.29, which newer runtimes load (they only refuse newer gencode); nixpkgs'
-        # pynng 0.8.1 snapshot (May 2025) has what kipy uses.
-        pythonRelaxDeps = [ "protobuf" "pynng" ];
-        dependencies = old.dependencies ++ [ pyself.jsonschema ];
+        version = "0.9.0.dev0-76b47d2";
+        src = fetchFromGitLab {
+          owner = "kicad/code";
+          repo = "kicad-python";
+          rev = "76b47d25a826a56a301660f5f572dda968c84d59";
+          hash = "sha256-KdhkRjQ4JPy4tLBl+MhHmiRRbhVFs5BjfUKAc5EO46k=";
+        };
+        postUnpack = ''
+          mkdir -p $sourceRoot/kicad/api
+          cp -r ${kicad.base.src}/api/proto $sourceRoot/kicad/api/proto
+          chmod -R u+w $sourceRoot/kicad
+        '';
+        # protoc comes from nixpkgs' protobuf (nativeBuildInputs), not a wheel.
+        postPatch = old.postPatch + ''
+          substituteInPlace pyproject.toml --replace-fail '"protoc-wheel-0==29"' ""
+        '';
+        pythonRelaxDeps = [ "protobuf" "pynng" "jsonschema" "zstandard" ];
+        dependencies = old.dependencies ++ [ pyself.jsonschema pyself.zstandard ];
         doCheck = false;
       });
 
@@ -106,6 +119,8 @@ python.pkgs.buildPythonApplication (finalAttrs: {
 
   # Minor versions ahead of nixpkgs, their APIs are what it uses.
   pythonRelaxDeps = [
+    # It pins below 0.9, the git build its headless patch needs is 0.9.0.dev0.
+    "kicad-python"
     "opentelemetry-exporter-otlp"
     "opentelemetry-sdk"
     "pydantic-settings"
@@ -139,6 +154,10 @@ python.pkgs.buildPythonApplication (finalAttrs: {
     cairosvg
     pillow
   ] ++ mcp.optional-dependencies.cli or [ ];
+
+  # Headless KiCad (kicad-cli api-server, servers/kicad.nix): its development version counts as the release it leads
+  # to, and the board selected with kicad_set_project is opened (or created) there, the one before saved and closed.
+  patches = [ ./kicad-mcp-pro-headless.patch ];
 
   pythonImportsCheck = [ "kicad_mcp" ];
 

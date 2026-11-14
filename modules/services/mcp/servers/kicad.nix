@@ -9,13 +9,18 @@
 let
   cfg = config.homelab.mcp.kicad;
   inherit (lib) mkOption types;
-  kicad = pkgs.kicad-small;
+  # KiCad's development branch, for its headless API server (packages/kicad-master.nix): everything that reads or
+  # writes a project's files is this one KiCad, so they're never in two formats.
+  kicad = pkgs.callPackage ../packages/kicad-master.nix { };
   # Its symbol and footprint libraries (no 3D models in -small), in store paths of their own.
   symbols = "${kicad.libraries.symbols}/share/kicad";
   footprints = "${kicad.libraries.footprints}/share/kicad";
-  # KiCad's config directory for this version, where its global library tables live.
-  kicadConfig = p: "/var/lib/mcp-kicad-${p}/.config/kicad/${lib.versions.majorMinor kicad.version}";
-  server = pkgs.callPackage ../packages/kicad-mcp-pro.nix { };
+  # KiCad's config directory for this version (a development build calls itself 10.99), where its global library
+  # tables live.
+  kicadConfig = p: "/var/lib/mcp-kicad-${p}/.config/kicad/10.99";
+  server = pkgs.callPackage ../packages/kicad-mcp-pro.nix { inherit kicad; };
+  # Each project's headless KiCad, its API socket only the project's server reaches.
+  apiSocket = p: "/run/kicad-api-${p}/api.sock";
   git = lib.getExe pkgs.git;
   repo = p: "${cfg.dir}/${p}";
   # git@github.com:you/repo.git or ssh://..., which take a deploy key.
@@ -160,6 +165,9 @@ in
         KICAD_MCP_WORKSPACE_ROOT = repo p;
         KICAD_MCP_KICAD_CLI = "${kicad}/bin/kicad-cli";
         KICAD_MCP_HEADLESS = "true";
+        # Live board editing through the project's headless KiCad (kicad-api-<project>), which opens the board
+        # selected with kicad_set_project.
+        KICAD_API_SOCKET = "ipc://${apiSocket p}";
         KICAD_MCP_OPERATING_MODE = cfg.mode;
         KICAD_MCP_PROFILE = cfg.profile;
         # It looks for the libraries beside kicad-cli, which they aren't on NixOS.
@@ -168,12 +176,15 @@ in
         # What the library tables' ${KICAD10_...} stand for (kicad-cli's wrapper sets them, the server too).
         KICAD10_SYMBOL_DIR = "${symbols}/symbols";
         KICAD10_FOOTPRINT_DIR = "${footprints}/footprints";
+        KICAD11_SYMBOL_DIR = "${symbols}/symbols";
+        KICAD11_FOOTPRINT_DIR = "${footprints}/footprints";
       };
     }) cfg.projects;
 
     systemd.services = lib.listToAttrs (map (p: lib.nameValuePair "mcp-kicad-${p}" {
-      after = [ "kicad-repo-${p}.service" ];
+      after = [ "kicad-repo-${p}.service" "kicad-api-${p}.service" ];
       requires = [ "kicad-repo-${p}.service" ];
+      wants = [ "kicad-api-${p}.service" ];
       serviceConfig = {
         # Only its own project there: the others aren't even readable.
         TemporaryFileSystem = cfg.dir;
@@ -183,6 +194,34 @@ in
         ReadWritePaths = [ (repo p) ];
         UMask = "0002";
       };
+    }) projects)
+    # KiCad itself, headless: the API server the project's MCP server edits boards through, as the same user and in
+    # the same sandbox. It opens what the MCP server asks for and saves into the repo.
+    // lib.listToAttrs (map (p: lib.nameValuePair "kicad-api-${p}" {
+      description = "Headless KiCad for project ${p}";
+      after = [ "kicad-repo-${p}.service" ];
+      requires = [ "kicad-repo-${p}.service" ];
+      environment = {
+        HOME = "/var/lib/mcp-kicad-${p}";
+        KICAD10_SYMBOL_DIR = "${symbols}/symbols";
+        KICAD10_FOOTPRINT_DIR = "${footprints}/footprints";
+        KICAD11_SYMBOL_DIR = "${symbols}/symbols";
+        KICAD11_FOOTPRINT_DIR = "${footprints}/footprints";
+      };
+      serviceConfig = {
+        ExecStart = utils.escapeSystemdExecArgs [ "${kicad}/bin/kicad-cli" "api-server" "--socket" (apiSocket p) ];
+        User = "mcp-kicad-${p}";
+        Group = "mcp-kicad-${p}";
+        RuntimeDirectory = "kicad-api-${p}";
+        RuntimeDirectoryMode = "0700";
+        Restart = "on-failure";
+        RestartSec = 5;
+        UMask = "0002";
+        TemporaryFileSystem = cfg.dir;
+        BindPaths = [ (repo p) ];
+        BindReadOnlyPaths = [ "${repo p}/.git/config" "${repo p}/.git/hooks" ];
+        ReadWritePaths = [ (repo p) "/var/lib/mcp-kicad-${p}" ];
+      } // import ../hardening.nix;
     }) projects)
     # The clone, once: a project's repo is its source's. To change the source, move the repo aside.
     // lib.mapAttrs' (p: src: lib.nameValuePair "kicad-repo-${p}" (lib.recursiveUpdate (sourceUnit p src) {
