@@ -25,6 +25,12 @@ let
     kicad-t = "kicad_create_new_project";
   };
 
+  # An empty two-layer board, for the KiCad project's live editing.
+  board = pkgs.writeText "board.kicad_pcb" ''
+    (kicad_pcb (version 20241229) (generator "pcbnew") (generator_version "10.0") (general (thickness 1.6))
+      (paper "A4") (layers (0 "F.Cu" signal) (2 "B.Cu" signal) (25 "Edge.Cuts" user)) (setup (pad_to_mask_clearance 0)))
+  '';
+
   page = pkgs.writeTextDir "index.html" "<html><head><title>mcp-test</title></head><body><h1>Hello from client</h1></body></html>";
 in
 {
@@ -53,7 +59,8 @@ in
         script = ''
           git init -q --bare -b main /var/lib/kicad-src/t.git
           git clone -q /var/lib/kicad-src/t.git /tmp/seed
-          cd /tmp/seed && echo a > a && git add a && git commit -qm a && git push -q origin HEAD:main
+          cd /tmp/seed && echo a > a && cp ${board} board_a.kicad_pcb && cp ${board} board_b.kicad_pcb
+          git add . && git commit -qm a && git push -q origin HEAD:main
           chown -R kicad-sync-t:kicad /var/lib/kicad-src
         '';
       };
@@ -149,19 +156,18 @@ in
             "test -f /var/lib/kicad/t/a",
             "runuser -u kicad-sync-t -- git clone -q /var/lib/kicad-src/t.git /tmp/t",
         )
-        # The project starts on the agents' branch, which reaches the source on the first sync.
-        mcp.succeed("git -C /var/lib/kicad/t branch --show-current | grep -qx agent", "systemctl start kicad-sync-t",
-                    f"{log('agent')} | grep -qx a")
-        # An agent's commit goes up on the agents' branch, never on main.
+        # An agent's commit goes up to main.
+        mcp.succeed("systemctl start kicad-sync-t")
         mcp.succeed(agent("echo b > b && git add b && git commit -qm b"), "systemctl start kicad-sync-t",
-                    f"{log('agent')} | grep -qx b", f"! {log('main')} | grep -qx b")
+                    f"{log('main')} | grep -qx b")
 
-        # main moved and an agent committed: the agents' branch is rebased onto main, under the VM's git identity.
+        # Someone else pushed to main and an agent committed: the agent's is rebased onto theirs, under the VM's git
+        # identity, and nothing of theirs is lost.
         mcp.succeed(
             upstream("git pull -q origin main && echo c > c && git add c && git commit -qm c && git push -q origin HEAD:main"),
             agent("echo d > d && git add d && git commit -qm d"),
             "systemctl start kicad-sync-t",
-            f"{log('agent')} | head -n 3 | tr '\\n' ' ' | grep -qx 'd b c '",
+            f"{log('main')} | head -n 3 | tr '\\n' ' ' | grep -qx 'd c b '",
             "test -f /var/lib/kicad/t/c",
         )
 
@@ -172,10 +178,71 @@ in
         )
         mcp.fail("systemctl start kicad-sync-t")
         mcp.succeed(
-            f"! {log('agent')} | grep -qx y",
+            f"! {log('main')} | grep -qx y",
             "test ! -e /var/lib/kicad/t/.git/rebase-merge -a ! -e /var/lib/kicad/t/.git/rebase-apply",
             "git -C /var/lib/kicad/t log -1 --format=%s | grep -qx y",
         )
+
+    with subtest("kicad live board editing, one board after another"):
+        # Through the project's headless KiCad (kicad-api-t): select a board, draw on it, save; then the next.
+        mcp.wait_for_unit("kicad-api-t.service")
+        repo = "/var/lib/kicad/t"
+        for name, y in (("board_a", 20), ("board_b", 40)):
+            out = session("kicad-t", [
+                ["tools/call", {"name": "kicad_set_project", "arguments": {"project_dir": repo, "pcb_file": f"{repo}/{name}.kicad_pcb"}}],
+                ["tools/call", {"name": "pcb_add_track", "arguments": {"x1_mm": 10, "y1_mm": y, "x2_mm": 40, "y2_mm": y}}],
+                ["tools/call", {"name": "pcb_save", "arguments": {}}],
+            ])
+            for result in out["results"]:
+                text = "\n".join(c.get("text", "") for c in result["content"])
+                print(f"kicad-t {name}: {text[:300]!r}")
+                assert not result.get("isError"), text
+            mcp.succeed(f"grep -q '(segment' {repo}/{name}.kicad_pcb")
+        # A board whose file changed on disk (a pull) is closed unsaved when the agent moves on: KiCad's older copy
+        # never goes over it.
+        a = f"{repo}/board_a.kicad_pcb"
+        session("kicad-t", [
+            ["tools/call", {"name": "kicad_set_project", "arguments": {"project_dir": repo, "pcb_file": a}}],
+            ["tools/call", {"name": "pcb_add_track", "arguments": {"x1_mm": 10, "y1_mm": 60, "x2_mm": 40, "y2_mm": 60}}],
+        ])
+        mcp.succeed(f"cp {a} /tmp/board_a && sleep 1 && touch {a}")
+        session("kicad-t", [
+            ["tools/call", {"name": "kicad_set_project", "arguments": {"project_dir": repo, "pcb_file": f"{repo}/board_b.kicad_pcb"}}],
+            ["tools/call", {"name": "pcb_add_track", "arguments": {"x1_mm": 10, "y1_mm": 70, "x2_mm": 40, "y2_mm": 70}}],
+        ])
+        mcp.succeed(f"cmp {a} /tmp/board_a")
+        # Schematic to board with the standard libraries (the library tables tmpfiles links in), then DRC.
+        demo = f"{repo}/demo"
+        call = lambda name, args: ["tools/call", {"name": name, "arguments": args}]
+        out = session("kicad-t", [
+            call("kicad_create_new_project", {"path": repo, "name": "demo"}),
+            call("kicad_set_project", {"project_dir": demo, "pcb_file": f"{demo}/demo.kicad_pcb", "sch_file": f"{demo}/demo.kicad_sch"}),
+            call("sch_add_symbol", {"library": "Device", "symbol_name": "R", "x_mm": 50, "y_mm": 50, "reference": "R1",
+                                    "value": "10k", "footprint": "Resistor_SMD:R_0603_1608Metric"}),
+            # Its ERC gate would stop the sync on R1's open pins.
+            call("pcb_sync_from_schematic", {"allow_open_board": True, "force": True}),
+            call("pcb_place_component", {"reference": "R1", "x_mm": 20, "y_mm": 20}),
+            call("pcb_save", {}),
+            call("run_drc", {}),
+            # With the board still open in KiCad, so its lock file is there.
+            call("vcs_commit_checkpoint", {"message": "demo", "auto_drc": False}),
+        ])
+        for result in out["results"]:
+            text = "\n".join(c.get("text", "") for c in result["content"])
+            print(f"kicad-t demo: {text[:300]!r}")
+            assert not result.get("isError"), text
+        mcp.succeed(f"grep -q 'R_0603_1608Metric' {demo}/demo.kicad_pcb")
+        # The board, schematic and project went in; KiCad's lock and view settings and the server's reports didn't.
+        files = mcp.succeed(f"git -C {repo} show --name-only --format= HEAD")
+        assert "demo/demo.kicad_pcb" in files and "demo/demo.kicad_sch" in files, files
+        assert not any(x in files for x in (".lck", ".kicad_prl", ".kicad-mcp/", "output/")), files
+        # A board that doesn't exist is an error, not a new board.
+        out = session("kicad-t", [
+            ["tools/call", {"name": "kicad_set_project", "arguments": {"project_dir": repo, "pcb_file": f"{repo}/nope.kicad_pcb"}}],
+            ["tools/call", {"name": "pcb_add_track", "arguments": {"x1_mm": 0, "y1_mm": 0, "x2_mm": 1, "y2_mm": 0}}],
+        ])
+        assert out["results"][1].get("isError"), out
+        mcp.fail(f"test -e {repo}/nope.kicad_pcb")
 
     with subtest("no server opens another over loopback"):
         curl = "${pkgs.curl}/bin/curl -sS --max-time 5 -o /dev/null"

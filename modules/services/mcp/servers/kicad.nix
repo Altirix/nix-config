@@ -2,15 +2,33 @@
 
 # KiCad projects for agents (README.md, kicad). Each project is a clone of its source (GitHub, with a commit to start
 # from) in `dir`/<project> with its own KiCad MCP Pro server, published at /kicad/<project>/mcp and confined to it:
-# agents on different projects never share a server or files. Headless: kicad-cli runs ERC/DRC and exports, tools
-# that drive a running KiCad stay hidden. Agents work on `pushBranch` (agent): every minute it's rebased onto the
-# source's `branch` (main) and pushed, so what they commit (vcs_commit_checkpoint) reaches you as a branch to merge,
-# never main itself. It stops on uncommitted changes or a conflict, never overwriting work.
+# agents on different projects never share a server or files. Headless: kicad-cli runs ERC/DRC and exports, and the
+# project's own headless KiCad (kicad-api-<project>) takes live board edits, one board at a time. Every minute the project's commits (vcs_commit_checkpoint) are rebased onto
+# its source's `branch` and pushed there, so the source's new commits come down and the agents' go up, whoever else
+# pushes to it too. It stops on uncommitted changes or a conflict, never overwriting work.
 let
   cfg = config.homelab.mcp.kicad;
   inherit (lib) mkOption types;
-  kicad = pkgs.kicad-small;
-  server = pkgs.callPackage ../packages/kicad-mcp-pro.nix { };
+  # KiCad's development branch, for its headless API server (packages/kicad-master.nix): everything that reads or
+  # writes a project's files is this one KiCad, so they're never in two formats.
+  kicad = pkgs.callPackage ../packages/kicad-master.nix { };
+  # Its symbol and footprint libraries (no 3D models in -small), in store paths of their own.
+  symbols = "${kicad.libraries.symbols}/share/kicad";
+  footprints = "${kicad.libraries.footprints}/share/kicad";
+  # KiCad's config directory for this version (a development build calls itself 10.99), where its global library
+  # tables live.
+  kicadConfig = p: "/var/lib/mcp-kicad-${p}/.config/kicad/10.99";
+  server = pkgs.callPackage ../packages/kicad-mcp-pro.nix { inherit kicad; };
+  # Where the libraries are, for the server (and its kicad-cli) and the headless KiCad alike: what the library
+  # tables' ${KICAD10_...} and ${KICAD11_...} stand for.
+  libraryEnv = {
+    KICAD10_SYMBOL_DIR = "${symbols}/symbols";
+    KICAD10_FOOTPRINT_DIR = "${footprints}/footprints";
+    KICAD11_SYMBOL_DIR = "${symbols}/symbols";
+    KICAD11_FOOTPRINT_DIR = "${footprints}/footprints";
+  };
+  # Each project's headless KiCad, its API socket only the project's server reaches.
+  apiSocket = p: "/run/kicad-api-${p}/api.sock";
   git = lib.getExe pkgs.git;
   repo = p: "${cfg.dir}/${p}";
   # git@github.com:you/repo.git or ssh://..., which take a deploy key.
@@ -69,16 +87,10 @@ in
         options = {
           port = mkOption { type = types.port; };
           url = mkOption { type = types.str; };
-          # What agents start from and keep up with.
+          # The one branch the project follows and pushes to. Another than main (e.g. agent) to merge from yourself.
           branch = mkOption {
             type = types.str;
             default = "main";
-          };
-          # Where their commits go, the VM's own: rebased onto `branch` as it moves, so force-pushed. A branch to
-          # merge into `branch` with a merge or rebase (a squash comes back as a conflict).
-          pushBranch = mkOption {
-            type = types.str;
-            default = "agent";
           };
         };
       });
@@ -109,11 +121,7 @@ in
         message = "kicad: project names are lowercase letters, digits and dashes";
       }
       {
-        assertion = lib.all (p: p.branch != p.pushBranch) (lib.attrValues cfg.projects);
-        message = "kicad: a project's pushBranch is the VM's own, not the branch it starts from";
-      }
-      {
-        # The router's `labs: edge to mcp` and `labs: agents to mcp` only let these through.
+        # The router's `labs: edge to mcp` only lets these through.
         assertion = lib.all (p: p.port >= 9200 && p.port <= 9299) (lib.attrValues cfg.projects);
         message = "kicad: project ports are in 9200-9299, the router's range for them";
       }
@@ -132,7 +140,17 @@ in
     # Group-writable for everyone in kicad, new files stay so (setgid, git's sharedRepository).
     systemd.tmpfiles.settings."10-kicad" = {
       ${cfg.dir}.d = { user = "root"; group = "kicad"; mode = "2775"; };
-    } // lib.genAttrs (map repo projects) (_: { d = { user = "root"; group = "kicad"; mode = "2775"; }; });
+    } // lib.genAttrs (map repo projects) (_: { d = { user = "root"; group = "kicad"; mode = "2775"; }; })
+    # KiCad's default global library tables, which only its first GUI start would copy in: every standard symbol
+    # and footprint library for ERC, DRC and the server. Read-only from the store, a server's own config beside
+    # them stays its own.
+    // lib.listToAttrs (lib.concatMap (p: let u = "mcp-kicad-${p}"; c = kicadConfig p; in [
+      (lib.nameValuePair "/var/lib/${u}/.config" { d = { user = u; group = u; mode = "0700"; }; })
+      (lib.nameValuePair "/var/lib/${u}/.config/kicad" { d = { user = u; group = u; mode = "0700"; }; })
+      (lib.nameValuePair c { d = { user = u; group = u; mode = "0700"; }; })
+      (lib.nameValuePair "${c}/sym-lib-table" { "L+".argument = "${symbols}/template/sym-lib-table"; })
+      (lib.nameValuePair "${c}/fp-lib-table" { "L+".argument = "${footprints}/template/fp-lib-table"; })
+    ]) projects);
 
     programs.git = {
       enable = true;
@@ -140,6 +158,9 @@ in
         safe.directory = map repo projects;
         # Who the sync's rebases and agents' commits are by, git can't make one up without a mail domain.
         user = { name = "KiCad MCP"; email = "kicad@${config.networking.hostName}.incus"; };
+        # Never committed, whatever the project's own .gitignore says: KiCad's lock files and caches, the server's
+        # reports.
+        core.excludesFile = "${../config/kicad-gitignore}";
       };
     };
 
@@ -155,14 +176,21 @@ in
         KICAD_MCP_WORKSPACE_ROOT = repo p;
         KICAD_MCP_KICAD_CLI = "${kicad}/bin/kicad-cli";
         KICAD_MCP_HEADLESS = "true";
+        # Live board editing through the project's headless KiCad (kicad-api-<project>), which opens the board
+        # selected with kicad_set_project.
+        KICAD_API_SOCKET = "ipc://${apiSocket p}";
         KICAD_MCP_OPERATING_MODE = cfg.mode;
         KICAD_MCP_PROFILE = cfg.profile;
-      };
+        # It looks for the libraries beside kicad-cli, which they aren't on NixOS.
+        KICAD_MCP_SYMBOL_LIBRARY_DIR = "${symbols}/symbols";
+        KICAD_MCP_FOOTPRINT_LIBRARY_DIR = "${footprints}/footprints";
+      } // libraryEnv;
     }) cfg.projects;
 
     systemd.services = lib.listToAttrs (map (p: lib.nameValuePair "mcp-kicad-${p}" {
-      after = [ "kicad-repo-${p}.service" ];
+      after = [ "kicad-repo-${p}.service" "kicad-api-${p}.service" ];
       requires = [ "kicad-repo-${p}.service" ];
+      wants = [ "kicad-api-${p}.service" ];
       serviceConfig = {
         # Only its own project there: the others aren't even readable.
         TemporaryFileSystem = cfg.dir;
@@ -172,6 +200,31 @@ in
         ReadWritePaths = [ (repo p) ];
         UMask = "0002";
       };
+    }) projects)
+    # KiCad itself, headless: the API server the project's MCP server edits boards through, as the same user and in
+    # the same sandbox. It opens what the MCP server asks for and saves into the repo.
+    // lib.listToAttrs (map (p: lib.nameValuePair "kicad-api-${p}" {
+      description = "Headless KiCad for project ${p}";
+      after = [ "kicad-repo-${p}.service" ];
+      requires = [ "kicad-repo-${p}.service" ];
+      environment = { HOME = "/var/lib/mcp-kicad-${p}"; } // libraryEnv;
+      serviceConfig = {
+        ExecStart = utils.escapeSystemdExecArgs [ "${kicad}/bin/kicad-cli" "api-server" "--socket" (apiSocket p) ];
+        User = "mcp-kicad-${p}";
+        Group = "mcp-kicad-${p}";
+        # Its HOME is the server's state directory, which tmpfiles would otherwise make root's when it adds the
+        # library tables below it, before the server first starts: both units claim it.
+        StateDirectory = "mcp-kicad-${p}";
+        RuntimeDirectory = "kicad-api-${p}";
+        RuntimeDirectoryMode = "0700";
+        Restart = "on-failure";
+        RestartSec = 5;
+        UMask = "0002";
+        TemporaryFileSystem = cfg.dir;
+        BindPaths = [ (repo p) ];
+        BindReadOnlyPaths = [ "${repo p}/.git/config" "${repo p}/.git/hooks" ];
+        ReadWritePaths = [ (repo p) ];
+      } // import ../hardening.nix;
     }) projects)
     # The clone, once: a project's repo is its source's. To change the source, move the repo aside.
     // lib.mapAttrs' (p: src: lib.nameValuePair "kicad-repo-${p}" (lib.recursiveUpdate (sourceUnit p src) {
@@ -185,14 +238,8 @@ in
         RemainAfterExit = true;
         Restart = "on-failure";
         RestartSec = "1min";
-        ExecStart = [ (utils.escapeSystemdExecArgs
-          [ git "clone" "--quiet" "--branch" src.branch "--config" "core.sharedRepository=group" src.url (repo p) ]) ]
-          # Onto the agents' branch: the source's if it has one already (a rebuilt VM picks up their work), else
-          # a new one from `branch`. "-": the one that doesn't apply fails.
-          ++ map (args: "-" + utils.escapeSystemdExecArgs args) [
-            [ git "-C" (repo p) "switch" "--quiet" src.pushBranch ]
-            [ git "-C" (repo p) "switch" "--quiet" "--create" src.pushBranch ]
-          ];
+        ExecStart = utils.escapeSystemdExecArgs
+          [ git "clone" "--quiet" "--branch" src.branch "--config" "core.sharedRepository=group" src.url (repo p) ];
         # The server waited for it: start it, also after a clone that took a few tries (as root, "+").
         ExecStartPost = "+${config.systemd.package}/bin/systemctl start --no-block mcp-kicad-${p}.service";
       };
@@ -203,17 +250,18 @@ in
       requires = [ "kicad-repo-${p}.service" ];
       serviceConfig = {
         WorkingDirectory = repo p;
-        # The rebase refuses uncommitted changes, an agent's half-done edits never go up. The lease guards the
-        # moment between fetch and push.
+        # The rebase refuses uncommitted changes, an agent's half-done edits never go up. A plain push: if someone
+        # pushed in between, it's refused and the next run rebases onto theirs.
         ExecStart = map utils.escapeSystemdExecArgs [
           [ git "fetch" "--quiet" "--prune" "origin" ]
-          [ git "rebase" "--quiet" "origin/${src.branch}" src.pushBranch ]
-          [ git "push" "--quiet" "--force-with-lease" "origin" src.pushBranch ]
+          [ git "rebase" "--quiet" "origin/${src.branch}" src.branch ]
+          [ git "push" "--quiet" "origin" src.branch ]
         ];
         # On a conflict the rebase stops halfway, with markers in the files agents edit: undo it, so the project
-        # keeps its own commits and the next run tries again (the log says what conflicts).
+        # keeps its own commits and the next run tries again (the log says what conflicts). Only then: a failed fetch
+        # or push left no rebase to undo.
         ExecStopPost = utils.escapeSystemdExecArgs [ "${pkgs.runtimeShell}" "-c"
-          "[ \"$SERVICE_RESULT\" = success ] || exec ${git} rebase --abort" ];
+          "[ \"$SERVICE_RESULT\" = success ] || ! [ -d .git/rebase-merge ] || exec ${git} rebase --abort" ];
       };
     })) cfg.projects;
 

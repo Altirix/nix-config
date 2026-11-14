@@ -1,0 +1,14 @@
+# What KiCad and KiCad MCP Pro leave in a project that never belongs in its repo, for every git on the mcp VM
+# (servers/kicad.nix): an agent's commit takes everything else under the project.
+
+# KiCad: open-file locks (another KiCad would think the project is open), per-user view settings, caches, backups.
+~*.lck
+*.kicad_prl
+fp-info-cache
+*-backups/
+_autosave-*
+\#auto_saved_files\#
+
+# KiCad MCP Pro: its working state and reports (its own git setup ignores output/ too).
+.kicad-mcp/
+output/

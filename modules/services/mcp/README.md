@@ -2,7 +2,7 @@
 
 `homelab.mcp.servers` runs MCP servers for agents, each as its own `mcp-<name>` unit and port. stdio servers
 sit behind mcp-proxy: streamable HTTP on `http://<host>:<port>/mcp`, SSE on `/sse`. Nothing authenticates, so
-the router decides who reaches which port (Router), and only the edge's nginx (with tokens) puts the low-risk
+the router decides who reaches which port (Altirix/Mikrotik), and only the edge's nginx (with tokens) puts the low-risk
 ones on the internet (From outside). The VMs open every port they serve: a firewall on a VM is gone with root
 on it, so none of what keeps them apart lives there. stdio servers share one process, and with it any state,
 between clients. They run on labs, split by what a compromise of one gives away (Where servers run).
@@ -47,7 +47,7 @@ hypervisors pin each VM to its address (`security.ipv4_filtering`, networking/RE
 `src-address` matches can't be spoofed from labs. Never give `mcp`, `mcp-web` or `rea` the `labs-mesh` profile:
 VXLAN goes VM to VM past the router.
 
-Who gets in, and what they open, is in modules/networking/README.md (Router): `labs: edge to mcp` (the public
+Who gets in, and what they open, is on the router (Altirix/Mikrotik): `labs: edge to mcp` (the public
 servers' ports, `public = true`, From outside), `labs: edge to mcp-web`, `labs: edge to rea`, `labs: tunnel to agents, nothing else`
 (no other tunnel peer reaches either VM), `labs: rea opens nothing` (not the router, labs, home or out the
 tunnel) and `labs: nothing private` (mcp and mcp-web reach the internet, for context7, nixos, fetch and playwright,
@@ -88,7 +88,7 @@ request needs `Authorization: Bearer <token>`, one token per client in `hosts/ed
 can be revoked, and the access log (the journal's `nginx_access`, on to the logs VM) names the client. OAuth
 sign-in through Kanidm (`modules/services/sso`) is ready to replace the tokens later (`oauth` in place of `tokens` on
 the site, its `mcp` and `mcp-cli` clients already exist), MCP doesn't use it yet. The router only lets the edge's tunnel
-address `10.0.0.1` in on the exposed servers' ports (`labs: edge to mcp`, Router), so a compromised edge still
+address `10.0.0.1` in on the exposed servers' ports (`labs: edge to mcp`), so a compromised edge still
 doesn't reach the others. Never add a wireguard forward to `10.100.1.11`, `.12` or `.13`: forwards arrive from
 `10.0.0.1` too and would skip the token. Exposing another server takes both, `public = true` on it and its
 port in its VM's `labs: edge to` rule.
@@ -96,10 +96,10 @@ port in its VM's `labs: edge to` rule.
 REA is also routed, `https://mcp.peacocks.me/rea/` → its own VM's nginx `10.100.1.12:8101`, on the same
 token. It runs code a caller hands it but reaches nothing (no secrets, the router drops what it opens,
 snapshot reset), so a leaked token lands in a dead-end sandbox. That rests on `labs: rea opens nothing`
-(Router) being live, and covering IPv6 too if labs carries it.
+being live, and covering IPv6 too if labs carries it.
 
 Set it up: point an A record for `mcp.peacocks.me` at the VPS (ACME needs it before the first deploy), add a
-token per client named in the site's `tokens` (`openssl rand -hex 32`), add the router rules (Router), deploy `mcp`, then
+token per client named in the site's `tokens` (`openssl rand -hex 32`), add the router rules (Altirix/Mikrotik), deploy `mcp`, then
 `ionos-de`. ionos-de doesn't build with the tokens missing.
 
 ```sh
@@ -290,8 +290,8 @@ The VM serves nothing else (asserted), holds no secrets (it isn't a sops recipie
 
 - **Who connects**: the router, `labs: edge to rea` (and `labs: agents to rea` per LAN agent).
 
-- **Egress**: the router's `labs: rea opens nothing` drops every connection the VM opens, so samples
-  can't phone home or scan labs, and browser scenarios only load `http://127.0.0.1` pages. Nothing on the VM
+- **Egress**: the router's `labs: rea opens nothing` drops every connection the VM opens but its journal's to the
+  logs VM's insert port (`labs: rea ships logs`), so samples can't phone home or scan labs, and browser scenarios only load `http://127.0.0.1` pages. Nothing on the VM
   enforces it, so root there changes nothing. It has no DNS or NTP either, and deploys push the closure (no
   `--use-substitutes`).
 
@@ -318,18 +318,32 @@ The VM serves nothing else (asserted), holds no secrets (it isn't a sops recipie
 `homelab.mcp.kicad` (`servers/kicad.nix`) gives each project in `projects` a git repo in `/var/lib/kicad/<project>`
 and its own KiCad MCP Pro server, at `https://mcp.peacocks.me/kicad/<project>/mcp`, confined to that repo. Agents on
 different projects never share a server or files; agents on the same one share both, so give each line of work its
-own project. Headless: ERC/DRC, BOM and exports run through `kicad-cli`, tools that drive a running KiCad stay hidden.
-In `write` mode (the default) the `builder` tool set creates projects, edits schematics and boards and commits
-(`vcs_commit_checkpoint`); `readonly` keeps agents to inspecting, checking and exporting. Its outputs still need your
-review before fabrication.
+own project. ERC/DRC, BOM and exports run through `kicad-cli`. A commit takes everything under the project but what
+`config/kicad-gitignore` leaves out (KiCad's lock files, view settings, caches and backups, the server's reports). In `write` mode (the default) the `builder` tool set
+creates projects, edits schematics and boards and commits (`vcs_commit_checkpoint`); `readonly` keeps agents to
+inspecting, checking and exporting. Its outputs still need your review before fabrication.
 
-Each project is a clone of its source, a repo with something committed (GitHub's "Add a README" will do). Agents
-work on the `agent` branch (`pushBranch`): every minute it's rebased onto the source's `main` (`branch`) and
-force-pushed, so their work reaches you as a branch to review and merge, never `main` itself. Merge it with a merge
-commit or a rebase, a squash comes back as a conflict on the next sync. On uncommitted changes or a conflict it stops
-and leaves the repo as it was (`journalctl -u kicad-sync-<project>` says why). To look at a design, or change it
-yourself, work in the source. Protect `main` on GitHub (a ruleset restricting updates, no bypass for deploy keys) so
-nothing on the VM could push there even if it tried. Add a project in
+Boards are edited live through KiCad itself, headless: each project has a `kicad-api-<project>` service running
+`kicad-cli api-server`, KiCad's API without a GUI, sandboxed to the project's repo like its server. An agent picks
+the board with `kicad_set_project` (`pcb_file`), works on it (placing, routing, zones, `pcb_save`), commits, then
+selects the next board in the same project: the one before is saved and closed. A board whose file changed on disk
+since KiCad opened it (the sync brought in a commit) is never saved over: it's opened again, or closed unsaved when
+the agent moves on, and its unsaved live edits go with it (so do they after the server restarts). Selecting a board
+that doesn't exist is an error, boards are generated or created first. A project has one selected board, shared by
+every agent on it: two agents editing different boards at once take it from each other.
+
+That API server only exists in KiCad's development branch (what becomes KiCad 11), so every KiCad on the server is
+that one (`packages/kicad-master.nix`, pinned, compiled by the build host, an hour or so), with KiCad MCP Pro patched
+to open the selected board (`packages/kicad-mcp-pro-headless.patch`) and kicad-python built from git against it
+(with `packages/kicad-python-create-items.patch`, its fix for creating items).
+**It saves in its own file format (10.99), which KiCad 10 doesn't open**: to look at or edit a board yourself, use a
+KiCad nightly. Bump KiCad and kicad-python together, their API definitions have to match.
+
+Each project is a clone of its source, a repo with something committed (GitHub's "Add a README" will do), on one
+branch (`branch`, main): every minute the project's commits are rebased onto it and pushed, so commits pushed there
+from anywhere else (you, an agent on your PC) come down and the server agents' go up, nobody's overwritten. On
+uncommitted changes or a conflict it stops and leaves the repo as it was (`journalctl -u kicad-sync-<project>` says
+why). For a review step, set `branch = "agent";` and merge agent into main yourself. Add a project in
 `hosts/virtual/mcp/default.nix` with a free port of its own (9200-9299), deploy `mcp` and `ionos-de` (the route) and
 widen nothing: `labs: edge to mcp` covers 9200-9299.
 

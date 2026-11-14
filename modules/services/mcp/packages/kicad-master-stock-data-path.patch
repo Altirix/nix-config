@@ -1,0 +1,13 @@
+--- a/common/paths.cpp	2026-11-14 17:37:11.731444555 +0000
++++ b/common/paths.cpp	2026-11-14 17:37:11.742163800 +0000
+@@ -193,6 +193,10 @@
+ {
+     wxString path;
+ 
++    if( wxGetEnv( wxT( "NIX_KICAD10_STOCK_DATA_PATH" ), &path ) ) {
++        return path;
++    }
++
+     if( aRespectRunFromBuildDir && RunningFromBuildDir() )
+     {
+         // Allow debugging from build dir by placing relevant files/folders in the build root
