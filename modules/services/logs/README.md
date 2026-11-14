@@ -3,8 +3,11 @@
 VictoriaLogs (`homelab.logs.collector`, `collector.nix`) on `hosts/virtual/logs` (`10.100.0.11`), the lab's logs in one place. Every host ships its journal to it
 (`homelab.logs.shipTo`, `systemd-journal-upload`, which resumes where it stopped after an outage; the edge's
 nginx access log goes to the journal as `nginx_access`), and Claude Code sends its tool calls over OpenTelemetry
-([MCP usage](../../../modules/services/mcp/README.md#usage)). `rea` ships nothing, it may not open
-connections. Kept 90 days.
+([MCP usage](../../../modules/services/mcp/README.md#usage)). `rea` ships too, the one connection the router
+lets it open (`labs: rea ships logs`): a sample running there reaches nginx's `/insert/` and nothing more, it can
+forge or flood lines like any compromised sender. The router sends its own log as syslog
+(Altirix/Mikrotik, `victorialogs` logging action), straight to VictoriaLogs on UDP `5514`, which the VM only
+takes from `10.100.0.1`. Kept 90 days.
 
 VictoriaLogs only listens on loopback. nginx on the VM serves `/insert/` alone on `9428` (every sender) and
 `/select/` alone on `9427` (home): senders can add lines, never read them, delete them or reach VictoriaLogs'
@@ -20,18 +23,19 @@ _HOSTNAME:ionos-de _SYSTEMD_UNIT:sshd.service                    # ssh on the ed
 _HOSTNAME:auth _SYSTEMD_UNIT:kanidm.service error                  # Kanidm errors
 SYSLOG_IDENTIFIER:nginx_access "/time/mcp"                         # MCP requests through the edge, with the client
 _HOSTNAME:* | stats by (_HOSTNAME) count()                         # who's sending
+hostname:MikroTik app_name:c2-hit                                  # the router: a client quarantined
 ```
 
 ## Router (MikroTik)
 
-In modules/networking/README.md (Router): `labs: logs in` (every sender but `rea`: the edge, mgmt, home and
-labs), `labs: home reads logs` and `labs: edge reads logs`. Anyone on home can read every log (MCP calls' arguments
+On the router (Altirix/Mikrotik): `labs: logs in` (the edge, mgmt, home and labs), `labs: rea ships logs`
+(ahead of `labs: rea opens nothing`), `labs: home reads logs` and `labs: edge reads logs`. Anyone on home can read every log (MCP calls' arguments
 included), narrow `labs: home reads logs` to the machines that need it if that's too wide.
 
 ## Set up
 
 1. Deploy the hypervisors so they pin `10.100.0.11` (the VM has no network until then), then install the VM
-   ([hosts/README.md](../../README.md#add-a-vm)). Add the router rules.
+   ([hosts/README.md](../../README.md#add-a-vm)). Add the router rules (Altirix/Mikrotik).
 2. Give it a data volume (VictoriaLogs won't start without it):
 
    ```sh
