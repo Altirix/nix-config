@@ -5,7 +5,9 @@ VictoriaLogs (`homelab.logs.collector`, `collector.nix`) on `hosts/virtual/logs`
 nginx access log goes to the journal as `nginx_access`), and Claude Code sends its tool calls over OpenTelemetry
 ([MCP usage](../../../modules/services/mcp/README.md#usage)). `rea` ships too, the one connection the router
 lets it open (`labs: rea ships logs`): a sample running there reaches nginx's `/insert/` and nothing more, it can
-forge or flood lines like any compromised sender. Kept 90 days.
+forge or flood lines like any compromised sender. The router sends its own log as syslog
+(Altirix/Mikrotik, `victorialogs` logging action), straight to VictoriaLogs on UDP `5514`, which the VM only
+takes from `10.100.0.1`. Kept 90 days.
 
 VictoriaLogs only listens on loopback. nginx on the VM serves `/insert/` alone on `9428` (every sender) and
 `/select/` alone on `9427` (home): senders can add lines, never read them, delete them or reach VictoriaLogs'
@@ -21,6 +23,7 @@ _HOSTNAME:ionos-de _SYSTEMD_UNIT:sshd.service                    # ssh on the ed
 _HOSTNAME:auth _SYSTEMD_UNIT:kanidm.service error                  # Kanidm errors
 SYSLOG_IDENTIFIER:nginx_access "/time/mcp"                         # MCP requests through the edge, with the client
 _HOSTNAME:* | stats by (_HOSTNAME) count()                         # who's sending
+hostname:MikroTik app_name:c2-hit                                  # the router: a client quarantined
 ```
 
 ## Router (MikroTik)

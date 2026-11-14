@@ -2,7 +2,8 @@
 
 # VictoriaLogs, every host's journal (default.nix). It listens on loopback, nginx puts only /insert/ on 9428 (every
 # sender) and only /select/ (queries, the web UI) on 9427, so senders can add lines but never read, delete or manage
-# partitions. Who reaches which port is the router's call (README.md). The query side is published (homelab.publish)
+# partitions. Who reaches which port is the router's call (README.md). The router itself sends syslog to
+# VictoriaLogs directly, UDP 5514, which only takes it from the router's address. The query side is published (homelab.publish)
 # for a front door with sign-in (logs.peacocks.me).
 let
   cfg = config.homelab.logs.collector;
@@ -23,7 +24,12 @@ in
     services.victorialogs = {
       enable = true;
       listenAddress = "127.0.0.1:9429";
-      extraOptions = [ "-retentionPeriod=${cfg.retention}" ];
+      extraOptions = [
+        "-retentionPeriod=${cfg.retention}"
+        "-syslog.listenAddr.udp=:5514"
+        # RFC 3164 lines carry no zone, the router's clock is local time.
+        "-syslog.timezone=${config.time.timeZone}"
+      ];
     };
 
     services.nginx = {
@@ -53,5 +59,7 @@ in
 
     # Only on the labs bridge, the router decides who reaches it.
     networking.firewall.allowedTCPPorts = [ 9427 9428 ];
+    # Tunnel peers reach labs' ports too, syslog has no nginx in front: the router only.
+    networking.firewall.extraInputRules = "ip saddr ${config.homelab.labs.gateway} udp dport 5514 accept";
   };
 }

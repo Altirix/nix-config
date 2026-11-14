@@ -1,11 +1,11 @@
-{ kicad-unstable-small, fetchFromGitLab, fetchurl, callPackage, glslang, spirv-tools, spirv-cross, sqlite }:
+{ lib, kicad-unstable-small, fetchFromGitLab, fetchurl, callPackage, glslang, spirv-tools, spirv-cross, sqlite }:
 
 # KiCad's development branch (what becomes KiCad 11), for its headless API server: `kicad-cli api-server` with
 # OpenDocument, so a project's agents load one board after another (servers/kicad.nix). Pinned to the revision
 # kicad-python (packages/kicad-mcp-pro.nix) is built against, their API definitions have to match: bump both
 # together. Not in the binary cache, the build host compiles it (an hour or so). The libraries stay nixpkgs'
 # kicad-unstable ones. Saves in its own file format, which KiCad 10 doesn't open: view with a KiCad nightly.
-kicad-unstable-small.override {
+(kicad-unstable-small.override {
   srcs = {
     kicadVersion = "2026-11-08";
     kicad = fetchFromGitLab {
@@ -35,4 +35,9 @@ kicad-unstable-small.override {
         buildInputs = old.buildInputs ++ [ sqlite ];
       })
     else built;
-}
+}).overrideAttrs (old: {
+  # The wrapper, for what this revision still installs: bitmap2component and the IDF tools are gone.
+  installPhase = lib.concatLines (lib.filter
+    (line: !lib.any (tool: lib.hasInfix "/bin/${tool} " line) [ "bitmap2component" "dxf2idf" "idf2vrml" "idfcyl" "idfrect" ])
+    (lib.splitString "\n" old.installPhase));
+})

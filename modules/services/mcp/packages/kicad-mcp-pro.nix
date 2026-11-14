@@ -77,6 +77,9 @@ let
           rev = "76b47d25a826a56a301660f5f572dda968c84d59";
           hash = "sha256-KdhkRjQ4JPy4tLBl+MhHmiRRbhVFs5BjfUKAc5EO46k=";
         };
+        # create_items and update_items unpack the returned item twice (_item_from_message unpacks it already), so
+        # every created track or footprint raised after KiCad had made it.
+        patches = [ ./kicad-python-create-items.patch ];
         postUnpack = ''
           mkdir -p $sourceRoot/kicad/api
           cp -r ${kicad.base.src}/api/proto $sourceRoot/kicad/api/proto
