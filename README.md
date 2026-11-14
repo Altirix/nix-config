@@ -50,7 +50,20 @@ host and no host builds without one. There is no root or console password.
 
 ```sh
 nix run github:nix-community/nixos-anywhere -- --flake .#<name> root@<ip>
-nixos-rebuild switch --flake .#<name> --target-host admin@<name> --sudo
+```
+
+Deploy VMs by their labs name, built where you run it and copied over:
+
+```sh
+nixos-rebuild switch --flake .#<name> --target-host admin@<name>.labs.internal --sudo
+```
+
+The hypervisors build on themselves (`--build-host`), each its own closure:
+
+```sh
+for h in andromeda bode centaurus; do
+  nixos-rebuild switch --flake .#$h --target-host admin@$h.mgmt.internal --build-host admin@$h.mgmt.internal --sudo
+done
 ```
 
 VMs and the printers install differently, see [hosts/README.md](hosts/README.md) and

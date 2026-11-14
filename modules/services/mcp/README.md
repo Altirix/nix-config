@@ -301,8 +301,8 @@ The VM serves nothing else (asserted), holds no secrets (it isn't a sops recipie
   ```sh
   incus storage volume create ceph rea-data --type=block size=100GiB
   incus config device add rea data disk pool=ceph source=rea-data
-  ssh admin@rea.incus lsblk                                   # the new, empty disk, e.g. sdb
-  ssh admin@rea.incus 'sudo mkfs.ext4 -L rea-data /dev/sdb'
+  ssh admin@rea.labs.internal lsblk                           # the new, empty disk, e.g. sdb
+  ssh admin@rea.labs.internal 'sudo mkfs.ext4 -L rea-data /dev/sdb'
   ```
 
 - **Reset**: snapshot the VM stopped once installed (and again after each deploy), roll its root back when no

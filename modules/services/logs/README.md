@@ -41,8 +41,8 @@ included), narrow `labs: home reads logs` to the machines that need it if that's
    ```sh
    incus storage volume create ceph logs-data --type=block size=200GiB
    incus config device add logs data disk pool=ceph source=logs-data
-   ssh admin@logs.incus lsblk                                  # the new, empty disk, e.g. sdb
-   ssh admin@logs.incus 'sudo mkfs.ext4 -L logs-data /dev/sdb && sudo systemctl restart victorialogs'
+   ssh admin@logs.labs.internal lsblk                          # the new, empty disk, e.g. sdb
+   ssh admin@logs.labs.internal 'sudo mkfs.ext4 -L logs-data /dev/sdb && sudo systemctl restart victorialogs'
    ```
 
 3. Point an A record for `logs.peacocks.me` at the VPS, deploy `auth` (it learns the site's callback), then the

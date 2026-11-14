@@ -52,7 +52,8 @@ incus config device add <name> install disk pool=ceph source=<installer> boot.pr
 incus start <name>
 ```
 
-Install it from the hypervisor it runs on, over vsock, so it needs no network (see
+Install it from the hypervisor it runs on, over vsock: the installer has no network (labs has no DHCP), so this is
+the one place `<name>.incus` is the way in, afterwards it's `<name>.labs.internal` (see
 [modules/services/incus/README.md](../modules/services/incus/README.md)). The stock installer has no key: set a root
 password from its console first (`incus console <name> --type=vga`, `sudo passwd root`). Everything comes from the
 hypervisor over vsock, the installer downloads nothing; with 1 GiB, give it zram so what's copied fits:

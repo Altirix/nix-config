@@ -27,7 +27,7 @@ removed.
    edge):
 
    ```sh
-   ssh admin@paperless.incus sudo paperless-manage shell -c "from django.contrib.auth.models import User; u, _ = User.objects.get_or_create(username='altirix'); u.is_superuser = u.is_staff = True; u.save()"
+   ssh admin@paperless.labs.internal sudo paperless-manage shell -c "from django.contrib.auth.models import User; u, _ = User.objects.get_or_create(username='altirix'); u.is_superuser = u.is_staff = True; u.save()"
    ```
 
    Others who sign in get a user without permissions: give them some in its admin (Users & Groups).

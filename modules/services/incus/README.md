@@ -17,8 +17,8 @@ Host *.incus
 ```
 
 Relay failures only show on the member running the VM: `journalctl -u 'incus-ssh-relay@*'`. Once the
-router lets home into labs (`labs: home ssh, rdp`, Altirix/Mikrotik), `ssh admin@<labs address>`
-works too, vsock stays the way in when a VM's network is broken.
+router lets home into labs (`labs: home ssh, rdp`, Altirix/Mikrotik), use `ssh admin@<name>.labs.internal`:
+vsock is for installing and for a VM whose network is broken.
 
 ## Windows VMs
 
