@@ -245,6 +245,13 @@ let
       inherit (r) name;
       gateways = "mcp";
       matches = [{ path.pathPrefix = r.prefix; }];
+      # Tool calls take as long as they take (a schematic render, a library index, REA's decompiles): its own default
+      # cuts them off at 10s. As long as nginx in front of it allows.
+      policies.timeout = {
+        requestTimeout = "1h";
+        backendRequestTimeout = "1h";
+        responseIdleTimeout = "1h";
+      };
       backends = [{ mcp.targets = [{ name = r.target; mcp.host = r.url; }]; }];
     }) gatewayRoutes;
   };
