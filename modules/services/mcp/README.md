@@ -318,7 +318,8 @@ The VM serves nothing else (asserted), holds no secrets (it isn't a sops recipie
 `homelab.mcp.kicad` (`servers/kicad.nix`) gives each project in `projects` a git repo in `/var/lib/kicad/<project>`
 and its own KiCad MCP Pro server, at `https://mcp.peacocks.me/kicad/<project>/mcp`, confined to that repo. Agents on
 different projects never share a server or files; agents on the same one share both, so give each line of work its
-own project. ERC/DRC, BOM and exports run through `kicad-cli`. In `write` mode (the default) the `builder` tool set
+own project. ERC/DRC, BOM and exports run through `kicad-cli`. A commit takes everything under the project but what
+`config/kicad-gitignore` leaves out (KiCad's lock files, view settings, caches and backups, the server's reports). In `write` mode (the default) the `builder` tool set
 creates projects, edits schematics and boards and commits (`vcs_commit_checkpoint`); `readonly` keeps agents to
 inspecting, checking and exporting. Its outputs still need your review before fabrication.
 

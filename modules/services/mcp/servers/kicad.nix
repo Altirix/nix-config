@@ -158,6 +158,9 @@ in
         safe.directory = map repo projects;
         # Who the sync's rebases and agents' commits are by, git can't make one up without a mail domain.
         user = { name = "KiCad MCP"; email = "kicad@${config.networking.hostName}.incus"; };
+        # Never committed, whatever the project's own .gitignore says: KiCad's lock files and caches, the server's
+        # reports.
+        core.excludesFile = "${../config/kicad-gitignore}";
       };
     };
 

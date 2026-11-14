@@ -224,12 +224,18 @@ in
             call("pcb_place_component", {"reference": "R1", "x_mm": 20, "y_mm": 20}),
             call("pcb_save", {}),
             call("run_drc", {}),
+            # With the board still open in KiCad, so its lock file is there.
+            call("vcs_commit_checkpoint", {"message": "demo", "auto_drc": False}),
         ])
         for result in out["results"]:
             text = "\n".join(c.get("text", "") for c in result["content"])
             print(f"kicad-t demo: {text[:300]!r}")
             assert not result.get("isError"), text
         mcp.succeed(f"grep -q 'R_0603_1608Metric' {demo}/demo.kicad_pcb")
+        # The board, schematic and project went in; KiCad's lock and view settings and the server's reports didn't.
+        files = mcp.succeed(f"git -C {repo} show --name-only --format= HEAD")
+        assert "demo/demo.kicad_pcb" in files and "demo/demo.kicad_sch" in files, files
+        assert not any(x in files for x in (".lck", ".kicad_prl", ".kicad-mcp/", "output/")), files
         # A board that doesn't exist is an error, not a new board.
         out = session("kicad-t", [
             ["tools/call", {"name": "kicad_set_project", "arguments": {"project_dir": repo, "pcb_file": f"{repo}/nope.kicad_pcb"}}],
