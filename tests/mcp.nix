@@ -50,6 +50,7 @@ in
       # A project kept in step with a repo on the VM, which its pushes write to. The source has a commit before the
       # clone, as a GitHub repo must.
       homelab.mcp.kicad.projects.t = { port = 9200; url = "/var/lib/kicad-src/t.git"; };
+      homelab.mcp.kicad.mode = "experimental";
       systemd.services.kicad-sync-t.serviceConfig.ReadWritePaths = [ "/var/lib/kicad-src" ];
       systemd.services.kicad-src-t = {
         requiredBy = [ "kicad-repo-t.service" ];
@@ -236,7 +237,32 @@ in
         files = mcp.succeed(f"git -C {repo} show --name-only --format= HEAD")
         assert "demo/demo.kicad_pcb" in files and "demo/demo.kicad_sch" in files, files
         assert not any(x in files for x in (".lck", ".kicad_prl", ".kicad-mcp/", "output/")), files
-        # A board that doesn't exist is an error, not a new board.
+        # Two parts on two nets, routed by FreeRouting and written back onto the open board: DRC finds nothing
+        # unconnected.
+        rt = f"{repo}/rt"
+        out = session("kicad-t", [
+            call("kicad_create_new_project", {"path": repo, "name": "rt"}),
+            call("kicad_set_project", {"project_dir": rt, "pcb_file": f"{rt}/rt.kicad_pcb", "sch_file": f"{rt}/rt.kicad_sch"}),
+            *[call("sch_add_symbol", {"library": "Device", "symbol_name": "R", "x_mm": x, "y_mm": 50, "reference": r,
+                                      "value": "10k", "footprint": "Resistor_SMD:R_0603_1608Metric"})
+              for r, x in (("R1", 50), ("R2", 80))],
+            *[call("sch_route_wire_between_pins", {"ref1": "R1", "pin1": p, "ref2": "R2", "pin2": p}) for p in ("1", "2")],
+            call("pcb_sync_from_schematic", {"allow_open_board": True, "force": True}),
+            call("pcb_set_board_outline", {"width_mm": 30, "height_mm": 20, "origin_x_mm": 0, "origin_y_mm": 0}),
+            call("pcb_place_component", {"reference": "R1", "x_mm": 8, "y_mm": 10}),
+            call("pcb_place_component", {"reference": "R2", "x_mm": 22, "y_mm": 10, "rotation_deg": 90}),
+            call("pcb_save", {}),
+            call("route_autoroute_freerouting", {"use_docker": False, "max_passes": 5}),
+            call("run_drc", {}),
+        ])
+        for result in out["results"]:
+            text = "\n".join(c.get("text", "") for c in result["content"])
+            print(f"kicad-t rt: {text[:300]!r}")
+            assert not result.get("isError"), text
+        drc = "\n".join(c.get("text", "") for c in out["results"][-1]["content"])
+        assert "Unconnected items: 0" in drc, drc
+        mcp.succeed(f"grep -q '(segment' {rt}/rt.kicad_pcb")
+
         out = session("kicad-t", [
             ["tools/call", {"name": "kicad_set_project", "arguments": {"project_dir": repo, "pcb_file": f"{repo}/nope.kicad_pcb"}}],
             ["tools/call", {"name": "pcb_add_track", "arguments": {"x1_mm": 0, "y1_mm": 0, "x2_mm": 1, "y2_mm": 0}}],

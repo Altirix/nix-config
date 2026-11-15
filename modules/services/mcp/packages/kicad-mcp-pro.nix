@@ -160,7 +160,13 @@ python.pkgs.buildPythonApplication (finalAttrs: {
 
   # Headless KiCad (kicad-cli api-server, servers/kicad.nix): its development version counts as the release it leads
   # to, and the board selected with kicad_set_project is opened (or created) there, the one before saved and closed.
-  patches = [ ./kicad-mcp-pro-headless.patch ];
+  patches = [
+    ./kicad-mcp-pro-headless.patch
+    # Applying FreeRouting's result (route_autoroute_freerouting): its SES writer only wrote numbered nets, refusing
+    # the named-only ones KiCad's development branch saves (it writes names there now, checked against the board's
+    # own), and read FreeRouting's coordinates 10x too large (its resolution factor counts).
+    ./kicad-mcp-pro-freerouting-ses.patch
+  ];
 
   pythonImportsCheck = [ "kicad_mcp" ];
 

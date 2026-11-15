@@ -332,18 +332,27 @@ the agent moves on, and its unsaved live edits go with it (so do they after the 
 that doesn't exist is an error, boards are generated or created first. A project has one selected board, shared by
 every agent on it: two agents editing different boards at once take it from each other.
 
+Routing (`mode = "experimental"` on `mcp`, KiCad MCP Pro keeps it behind that): `route_autoroute_freerouting` runs
+FreeRouting (nixpkgs', on the server's Java, headless, its usage reports off) and writes the result onto the open
+board (`packages/kicad-mcp-pro-freerouting-ses.patch`). `route_differential_pair`, `route_tune_length` and
+`tune_diff_pair_length` don't draw: they write the width, gap, skew and length targets into the project's design
+rules (`<project>.kicad_dru`, committed with it) and report the lengths as they are, DRC checks them. Every edit
+goes straight to the file, there's no undo on the server: commit before anything big, `git revert` is the undo.
+
 That API server only exists in KiCad's development branch (what becomes KiCad 11), so every KiCad on the server is
 that one (`packages/kicad-master.nix`, pinned, compiled by the build host, an hour or so), with KiCad MCP Pro patched
 to open the selected board (`packages/kicad-mcp-pro-headless.patch`) and kicad-python built from git against it
 (with `packages/kicad-python-create-items.patch`, its fix for creating items).
-**It saves in its own file format (10.99), which KiCad 10 doesn't open**: to look at or edit a board yourself, use a
-KiCad nightly. Bump KiCad and kicad-python together, their API definitions have to match.
+**It saves in its own file format (10.99), which KiCad 10 doesn't open**: use a KiCad nightly, or export copies KiCad
+10 opens (`kicad-cli pcb downgrade -o board-k10.kicad_pcb board.kicad_pcb`, `kicad-cli sch downgrade`, with KiCad
+master). Bump KiCad and kicad-python together, their API definitions have to match.
 
 Each project is a clone of its source, a repo with something committed (GitHub's "Add a README" will do), on one
 branch (`branch`, main): every minute the project's commits are rebased onto it and pushed, so commits pushed there
 from anywhere else (you, an agent on your PC) come down and the server agents' go up, nobody's overwritten. On
-uncommitted changes or a conflict it stops and leaves the repo as it was (`journalctl -u kicad-sync-<project>` says
-why). For a review step, set `branch = "agent";` and merge agent into main yourself. Add a project in
+uncommitted changes to tracked files or a conflict it stops and leaves the repo as it was (`journalctl -u
+kicad-sync-<project>` says why); files not in git are never touched, but stay on the server until an agent commits
+them. So a board gets to GitHub by an agent committing it (`vcs_commit_checkpoint`), the next sync pushes it. For a review step, set `branch = "agent";` and merge agent into main yourself. Add a project in
 `hosts/virtual/mcp/default.nix` with a free port of its own (9200-9299), deploy `mcp` and `ionos-de` (the route) and
 widen nothing: `labs: edge to mcp` covers 9200-9299.
 

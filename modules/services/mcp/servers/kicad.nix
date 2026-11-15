@@ -102,15 +102,17 @@ in
       default = "/var/lib/kicad";
     };
     # readonly: inspect, check, export. write: create projects, edit schematics and boards, commit too.
+    # experimental: write, plus routing (differential pairs, length tuning, FreeRouting's autorouter) and
+    # manufacturing exports, which KiCad MCP Pro keeps behind it.
     mode = mkOption {
-      type = types.enum [ "readonly" "write" ];
+      type = types.enum [ "readonly" "write" "experimental" ];
       default = "write";
     };
     # KiCad MCP Pro's tool set. builder has creating projects, schematic, library, board and routing editing,
     # ERC/DRC and its git tools; its own `default` is review only, which hides them even in write mode.
     profile = mkOption {
       type = types.str;
-      default = if cfg.mode == "write" then "builder" else "review";
+      default = if cfg.mode == "readonly" then "review" else "builder";
     };
   };
 
@@ -181,6 +183,12 @@ in
         KICAD_API_SOCKET = "ipc://${apiSocket p}";
         KICAD_MCP_OPERATING_MODE = cfg.mode;
         KICAD_MCP_PROFILE = cfg.profile;
+        # The autorouter: FreeRouting's jar on the server's own Java (it runs no containers), headless and without
+        # its usage reports. Its check for a newer release still goes out, to GitHub's API.
+        KICAD_MCP_FREEROUTING_JAR = "${pkgs.freerouting}/share/freerouting/freerouting-executable.jar";
+        KICAD_MCP_JAVA_EXECUTABLE = lib.getExe' pkgs.jdk25_headless "java";
+        FREEROUTING__GUI__ENABLED = "false";
+        FREEROUTING__USAGE_AND_DIAGNOSTIC_DATA__DISABLE_ANALYTICS = "true";
         # It looks for the libraries beside kicad-cli, which they aren't on NixOS.
         KICAD_MCP_SYMBOL_LIBRARY_DIR = "${symbols}/symbols";
         KICAD_MCP_FOOTPRINT_LIBRARY_DIR = "${footprints}/footprints";
