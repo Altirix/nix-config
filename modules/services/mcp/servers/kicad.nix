@@ -224,6 +224,8 @@ in
         KICAD_MCP_FREEROUTING_JAR = "${pkgs.freerouting}/share/freerouting/freerouting-executable.jar";
         KICAD_MCP_JAVA_EXECUTABLE = lib.getExe' pkgs.jdk25_headless "java";
         FREEROUTING__GUI__ENABLED = "false";
+        # A real board takes it longer than the default 15 minutes: the most KiCad MCP Pro allows.
+        KICAD_MCP_FREEROUTING_TIMEOUT_SEC = "7200";
         FREEROUTING__USAGE_AND_DIAGNOSTIC_DATA__DISABLE_ANALYTICS = "true";
         # It looks for the libraries beside kicad-cli, which they aren't on NixOS.
         KICAD_MCP_SYMBOL_LIBRARY_DIR = "${symbols}/symbols";

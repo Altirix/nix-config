@@ -333,8 +333,10 @@ that doesn't exist is an error, boards are generated or created first. A project
 every agent on it: two agents editing different boards at once take it from each other.
 
 Routing (`mode = "experimental"` on `mcp`, KiCad MCP Pro keeps it behind that): `route_autoroute_freerouting` runs
-FreeRouting (nixpkgs', on the server's Java, headless, its usage reports off) and writes the result onto the open
-board (`packages/kicad-mcp-pro-freerouting-ses.patch`). `route_differential_pair`, `route_tune_length` and
+FreeRouting (nixpkgs', on the server's Java, headless, its usage reports off, up to 2 hours) and writes the result
+onto the open board (`packages/kicad-mcp-pro-freerouting-ses.patch`). A real board takes it longer than a client
+waits for one call, so agents use `route_autoroute_start`, which returns at once, and check `route_autoroute_status`
+every 5-10 minutes: its passes and score so far, then the result, applied. They leave the board alone meanwhile. `route_differential_pair`, `route_tune_length` and
 `tune_diff_pair_length` don't draw: they write the width, gap, skew and length targets into the project's design
 rules (`<project>.kicad_dru`, committed with it) and report the lengths as they are, DRC checks them. Every edit
 goes straight to the file, there's no undo on the server: commit before anything big, `git revert` is the undo.

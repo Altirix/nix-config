@@ -175,6 +175,10 @@ python.pkgs.buildPythonApplication (finalAttrs: {
     # Git with the project's remote, which it had none of: vcs_fetch, vcs_branch, vcs_pull (a merge, undone on a
     # conflict) and vcs_push (never forced). Remote branches are always named, .git/config may be read-only.
     ./kicad-mcp-pro-git-remote.patch
+    # The autorouter as a background job: a real board takes FreeRouting longer than a client waits for one call.
+    # route_autoroute_start returns at once, route_autoroute_status reports its passes from FreeRouting's log (now
+    # written as it runs) and the result once it's applied.
+    ./kicad-mcp-pro-autoroute-job.patch
   ];
 
   pythonImportsCheck = [ "kicad_mcp" ];

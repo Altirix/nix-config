@@ -1,0 +1,204 @@
+--- a/src/kicad_mcp/utils/freerouting.py
++++ b/src/kicad_mcp/utils/freerouting.py
+@@ -324,14 +324,25 @@
+         timeout: float,
+     ) -> tuple[subprocess.CompletedProcess[str], float]:
+         start_time = time.perf_counter()
++        # Its output goes to a log beside the DSN as it runs (route_autoroute_status reads its progress there), and
++        # is read back at the end as before.
++        log_path = dsn_path.with_suffix(".freerouting.log")
+         try:
+-            result = subprocess.run(
++            with log_path.open("w", encoding="utf-8") as log:
++                process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT)
++                try:
++                    process.wait(timeout=timeout)
++                except subprocess.TimeoutExpired:
++                    process.kill()
++                    process.wait()
++                    raise subprocess.TimeoutExpired(
++                        command, timeout, output=log_path.read_text(encoding="utf-8", errors="replace")
++                    ) from None
++            result = subprocess.CompletedProcess(
+                 command,
+-                capture_output=True,
+-                text=True,
+-                errors="replace",
+-                timeout=timeout,
+-                check=False,
++                process.returncode,
++                stdout=log_path.read_text(encoding="utf-8", errors="replace"),
++                stderr="",
+             )
+         except FileNotFoundError as exc:
+             missing = self._docker_executable if mode == "docker" else self._java_executable
+--- a/src/kicad_mcp/tools/routing_autorouter.py
++++ b/src/kicad_mcp/tools/routing_autorouter.py
+@@ -4,14 +4,20 @@
+ 
+ from __future__ import annotations
+ 
+-from dataclasses import dataclass
++import re
++import threading
++import time
++from dataclasses import dataclass, field
++from pathlib import Path
+ from typing import Any
+ 
++import anyio
++
+ from mcp.server.mcpserver import Context
+ from mcp.server.mcpserver import MCPServer as FastMCP
+ 
+ from ..config import get_config
+-from ..models.tool_result import ToolResult
++from ..models.tool_result import StateDelta, ToolResult
+ from ..routing.autorouter import RoutingAutorouterService
+ from ..routing.specctra_staging import relative_project_path
+ from ..utils.freerouting import FreeRoutingRunner
+@@ -41,6 +47,49 @@
+     )
+ 
+ 
++@dataclass
++class _AutorouteJob:
++    """The one autoroute running in the background (route_autoroute_start), and how it ended."""
++
++    started: float
++    log_path: Path
++    thread: threading.Thread | None = None
++    result: ToolResult | None = None
++    error: str | None = None
++    finished: float | None = None
++    lock: threading.Lock = field(default_factory=threading.Lock)
++
++
++_JOB: _AutorouteJob | None = None
++
++
++def _minutes(seconds: float) -> str:
++    return f"{int(seconds // 60)} min {int(seconds % 60)} s"
++
++
++def _progress_lines(log_path: Path) -> list[str]:
++    """FreeRouting's latest progress from its log: the passes so far and its last word."""
++    try:
++        text = log_path.read_text(encoding="utf-8", errors="replace")
++    except OSError:
++        return ["FreeRouting hasn't written anything yet (still exporting or starting)."]
++    passes = re.findall(r"Auto-router pass #(\d+).*?score of ([0-9]+(?:\.[0-9]+)?)", text)
++    lines = []
++    if passes:
++        number, score = passes[-1]
++        lines.append(f"- Passes done: {number}, latest score {score}")
++    else:
++        lines.append("- No pass finished yet")
++    last = [
++        line.strip()
++        for line in text.splitlines()
++        if line.strip() and "pass #" not in line and "new version" not in line
++    ]
++    if last:
++        lines.append(f"- Last message: {last[-1][:300]}")
++    return lines
++
++
+ def register(
+     mcp: FastMCP,
+     dependencies: RoutingAutorouterDependencies | None = None,
+@@ -94,3 +143,83 @@
+                 message,
+             ),
+         )
++
++    @mcp.tool()
++    @headless_compatible
++    @requires_dependency("freerouting")
++    def route_autoroute_start(
++        dsn_path: str = "output/routing/board.dsn",
++        ses_path: str = "output/routing/board.ses",
++        net_classes_to_ignore: list[str] | None = None,
++        exclude_nets: list[str] | None = None,
++        max_passes: int = 100,
++        thread_count: int = 4,
++    ) -> str:
++        """Start route_autoroute_freerouting in the background and return straight away.
++
++        A real board takes FreeRouting many minutes, longer than a client waits for one call. Check on it with
++        route_autoroute_status every 5-10 minutes; when it's done, that returns the result, already applied to
++        the board. Don't edit the board meanwhile: the result is written to its file, and live edits not yet saved
++        are lost when KiCad reloads it.
++        """
++        global _JOB
++        if _JOB is not None and _JOB.finished is None:
++            return f"An autoroute is already running ({_minutes(time.monotonic() - _JOB.started)}): route_autoroute_status."
++        log_path = get_config().resolve_within_project(Path(dsn_path)).with_suffix(".freerouting.log")
++        log_path.unlink(missing_ok=True)
++        job = _AutorouteJob(started=time.monotonic(), log_path=log_path)
++
++        def run() -> None:
++            try:
++                result = anyio.run(
++                    lambda: deps.service.autoroute(
++                        dsn_path=dsn_path,
++                        ses_path=ses_path,
++                        net_classes_to_ignore=net_classes_to_ignore,
++                        exclude_nets=exclude_nets,
++                        max_passes=max_passes,
++                        thread_count=thread_count,
++                        use_docker=False,
++                        freerouting_jar_path=None,
++                        drc_report_path="output/routing/freerouting.drc.json",
++                        report_progress=None,
++                    )
++                )
++                with job.lock:
++                    job.result = result
++            except Exception as exc:  # noqa: BLE001 - reported by route_autoroute_status
++                with job.lock:
++                    job.error = f"{type(exc).__name__}: {exc}"
++            finally:
++                with job.lock:
++                    job.finished = time.monotonic()
++
++        job.thread = threading.Thread(target=run, name="kicad-mcp-autoroute", daemon=True)
++        _JOB = job
++        job.thread.start()
++        return (
++            "Autoroute started in the background. Check it with route_autoroute_status every 5-10 minutes; "
++            "leave the board alone until it's done."
++        )
++
++    @mcp.tool()
++    @headless_compatible
++    def route_autoroute_status() -> ToolResult:
++        """How the background autoroute (route_autoroute_start) is getting on, or its result once it's done."""
++        job = _JOB
++        if job is None:
++            return ToolResult.failure("route_autoroute_status", "No autoroute has been started: route_autoroute_start.")
++        with job.lock:
++            finished, result, error = job.finished, job.result, job.error
++        if finished is None:
++            summary = "\n".join(
++                [f"Autoroute running for {_minutes(time.monotonic() - job.started)}.", *_progress_lines(job.log_path),
++                 "Check again in 5-10 minutes."]
++            )
++            return ToolResult.success("route_autoroute_status", changed=False, state_delta=StateDelta(summary=summary))
++        took = _minutes(finished - job.started)
++        if error is not None:
++            return ToolResult.failure("route_autoroute_status", f"Autoroute failed after {took}: {error}")
++        assert result is not None
++        summary = f"Finished after {took}.\n{result.state_delta.summary}"
++        return result.model_copy(update={"state_delta": result.state_delta.model_copy(update={"summary": summary})})
+--- a/src/kicad_mcp/tools/router.py
++++ b/src/kicad_mcp/tools/router.py
+@@ -533,6 +533,8 @@
+             "route_import_ses",
+             "route_apply_ses",
+             "route_autoroute_freerouting",
++            "route_autoroute_start",
++            "route_autoroute_status",
+             "route_set_net_class_rules",
+             "route_differential_pair",
+             "route_tune_length",

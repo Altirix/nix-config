@@ -288,6 +288,16 @@ in
         drc = "\n".join(c.get("text", "") for c in out["results"][-1]["content"])
         assert "Unconnected items: 0" in drc, drc
         mcp.succeed(f"grep -q '(segment' {rt}/rt.kicad_pcb")
+        # The same as a background job: started, then checked on until it reports it's done.
+        rt_project = call("kicad_set_project", {"project_dir": rt, "pcb_file": f"{rt}/rt.kicad_pcb", "sch_file": f"{rt}/rt.kicad_sch"})
+        out = session("kicad-t", [rt_project, call("route_autoroute_start", {"max_passes": 5})])
+        assert not out["results"][1].get("isError"), out
+
+        def autoroute_done(_last: bool) -> bool:
+            status = session("kicad-t", [rt_project, call("route_autoroute_status", {})])["results"][1]
+            return "Finished after" in json.dumps(status)
+
+        retry(autoroute_done, timeout=300)
 
         out = session("kicad-t", [
             ["tools/call", {"name": "kicad_set_project", "arguments": {"project_dir": repo, "pcb_file": f"{repo}/nope.kicad_pcb"}}],
