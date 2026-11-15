@@ -3,9 +3,9 @@
 # KiCad projects for agents (README.md, kicad). Each project is a clone of its source (GitHub, with a commit to start
 # from) in `dir`/<project> with its own KiCad MCP Pro server, published at /kicad/<project>/mcp and confined to it:
 # agents on different projects never share a server or files. Headless: kicad-cli runs ERC/DRC and exports, and the
-# project's own headless KiCad (kicad-api-<project>) takes live board edits, one board at a time. Every minute the project's commits (vcs_commit_checkpoint) are rebased onto
-# its source's `branch` and pushed there, so the source's new commits come down and the agents' go up, whoever else
-# pushes to it too. It stops on uncommitted changes or a conflict, never overwriting work.
+# project's own headless KiCad (kicad-api-<project>) takes live board edits, one board at a time. Every minute the
+# project's commits (vcs_commit_checkpoint) go up to its source's `pushTo` branch and what others pushed to `branch`
+# is merged in, also while an agent is mid-edit. It stops on a conflict, never overwriting work.
 let
   cfg = config.homelab.mcp.kicad;
   inherit (lib) mkOption types;
@@ -87,10 +87,16 @@ in
         options = {
           port = mkOption { type = types.port; };
           url = mkOption { type = types.str; };
-          # The one branch the project follows and pushes to. Another than main (e.g. agent) to merge from yourself.
+          # The branch the project follows: what's pushed there is merged in.
           branch = mkOption {
             type = types.str;
             default = "main";
+          };
+          # Where its commits go: agent, nobody else's, for you to merge into `branch` (a merge commit, not a squash:
+          # a squashed copy conflicts with the originals the next sync merges). Or `branch` itself, straight in.
+          pushTo = mkOption {
+            type = types.str;
+            default = "agent";
           };
         };
       });
@@ -258,21 +264,21 @@ in
       requires = [ "kicad-repo-${p}.service" ];
       serviceConfig = {
         WorkingDirectory = repo p;
-        # Only commits go up, an agent's half-done edits never do. First a push, which goes through whenever nobody
-        # else pushed (it touches no files, so it works while an agent is mid-edit). Then the rebase onto what
-        # others pushed, which refuses uncommitted changes: then it waits until the agent commits, and the last
-        # push, refused while the two differ, fails the run so the log says so. ("-": its failure isn't the run's.)
+        # Only commits go up, an agent's half-done edits never do. First a push, which touches no files, so it goes
+        # through mid-edit (pushing to `branch` itself, only while nobody else pushed: "-", its failure isn't the
+        # run's). Then a merge of what others pushed, never a rebase, so pushed commits are never rewritten: git
+        # merges with uncommitted edits as long as the merge doesn't touch those files, else it refuses and waits.
+        # Then the merge goes up.
         ExecStart = [
           (utils.escapeSystemdExecArgs [ git "fetch" "--quiet" "--prune" "origin" ])
-          ("-" + utils.escapeSystemdExecArgs [ git "push" "--quiet" "origin" src.branch ])
-          ("-" + utils.escapeSystemdExecArgs [ git "rebase" "--quiet" "origin/${src.branch}" src.branch ])
-          (utils.escapeSystemdExecArgs [ git "push" "--quiet" "origin" src.branch ])
+          ("-" + utils.escapeSystemdExecArgs [ git "push" "--quiet" "origin" "${src.branch}:${src.pushTo}" ])
+          (utils.escapeSystemdExecArgs [ git "merge" "--quiet" "--no-edit" "origin/${src.branch}" ])
+          (utils.escapeSystemdExecArgs [ git "push" "--quiet" "origin" "${src.branch}:${src.pushTo}" ])
         ];
-        # On a conflict the rebase stops halfway, with markers in the files agents edit: undo it, so the project
-        # keeps its own commits and the next run tries again (the log says what conflicts). Only then: a failed fetch
-        # or push left no rebase to undo.
+        # On a conflict the merge stops halfway, with markers in the files agents edit: undo it, so the project keeps
+        # its own commits and the next run tries again (the log says what conflicts).
         ExecStopPost = utils.escapeSystemdExecArgs [ "${pkgs.runtimeShell}" "-c"
-          "[ \"$SERVICE_RESULT\" = success ] || ! [ -d .git/rebase-merge ] || exec ${git} rebase --abort" ];
+          "[ \"$SERVICE_RESULT\" = success ] || ! [ -e .git/MERGE_HEAD ] || exec ${git} merge --abort" ];
       };
     })) cfg.projects;
 

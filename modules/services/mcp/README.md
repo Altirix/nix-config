@@ -347,16 +347,40 @@ to open the selected board (`packages/kicad-mcp-pro-headless.patch`) and kicad-p
 10 opens (`kicad-cli pcb downgrade -o board-k10.kicad_pcb board.kicad_pcb`, `kicad-cli sch downgrade`, with KiCad
 master). Bump KiCad and kicad-python together, their API definitions have to match.
 
-Each project is a clone of its source, a repo with something committed (GitHub's "Add a README" will do), on one
-branch (`branch`, main): every minute the project's commits are rebased onto it and pushed, so commits pushed there
-from anywhere else (you, an agent on your PC) come down and the server agents' go up, nobody's overwritten. A board
-gets to GitHub by an agent committing it (`vcs_commit_checkpoint`): the next sync pushes it, also while the agent
-keeps editing. What others pushed only comes down onto a clean tree: with uncommitted changes to tracked files, or on
-a conflict, it waits and leaves the repo as it was (`journalctl -u kicad-sync-<project>` says why). Files not in git
-are never touched, and stay on the server until an agent commits them. For a review step, set `branch = "agent";`
-and merge agent into main yourself. Add a project in
+Each project is a clone of its source, a repo with something committed (GitHub's "Add a README" will do). Every
+minute its sync pushes the project's commits to `agent` (`pushTo`), the server's own branch, and merges in what's
+been pushed to `main` (`branch`): your footprints and documents come down, the server agents' work goes up, nothing
+is rewritten or overwritten. A board gets to GitHub by an agent committing it (`vcs_commit_checkpoint`), also while
+it keeps editing; it reaches `main` when you merge `agent` into it. Use a merge commit for that, not a squash: a
+squashed copy conflicts with the originals the next sync merges. What you pushed comes in mid-edit too, unless it
+changed a file the agent has uncommitted edits in (it waits for the commit), or the same lines (a conflict: the
+merge is undone, `journalctl -u kicad-sync-<project>` says what, merge it by hand). Files not in git are never
+touched, and stay on the server until an agent commits them. `pushTo = "main";` skips the review: the commits go
+straight to `main`. See the flow below. Add a project in
 `hosts/virtual/mcp/default.nix` with a free port of its own (9200-9299), deploy `mcp` and `ionos-de` (the route) and
 widen nothing: `labs: edge to mcp` covers 9200-9299.
+
+```mermaid
+flowchart LR
+  agent["Agent (Claude)"] -->|"https://mcp.peacocks.me/kicad/&lt;project&gt;/mcp<br/>Bearer token"| edge
+  subgraph edge["ionos-de (edge)"]
+    nginx["nginx<br/>token check, access log"] --> gw["agentgateway<br/>MCP calls audited, 1h timeouts"]
+  end
+  gw -->|"WireGuard, router: labs: edge to mcp<br/>10.100.1.11:92xx"| proxy
+  subgraph mcp["mcp VM, one set per project"]
+    proxy["mcp-proxy<br/>mcp-kicad-&lt;project&gt;"] --> pro["KiCad MCP Pro<br/>(patched)"]
+    pro -->|"IPC socket<br/>open, edit, save the selected board"| api["headless KiCad<br/>kicad-api-&lt;project&gt;"]
+    pro -->|"ERC, DRC, exports"| cli["kicad-cli"]
+    pro -->|"DSN out, SES back"| fr["FreeRouting<br/>(Java)"]
+    pro -->|"schematics, sync, rules<br/>vcs_commit_checkpoint"| repo[("/var/lib/kicad/&lt;project&gt;<br/>git clone")]
+    api -->|"saves boards"| repo
+    sync["kicad-sync-&lt;project&gt;<br/>every minute"] --- repo
+  end
+  sync -->|"push commits"| agentb["GitHub: agent"]
+  mainb["GitHub: main"] -->|"merged in"| sync
+  you["You, agents on your PC<br/>footprints, documents"] -->|push| mainb
+  agentb -->|"you merge (merge commit, not squash)"| mainb
+```
 
 ```nix
 homelab.mcp.kicad.projects.palmremote = { port = 9200; url = "git@github.com:you/palmremote.git"; };

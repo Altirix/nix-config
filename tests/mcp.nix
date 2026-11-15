@@ -157,34 +157,35 @@ in
             "test -f /var/lib/kicad/t/a",
             "runuser -u kicad-sync-t -- git clone -q /var/lib/kicad-src/t.git /tmp/t",
         )
-        # An agent's commit goes up to main.
+        # An agent's commit goes up to agent, the server's branch.
         mcp.succeed("systemctl start kicad-sync-t")
         mcp.succeed(agent("echo b > b && git add b && git commit -qm b"), "systemctl start kicad-sync-t",
-                    f"{log('main')} | grep -qx b")
+                    f"{log('agent')} | grep -qx b", f"! {log('main')} | grep -qx b")
         # And while the agent keeps editing (a tracked file changed, not committed): its commit goes up, the edit stays.
         mcp.succeed(agent("echo e > e && git add e && git commit -qm e && echo edit >> a"), "systemctl start kicad-sync-t",
-                    f"{log('main')} | head -n 1 | grep -qx e", "grep -qx edit /var/lib/kicad/t/a")
-        mcp.succeed(agent("git checkout -q a"))
+                    f"{log('agent')} | head -n 1 | grep -qx e", "grep -qx edit /var/lib/kicad/t/a")
 
-        # Someone else pushed to main and an agent committed: the agent's is rebased onto theirs, under the VM's git
-        # identity, and nothing of theirs is lost.
+        # Someone pushed to main (a footprint, a document) while the agent is still mid-edit: it's merged in, the
+        # edit stays, and agent has both.
         mcp.succeed(
             upstream("git pull -q origin main && echo c > c && git add c && git commit -qm c && git push -q origin HEAD:main"),
-            agent("echo d > d && git add d && git commit -qm d"),
             "systemctl start kicad-sync-t",
-            f"{log('main')} | head -n 4 | tr '\\n' ' ' | grep -qx 'd c e b '",
-            "test -f /var/lib/kicad/t/c",
+            "test -f /var/lib/kicad/t/c", "grep -qx edit /var/lib/kicad/t/a",
+            f"{log('agent')} | grep -qx c", f"{log('agent')} | grep -qx e",
         )
+        mcp.succeed(agent("git checkout -q a"))
 
-        # A conflict: nothing goes up, the project keeps its commit and isn't left mid-rebase.
+        # A conflict, the same line on both sides: the agent's commit still goes up to agent, the merge is undone,
+        # no markers left in the project.
         mcp.succeed(
             upstream("git pull -q origin main && echo x > a && git commit -qam x && git push -q origin HEAD:main"),
             agent("echo y > a && git commit -qam y"),
         )
         mcp.fail("systemctl start kicad-sync-t")
         mcp.succeed(
-            f"! {log('main')} | grep -qx y",
-            "test ! -e /var/lib/kicad/t/.git/rebase-merge -a ! -e /var/lib/kicad/t/.git/rebase-apply",
+            f"{log('agent')} | head -n 1 | grep -qx y",
+            "test ! -e /var/lib/kicad/t/.git/MERGE_HEAD",
+            "grep -qx y /var/lib/kicad/t/a",
             "git -C /var/lib/kicad/t log -1 --format=%s | grep -qx y",
         )
 
