@@ -349,10 +349,12 @@ master). Bump KiCad and kicad-python together, their API definitions have to mat
 
 Each project is a clone of its source, a repo with something committed (GitHub's "Add a README" will do), on one
 branch (`branch`, main): every minute the project's commits are rebased onto it and pushed, so commits pushed there
-from anywhere else (you, an agent on your PC) come down and the server agents' go up, nobody's overwritten. On
-uncommitted changes to tracked files or a conflict it stops and leaves the repo as it was (`journalctl -u
-kicad-sync-<project>` says why); files not in git are never touched, but stay on the server until an agent commits
-them. So a board gets to GitHub by an agent committing it (`vcs_commit_checkpoint`), the next sync pushes it. For a review step, set `branch = "agent";` and merge agent into main yourself. Add a project in
+from anywhere else (you, an agent on your PC) come down and the server agents' go up, nobody's overwritten. A board
+gets to GitHub by an agent committing it (`vcs_commit_checkpoint`): the next sync pushes it, also while the agent
+keeps editing. What others pushed only comes down onto a clean tree: with uncommitted changes to tracked files, or on
+a conflict, it waits and leaves the repo as it was (`journalctl -u kicad-sync-<project>` says why). Files not in git
+are never touched, and stay on the server until an agent commits them. For a review step, set `branch = "agent";`
+and merge agent into main yourself. Add a project in
 `hosts/virtual/mcp/default.nix` with a free port of its own (9200-9299), deploy `mcp` and `ionos-de` (the route) and
 widen nothing: `labs: edge to mcp` covers 9200-9299.
 

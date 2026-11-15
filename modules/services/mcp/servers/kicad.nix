@@ -258,12 +258,15 @@ in
       requires = [ "kicad-repo-${p}.service" ];
       serviceConfig = {
         WorkingDirectory = repo p;
-        # The rebase refuses uncommitted changes, an agent's half-done edits never go up. A plain push: if someone
-        # pushed in between, it's refused and the next run rebases onto theirs.
-        ExecStart = map utils.escapeSystemdExecArgs [
-          [ git "fetch" "--quiet" "--prune" "origin" ]
-          [ git "rebase" "--quiet" "origin/${src.branch}" src.branch ]
-          [ git "push" "--quiet" "origin" src.branch ]
+        # Only commits go up, an agent's half-done edits never do. First a push, which goes through whenever nobody
+        # else pushed (it touches no files, so it works while an agent is mid-edit). Then the rebase onto what
+        # others pushed, which refuses uncommitted changes: then it waits until the agent commits, and the last
+        # push, refused while the two differ, fails the run so the log says so. ("-": its failure isn't the run's.)
+        ExecStart = [
+          (utils.escapeSystemdExecArgs [ git "fetch" "--quiet" "--prune" "origin" ])
+          ("-" + utils.escapeSystemdExecArgs [ git "push" "--quiet" "origin" src.branch ])
+          ("-" + utils.escapeSystemdExecArgs [ git "rebase" "--quiet" "origin/${src.branch}" src.branch ])
+          (utils.escapeSystemdExecArgs [ git "push" "--quiet" "origin" src.branch ])
         ];
         # On a conflict the rebase stops halfway, with markers in the files agents edit: undo it, so the project
         # keeps its own commits and the next run tries again (the log says what conflicts). Only then: a failed fetch
