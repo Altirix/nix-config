@@ -1,6 +1,25 @@
 --- a/src/kicad_mcp/utils/freerouting.py
 +++ b/src/kicad_mcp/utils/freerouting.py
-@@ -327,14 +327,25 @@
+@@ -7,6 +7,7 @@
+ import shutil
+ import subprocess
+ import time
++import weakref
+ from dataclasses import dataclass
+ from pathlib import Path
+ 
+@@ -19,6 +20,10 @@
+ logger = structlog.get_logger(__name__)
+ 
+ 
++
++# FreeRouting processes running now, for route_autoroute_cancel.
++RUNNING: "weakref.WeakSet[subprocess.Popen[bytes]]" = weakref.WeakSet()
++
+ @dataclass(frozen=True)
+ class FreeRoutingResult:
+     """Normalized outcome of a FreeRouting autoroute run."""
+@@ -327,14 +332,28 @@
          timeout: float,
      ) -> tuple[subprocess.CompletedProcess[str], float]:
          start_time = time.perf_counter()
@@ -11,6 +30,7 @@
 -            result = subprocess.run(
 +            with log_path.open("w", encoding="utf-8") as log:
 +                process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT)
++                RUNNING.add(process)
 +                try:
 +                    process.wait(timeout=timeout)
 +                except subprocess.TimeoutExpired:
@@ -19,6 +39,8 @@
 +                    raise subprocess.TimeoutExpired(
 +                        command, timeout, output=log_path.read_text(encoding="utf-8", errors="replace")
 +                    ) from None
++            if process.returncode < 0:
++                raise RuntimeError("FreeRouting was stopped (route_autoroute_cancel) before it finished.")
 +            result = subprocess.CompletedProcess(
                  command,
 -                capture_output=True,
@@ -107,7 +129,7 @@
  def register(
      mcp: FastMCP,
      dependencies: RoutingAutorouterDependencies | None = None,
-@@ -94,3 +143,83 @@
+@@ -94,3 +143,112 @@
                  message,
              ),
          )
@@ -122,6 +144,8 @@
 +        exclude_nets: list[str] | None = None,
 +        max_passes: int = 100,
 +        thread_count: int = 4,
++        nets: list[str] | None = None,
++        max_minutes: float = 30,
 +    ) -> str:
 +        """Start route_autoroute_freerouting in the background and return straight away.
 +
@@ -129,6 +153,11 @@
 +        route_autoroute_status every 5-10 minutes; when it's done, that returns the result, already applied to
 +        the board. Don't edit the board meanwhile: the result is written to its file, and live edits not yet saved
 +        are lost when KiCad reloads it.
++
++        nets: route only these (every other net stays as it is, its copper an obstacle): a dense board that won't
++        finish in one go routes a group at a time. max_minutes: FreeRouting stops then, and as it only writes its
++        result at the end, nothing is applied: route fewer nets, or fewer max_passes. route_autoroute_cancel stops
++        it sooner.
 +        """
 +        global _JOB
 +        if _JOB is not None and _JOB.finished is None:
@@ -151,6 +180,8 @@
 +                        freerouting_jar_path=None,
 +                        drc_report_path="output/routing/freerouting.drc.json",
 +                        report_progress=None,
++                        only_nets=nets,
++                        timeout=max(1.0, max_minutes) * 60,
 +                    )
 +                )
 +                with job.lock:
@@ -168,6 +199,26 @@
 +        return (
 +            "Autoroute started in the background. Check it with route_autoroute_status every 5-10 minutes; "
 +            "leave the board alone until it's done."
++        )
++
++    @mcp.tool()
++    @headless_compatible
++    def route_autoroute_cancel() -> str:
++        """Stop the background autoroute (route_autoroute_start). Nothing is applied: FreeRouting writes at the end."""
++        from ..utils.freerouting import RUNNING
++
++        job = _JOB
++        if job is None or job.finished is not None:
++            return "No autoroute is running."
++        stopped = 0
++        for process in list(RUNNING):
++            if process.poll() is None:
++                process.kill()
++                stopped += 1
++        return (
++            f"Stopped FreeRouting after {_minutes(time.monotonic() - job.started)}; the board is unchanged."
++            if stopped
++            else "FreeRouting isn't running yet (still exporting) or is applying its result: check route_autoroute_status."
 +        )
 +
 +    @mcp.tool()
@@ -193,12 +244,64 @@
 +        return result.model_copy(update={"state_delta": result.state_delta.model_copy(update={"summary": summary})})
 --- a/src/kicad_mcp/tools/router.py
 +++ b/src/kicad_mcp/tools/router.py
-@@ -533,6 +533,8 @@
+@@ -533,6 +533,9 @@
              "route_import_ses",
              "route_apply_ses",
              "route_autoroute_freerouting",
 +            "route_autoroute_start",
 +            "route_autoroute_status",
++            "route_autoroute_cancel",
              "route_set_net_class_rules",
              "route_differential_pair",
              "route_tune_length",
+--- a/src/kicad_mcp/routing/autorouter.py
++++ b/src/kicad_mcp/routing/autorouter.py
+@@ -128,10 +128,22 @@
+     freerouting_jar_path: str | None,
+     net_classes_to_ignore: list[str] | None,
+     exclude_nets: list[str] | None,
++    only_nets: list[str] | None = None,
++    timeout: float | None = None,
+ ) -> tuple[Path, FreeRoutingResult] | ToolResult:
+     try:
+         await progress(10, 100, "Exporting DSN for FreeRouting...")
+         dsn_file = await anyio.to_thread.run_sync(lambda: runner.export_dsn(pcb_file, dsn_target))
++        if only_nets:
++            # Only these: every other net of the board is excluded.
++            every = {
++                (m.group(1) if m.group(1) is not None else m.group(2)).replace('\\"', '"')
++                for m in re.finditer(r'\(net\s+(?:"((?:[^"\\]|\\.)*)"|([^\s()"]+))\s*\n?\s*\(pins', dsn_file.read_text(encoding="utf-8"))
++            }
++            unknown = sorted(set(only_nets) - every)
++            if unknown:
++                raise ValueError(f"No such net(s) on the board: {', '.join(unknown)}")
++            exclude_nets = sorted(every - set(only_nets) | set(exclude_nets or []))
+         if exclude_nets:
+             # FreeRouting's ignore option (-inc) only takes net classes: the nets go into one of their own for it.
+             dsn_file.write_text(
+@@ -151,6 +163,7 @@
+                 else None,
+                 net_classes_to_ignore=net_classes_to_ignore,
+                 drc_report_path=drc_target,
++                timeout=timeout,
+             )
+         )
+         return dsn_file, result
+@@ -326,6 +339,8 @@
+         freerouting_jar_path: str | None = None,
+         drc_report_path: str = "output/routing/freerouting.drc.json",
+         report_progress: ProgressReporter | None = None,
++        only_nets: list[str] | None = None,
++        timeout: float | None = None,
+     ) -> ToolResult:
+         runner = self.runner_factory()
+         pcb_file = self.get_pcb_file()
+@@ -350,6 +365,8 @@
+             freerouting_jar_path=freerouting_jar_path,
+             net_classes_to_ignore=net_classes_to_ignore,
+             exclude_nets=exclude_nets,
++            only_nets=only_nets,
++            timeout=timeout,
+         )
+         if isinstance(phase_result, ToolResult):
+             return phase_result
