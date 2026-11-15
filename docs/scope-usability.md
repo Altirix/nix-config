@@ -19,7 +19,7 @@ Modules expose `homelab.*` options and only hardcode what never needs adjusting.
 | Users/SSH | Admin user in `modules/default.nix`, key-only SSH from `modules/system/keys/admin/*.pub` (`system/ssh.nix`); the root password login (`homelab.debug`) is gone |
 | Host types | `modules/{compute,storage,virtual,edge}.nix` import the blocks they need and hold the shared values, hosts import one; `compute.nix` is only the three hypervisors (mesh/FRR/ceph/incus values, ARC cap) |
 | Config files | `frr.conf` and the incus nftables table are `config/` files filled with `builtins.replaceStrings`; FRR timers are required options |
-| Onboarding | `hosts/_template/` (an incus VM: ext4 root, DHCP), README rewritten |
+| Onboarding | `hosts/_template/` (an incus VM: ext4 root, a pinned labs address; there's no DHCP on labs), README rewritten |
 
 Verified against the pre-refactor tree with the same inputs: disko scripts identical on
 all hosts; system closures differ only in `system-path` package order, `VLAN=` line

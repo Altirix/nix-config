@@ -1,0 +1,31 @@
+{ ... }:
+
+# The lab's SSO (modules/services/sso), at auth.peacocks.me through the edge.
+{
+  imports = [
+    ../../../modules/virtual.nix
+    ./hardware-configuration.nix
+    ./storage.nix
+    ./networking.nix
+  ];
+
+  system.stateVersion = "26.05";
+
+  homelab.sso.server = {
+    enable = true;
+    domain = "auth.peacocks.me";
+    gateways = [ "ionos-de" ];
+    # The edge's tunnel address.
+    proxies = [ "10.0.0.1" ];
+    # Its key is kanidm-tls-key in secrets.yaml (modules/services/sso/README.md).
+    certificate = ./tls.pem;
+    # Its gateways' site clients' secrets (modules/services/sso/README.md).
+    secretsFile = ../../../secrets/sso.yaml;
+    mcp = true;
+    people.altirix = {
+      displayName = "Altirix";
+      # mcp_users too once MCP switches to OAuth, until then its clients would only be dead tiles.
+      groups = [ "web_users" ];
+    };
+  };
+}

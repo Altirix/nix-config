@@ -1,0 +1,2 @@
+# Nix copies files as checked out, a CRLF checkout (Windows git) breaks every script.
+* text=auto eol=lf

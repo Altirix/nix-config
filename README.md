@@ -28,7 +28,7 @@ tests/         NixOS VM tests, flake checks (listed in tests/default.nix)
 | [hosts/sbc/tomato.md](hosts/sbc/tomato.md) | the Google Tomato board and Colluvium |
 | [hosts/README.md](hosts/README.md) | the hosts, adding one, installing a VM |
 | [modules/README.md](modules/README.md) | what each module does |
-| [modules/networking/README.md](modules/networking/README.md) | labs (VLAN 100), address pinning, labs-mesh, the router |
+| [modules/networking/README.md](modules/networking/README.md) | labs (VLAN 100), address pinning, labs-mesh, where the router's config lives |
 | [modules/services/incus/README.md](modules/services/incus/README.md) | ssh into VMs, Windows VMs, vGPU |
 | [modules/services/mcp/README.md](modules/services/mcp/README.md) | MCP servers for agents, presets, who can reach them |
 | [modules/disks/README.md](modules/disks/README.md) | `homelab.storage`, partition labels |
@@ -50,7 +50,20 @@ host and no host builds without one. There is no root or console password.
 
 ```sh
 nix run github:nix-community/nixos-anywhere -- --flake .#<name> root@<ip>
-nixos-rebuild switch --flake .#<name> --target-host admin@<name> --sudo
+```
+
+Deploy VMs by their labs name, built where you run it and copied over:
+
+```sh
+nixos-rebuild switch --flake .#<name> --target-host admin@<name>.labs.internal --sudo
+```
+
+The hypervisors build on themselves (`--build-host`), each its own closure:
+
+```sh
+for h in andromeda bode centaurus; do
+  nixos-rebuild switch --flake .#$h --target-host admin@$h.mgmt.internal --build-host admin@$h.mgmt.internal --sudo
+done
 ```
 
 VMs and the printers install differently, see [hosts/README.md](hosts/README.md) and

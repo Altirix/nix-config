@@ -1,6 +1,6 @@
 { ... }:
 
-# Part-DB, electronic parts inventory. Only on labs until SSO is in front of it, no homelab.web site yet.
+# Part-DB (modules/services/partdb), at parts.peacocks.me through the edge.
 {
   imports = [
     ../../../modules/virtual.nix
@@ -11,13 +11,10 @@
 
   system.stateVersion = "26.05";
 
-  services.part-db = {
+  homelab.partdb = {
     enable = true;
-    enableNginx = true;
-    enablePostgresql = true;
-    virtualHost = "partdb";
+    url = "https://parts.peacocks.me/";
+    # The edge's tunnel address.
+    trustedProxies = [ "10.0.0.1" ];
   };
-
-  # Only on the labs bridge.
-  networking.firewall.allowedTCPPorts = [ 80 ];
 }

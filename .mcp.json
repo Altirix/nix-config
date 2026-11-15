@@ -1,11 +1,15 @@
 {
   "mcpServers": {
-    "rea": { "type": "http", "url": "https://mcp.peacocks.me/rea/default/mcp" },
     "nixos": { "type": "http", "url": "https://mcp.peacocks.me/nixos/mcp" },
     "context7": { "type": "http", "url": "https://mcp.peacocks.me/context7/mcp" },
     "fetch": { "type": "http", "url": "https://mcp.peacocks.me/fetch/mcp" },
     "time": { "type": "http", "url": "https://mcp.peacocks.me/time/mcp" },
     "memory": { "type": "http", "url": "https://mcp.peacocks.me/memory/mcp" },
-    "markitdown": { "type": "http", "url": "https://mcp.peacocks.me/markitdown/mcp/" }
+    "markitdown": { "type": "http", "url": "https://mcp.peacocks.me/markitdown/mcp/" },
+    "fdfdb": { "type": "http", "url": "https://mcp.peacocks.me/fdfdb/mcp" },
+    "paperless": { "type": "http", "url": "https://mcp.peacocks.me/paperless/mcp" },
+    "kicad-palmremote": { "type": "http", "url": "https://mcp.peacocks.me/kicad/palmremote/mcp" },
+    "kicad-polaris11": { "type": "http", "url": "https://mcp.peacocks.me/kicad/polaris11/mcp" },
+    "kicad-navi14": { "type": "http", "url": "https://mcp.peacocks.me/kicad/navi14/mcp" }
   }
 }

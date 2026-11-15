@@ -1,0 +1,7 @@
+# A project's REA, and the samples it runs, may not open its way into another project through this host: not
+# nginx, not any project's gateway (rea.nix). Their own gateway they never connect to either.
+chain output {
+  type filter hook output priority filter; policy accept;
+  # Any of this host's addresses, loopback included.
+  ct state new meta skuid { @users@ } fib daddr type local tcp dport { @ports@ } reject
+}

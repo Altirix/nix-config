@@ -23,23 +23,16 @@ keys:
 # VM Keys
 
   - &host_dls age17lhpf7t5av07y4d85cjt9rn5nut4m5qnc59xs88eg76xeh8ugg5s6amk8t # Nvidia DLS
-  - &host_mcp age1jl9as26uxvqqma8mrddejfq9k235gxgnsl6n22m8rr5lsteehp3spjl0k9 # MCP
+  - &host_mcp age15t5rf2zahu0a8dd99knu9sj5t7nhfnu4tutt8pxyx5v8krmdugusnusj86 # MCP
   - &host_rea_dynamic age1uyv9yrzamhxlt3ejdutkuhz65jrwgg2zn4cm8y4km4vex3kgf57qrk97p3 # REA Dynamic Exec
+  - &host_auth age1fhr9ufh7p5g9tmj5e5nq5wg38xqpt3gw3sc6dghd3my3p3cqt4qsgjdlqw # Kandim Auth
+  - &host_logs age15ahlqk9gs90z550knyv5pyfvalj9g7wqpej5kmeu73jcn35sqg5quja7s5 #Victoria Logs
+  - &host_paperless age13603y8jh0jhspm2pfu8my20qzz74dewsfexvg0gm6e9pxzpp4pesa9drpv # Paperless
+  - &host_inventree age19z9y3yav7p0kyc80w4zdasyvx73cmcduk3dm3gd3tdz82an29egsv6prmm # Inventree
+  - &host_mcp_web age1nqyu5mcy883sapn5ljhvaeqqcwp8hnaxwgsxkczts9l77emdt5uq03g6yz # MCP web (fetch, markitdown, playwright)
   
 # Groups
 groups:
-  common: &common
-    - *admin
-    - *host_andromeda
-    - *host_bode
-    - *host_centaurus
-    - *host_ionos_de
-    - *host_alluvium
-    - *host_basidium
-    - *host_colluvium
-    - *host_dls
-    - *host_mcp
-    - *host_rea_dynamic
 
   compute: &compute
     - *admin
@@ -47,42 +40,15 @@ groups:
     - *host_bode
     - *host_centaurus
 
-  edge: &edge
-    - *admin
-    - *host_ionos_de
-
   sbc: &sbc
     - *admin
     - *host_alluvium
     - *host_basidium
     - *host_colluvium
 
-  virtual: &virtual
-    - *admin
-    - *host_dls
-    - *host_mcp
-
 creation_rules:
 
   # Per Host Secrets
-  - path_regex: ^hosts[\\/]compute[\\/]andromeda[\\/]secrets\.yaml$
-    key_groups:
-      - age:
-        - *admin
-        - *host_andromeda
-
-  - path_regex: ^hosts[\\/]compute[\\/]bode[\\/]secrets\.yaml$
-    key_groups:
-      - age:
-        - *admin
-        - *host_bode
-
-  - path_regex: ^hosts[\\/]compute[\\/]centaurus[\\/]secrets\.yaml$
-    key_groups:
-      - age:
-        - *admin
-        - *host_centaurus
-
   - path_regex: ^hosts[\\/]edge[\\/]ionos-de[\\/]secrets\.yaml$
     key_groups:
       - age:
@@ -95,33 +61,32 @@ creation_rules:
         - *admin
         - *host_mcp
 
-  # Shared Secrets
-  - path_regex: ^secrets[\\/]common\.yaml$
+  - path_regex: ^hosts[\\/]virtual[\\/]auth[\\/]secrets\.yaml$
     key_groups:
-      - age: *common
+      - age:
+        - *admin
+        - *host_auth
+
+  # Shared Secrets
 
   - path_regex: ^secrets[\\/]compute\.yaml$
     key_groups:
       - age: *compute
 
-  - path_regex: ^secrets[\\/]edge\.yaml$
-    key_groups:
-      - age: *edge
-
   - path_regex: ^secrets[\\/]sbc\.yaml$
     key_groups:
       - age: *sbc
 
-  - path_regex: ^secrets[\\/]standalone\.yaml$
+  - path_regex: ^secrets[\\/]paperless\.yaml$
     key_groups:
       - age:
         - *admin
+        - *host_paperless
+        - *host_mcp
 
-  - path_regex: ^secrets[\\/]storage\.yaml$
+  - path_regex: ^secrets[\\/]sso\.yaml$
     key_groups:
       - age:
         - *admin
-
-  - path_regex: ^secrets[\\/]virtual\.yaml$
-    key_groups:
-      - age: *virtual
+        - *host_auth
+        - *host_ionos_de

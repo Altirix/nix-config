@@ -1,5 +1,5 @@
-// Supergateway in front of REA: one stdio REA per MCP session, under /<project>/mcp.
-// mcpServers gets rea-gateway-project.json once per project. JSONC, so the trailing commas are fine.
+// Supergateway in front of a project's REA: one stdio REA per MCP session, under /<project>/mcp.
+// mcpServers gets the project's rea-gateway-project.json. JSONC, so the trailing commas are fine.
 {
   "host": "127.0.0.1",
   "port": @port@,
