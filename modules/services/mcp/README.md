@@ -347,16 +347,16 @@ to open the selected board (`packages/kicad-mcp-pro-headless.patch`) and kicad-p
 10 opens (`kicad-cli pcb downgrade -o board-k10.kicad_pcb board.kicad_pcb`, `kicad-cli sch downgrade`, with KiCad
 master). Bump KiCad and kicad-python together, their API definitions have to match.
 
-Each project is a clone of its source, a repo with something committed (GitHub's "Add a README" will do). Every
-minute its sync pushes the project's commits to `agent` (`pushTo`), the server's own branch, and merges in what's
-been pushed to `main` (`branch`): your footprints and documents come down, the server agents' work goes up, nothing
-is rewritten or overwritten. A board gets to GitHub by an agent committing it (`vcs_commit_checkpoint`), also while
-it keeps editing; it reaches `main` when you merge `agent` into it. Use a merge commit for that, not a squash: a
-squashed copy conflicts with the originals the next sync merges. What you pushed comes in mid-edit too, unless it
-changed a file the agent has uncommitted edits in (it waits for the commit), or the same lines (a conflict: the
-merge is undone, `journalctl -u kicad-sync-<project>` says what, merge it by hand). Files not in git are never
-touched, and stay on the server until an agent commits them. `pushTo = "main";` skips the review: the commits go
-straight to `main`. See the flow below. Add a project in
+Each project is a clone of its source, a repo with something committed (GitHub's "Add a README" will do), on
+`branch` (main) to start with. After that agents do git themselves, as they would on a PC: `vcs_fetch`,
+`vcs_branch` (list, switch, create), `vcs_commit_checkpoint`, `vcs_pull` (merges a branch in, also mid-edit unless
+it touches files with uncommitted edits; a conflict is undone and named) and `vcs_push` (never forced). Nothing
+moves on its own: work reaches GitHub when an agent pushes, your footprints and documents come in when it pulls, so
+tell agents to push when they're done. Files not in git are never touched. The server's git has no key: the
+source's url goes through two sockets (`kicad-git-<project>-upload-pack`, `-receive-pack`) that only its server
+reaches, and behind each, per connection, the project's sync user runs git's own service on that one repo with
+the deploy key. A compromised server can still push to any branch of it, so protect `main` on GitHub (no force
+pushes, no deletion). See the flow below. Add a project in
 `hosts/virtual/mcp/default.nix` with a free port of its own (9200-9299), deploy `mcp` and `ionos-de` (the route) and
 widen nothing: `labs: edge to mcp` covers 9200-9299.
 
@@ -372,14 +372,13 @@ flowchart LR
     pro -->|"IPC socket<br/>open, edit, save the selected board"| api["headless KiCad<br/>kicad-api-&lt;project&gt;"]
     pro -->|"ERC, DRC, exports"| cli["kicad-cli"]
     pro -->|"DSN out, SES back"| fr["FreeRouting<br/>(Java)"]
-    pro -->|"schematics, sync, rules<br/>vcs_commit_checkpoint"| repo[("/var/lib/kicad/&lt;project&gt;<br/>git clone")]
+    pro -->|"schematics, sync, rules<br/>vcs_fetch, vcs_branch, vcs_pull, vcs_push"| repo[("/var/lib/kicad/&lt;project&gt;<br/>git clone")]
     api -->|"saves boards"| repo
-    sync["kicad-sync-&lt;project&gt;<br/>every minute"] --- repo
+    repo -->|"git, no key"| sock["kicad-git-&lt;project&gt; sockets<br/>upload-pack, receive-pack"]
+    sock -->|"per connection, as the sync user"| svc["git service, deploy key<br/>that one repo only"]
   end
-  sync -->|"push commits"| agentb["GitHub: agent"]
-  mainb["GitHub: main"] -->|"merged in"| sync
-  you["You, agents on your PC<br/>footprints, documents"] -->|push| mainb
-  agentb -->|"you merge (merge commit, not squash)"| mainb
+  svc -->|ssh| gh["GitHub: the project's repo<br/>any branch the agent picks"]
+  you["You, agents on your PC<br/>footprints, documents"] -->|push| gh
 ```
 
 ```nix

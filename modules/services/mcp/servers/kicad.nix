@@ -3,9 +3,10 @@
 # KiCad projects for agents (README.md, kicad). Each project is a clone of its source (GitHub, with a commit to start
 # from) in `dir`/<project> with its own KiCad MCP Pro server, published at /kicad/<project>/mcp and confined to it:
 # agents on different projects never share a server or files. Headless: kicad-cli runs ERC/DRC and exports, and the
-# project's own headless KiCad (kicad-api-<project>) takes live board edits, one board at a time. Every minute the
-# project's commits (vcs_commit_checkpoint) go up to its source's `pushTo` branch and what others pushed to `branch`
-# is merged in, also while an agent is mid-edit. It stops on a conflict, never overwriting work.
+# project's own headless KiCad (kicad-api-<project>) takes live board edits, one board at a time. Agents do git
+# themselves (vcs_fetch, vcs_branch, vcs_pull, vcs_push): the server's git reaches the source through two sockets,
+# fetching and pushing, that run git's own service on that one repo as the project's sync user, which alone holds
+# its deploy key. The server can't read the key or reach any other repo.
 let
   cfg = config.homelab.mcp.kicad;
   inherit (lib) mkOption types;
@@ -37,6 +38,24 @@ let
   # Each project's own user for its source, owning only its deploy key.
   syncUser = p: "kicad-sync-${p}";
   projects = lib.attrNames cfg.projects;
+  # The sockets for a project's git, one per direction, `upload-pack` (fetch) and `receive-pack` (push): the path git's
+  # ext transport asks for (%S, git-upload-pack or git-receive-pack).
+  gitSocket = p: service: "/run/kicad-git-${p}/git-${service}";
+  # An ssh url's host (or ssh://host[:port]) and the path git's service takes on it.
+  sshTarget = url:
+    let
+      scp = builtins.match "([^/:]+@[^/:]+):(.*)" url;
+      uri = builtins.match "(ssh://[^/]+)(/.*)" url;
+    in
+    if scp != null then { host = lib.elemAt scp 0; path = lib.elemAt scp 1; }
+    else { host = lib.elemAt uri 0; path = lib.elemAt uri 1; };
+  # The server's own git config: the source's url goes through the project's sockets (git's ext transport, socat).
+  serverGitConfig = p: src: pkgs.writeText "kicad-${p}.gitconfig" ''
+    [url "ext::${lib.getExe pkgs.socat} STDIO UNIX-CONNECT:/run/kicad-git-${p}/%S"]
+    	insteadOf = ${src.url}
+    [protocol "ext"]
+    	allow = always
+  '';
   # What git must never take from a repo agents write to, whatever its config says: hooks, an fsmonitor, a signing
   # program, transports other than these.
   gitGuard = lib.imap0 (i: kv: { "GIT_CONFIG_KEY_${toString i}" = lib.head kv; "GIT_CONFIG_VALUE_${toString i}" = lib.last kv; }) [
@@ -49,7 +68,7 @@ let
     [ "protocol.file.allow" "always" ]
   ];
 
-  # Cloning and syncing: the project's sync user, with its key, seeing only its own repo (what an agent leaves in
+  # Cloning, and the git services behind the sockets: the project's sync user, with its key, seeing only its own repo (what an agent leaves in
   # .git, alternates or linked refs, can't reach another's).
   sourceUnit = p: src: {
     after = [ "network-online.target" ];
@@ -87,16 +106,10 @@ in
         options = {
           port = mkOption { type = types.port; };
           url = mkOption { type = types.str; };
-          # The branch the project follows: what's pushed there is merged in.
+          # The branch the clone starts on; agents switch and push branches themselves after that.
           branch = mkOption {
             type = types.str;
             default = "main";
-          };
-          # Where its commits go: agent, nobody else's, for you to merge into `branch` (a merge commit, not a squash:
-          # a squashed copy conflicts with the originals the next sync merges). Or `branch` itself, straight in.
-          pushTo = mkOption {
-            type = types.str;
-            default = "agent";
           };
         };
       });
@@ -164,7 +177,7 @@ in
       enable = true;
       config = {
         safe.directory = map repo projects;
-        # Who the sync's rebases and agents' commits are by, git can't make one up without a mail domain.
+        # Who agents' commits and merges are by, git can't make one up without a mail domain.
         user = { name = "KiCad MCP"; email = "kicad@${config.networking.hostName}.incus"; };
         # Never committed, whatever the project's own .gitignore says: KiCad's lock files and caches, the server's
         # reports.
@@ -198,6 +211,8 @@ in
         # It looks for the libraries beside kicad-cli, which they aren't on NixOS.
         KICAD_MCP_SYMBOL_LIBRARY_DIR = "${symbols}/symbols";
         KICAD_MCP_FOOTPRINT_LIBRARY_DIR = "${footprints}/footprints";
+        # Its git (vcs_fetch, vcs_pull, vcs_push) reaches the source through the project's sockets, never with the key.
+        GIT_CONFIG_GLOBAL = "${serverGitConfig p project}";
       } // libraryEnv;
     }) cfg.projects;
 
@@ -258,37 +273,39 @@ in
         ExecStartPost = "+${config.systemd.package}/bin/systemctl start --no-block mcp-kicad-${p}.service";
       };
     })) cfg.projects
-    // lib.mapAttrs' (p: src: lib.nameValuePair "kicad-sync-${p}" (lib.recursiveUpdate (sourceUnit p src) {
-      description = "Keep KiCad project ${p} in step with ${src.url}";
-      after = [ "kicad-repo-${p}.service" "network-online.target" ];
-      requires = [ "kicad-repo-${p}.service" ];
-      serviceConfig = {
-        WorkingDirectory = repo p;
-        # Only commits go up, an agent's half-done edits never do. First a push, which touches no files, so it goes
-        # through mid-edit (pushing to `branch` itself, only while nobody else pushed: "-", its failure isn't the
-        # run's). Then a merge of what others pushed, never a rebase, so pushed commits are never rewritten: git
-        # merges with uncommitted edits as long as the merge doesn't touch those files, else it refuses and waits.
-        # Then the merge goes up.
-        ExecStart = [
-          (utils.escapeSystemdExecArgs [ git "fetch" "--quiet" "--prune" "origin" ])
-          ("-" + utils.escapeSystemdExecArgs [ git "push" "--quiet" "origin" "${src.branch}:${src.pushTo}" ])
-          (utils.escapeSystemdExecArgs [ git "merge" "--quiet" "--no-edit" "origin/${src.branch}" ])
-          (utils.escapeSystemdExecArgs [ git "push" "--quiet" "origin" "${src.branch}:${src.pushTo}" ])
-        ];
-        # On a conflict the merge stops halfway, with markers in the files agents edit: undo it, so the project keeps
-        # its own commits and the next run tries again (the log says what conflicts).
-        ExecStopPost = utils.escapeSystemdExecArgs [ "${pkgs.runtimeShell}" "-c"
-          "[ \"$SERVICE_RESULT\" = success ] || ! [ -e .git/MERGE_HEAD ] || exec ${git} merge --abort" ];
-      };
-    })) cfg.projects;
+    # Behind each socket, per connection: git's own service on the source, as the sync user, with the key over ssh
+    # (or the source's path, for a local one). Whatever the server asks for, it gets that one repo.
+    // lib.listToAttrs (lib.concatMap (p: let src = cfg.projects.${p}; in map (service:
+      lib.nameValuePair "kicad-git-${p}-${service}@" (lib.recursiveUpdate (sourceUnit p src) {
+        description = "git ${service} for KiCad project ${p}";
+        serviceConfig = {
+          Type = "simple";
+          StandardInput = "socket";
+          StandardOutput = "socket";
+          StandardError = "journal";
+          ExecStart = utils.escapeSystemdExecArgs (if ssh src.url then
+            let target = sshTarget src.url; in [
+              (lib.getExe pkgs.openssh) "-T" "-o" "BatchMode=yes" "-o" "IdentitiesOnly=yes"
+              "-i" config.sops.secrets.${keySecret p}.path
+              "-o" "UserKnownHostsFile=/var/lib/${syncUser p}/known_hosts" "-o" "StrictHostKeyChecking=accept-new"
+              target.host "git-${service} '${target.path}'"
+            ]
+          else [ git service src.url ]);
+        };
+      })) [ "upload-pack" "receive-pack" ]) projects);
 
-    systemd.timers = lib.mapAttrs' (p: _: lib.nameValuePair "kicad-sync-${p}" {
-      wantedBy = [ "timers.target" ];
-      timerConfig = {
-        OnBootSec = "1min";
-        OnUnitInactiveSec = "1min";
+    # The project's two git sockets, for its server only.
+    systemd.sockets = lib.listToAttrs (lib.concatMap (p: map (service: lib.nameValuePair "kicad-git-${p}-${service}" {
+      description = "git ${service} socket for KiCad project ${p}";
+      wantedBy = [ "sockets.target" ];
+      socketConfig = {
+        ListenStream = gitSocket p service;
+        Accept = true;
+        SocketUser = "mcp-kicad-${p}";
+        SocketGroup = "mcp-kicad-${p}";
+        SocketMode = "0600";
       };
-    }) cfg.projects;
+    }) [ "upload-pack" "receive-pack" ]) projects);
 
     sops.secrets = lib.mapAttrs' (p: _: lib.nameValuePair (keySecret p) { owner = syncUser p; })
       (lib.filterAttrs (_: src: ssh src.url) cfg.projects);

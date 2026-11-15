@@ -51,7 +51,7 @@ in
       # clone, as a GitHub repo must.
       homelab.mcp.kicad.projects.t = { port = 9200; url = "/var/lib/kicad-src/t.git"; };
       homelab.mcp.kicad.mode = "experimental";
-      systemd.services.kicad-sync-t.serviceConfig.ReadWritePaths = [ "/var/lib/kicad-src" ];
+      systemd.services."kicad-git-t-receive-pack@".serviceConfig.ReadWritePaths = [ "/var/lib/kicad-src" ];
       systemd.services.kicad-src-t = {
         requiredBy = [ "kicad-repo-t.service" ];
         before = [ "kicad-repo-t.service" ];
@@ -146,48 +146,61 @@ in
             finally:
                 print(mcp.succeed(f"journalctl -u mcp-{name} -o cat | tail -n 40"))
 
-    with subtest("kicad sync"):
-        # Someone working in the source (as kicad-sync-t, which owns it) and an agent in the project.
+    with subtest("kicad git: the agent fetches, branches, pulls and pushes"):
+        # Someone working in the source (as kicad-sync-t, which owns it) and an agent in the project, whose git goes
+        # through the project's sockets.
         upstream = lambda cmd: f"runuser -u kicad-sync-t -- sh -c 'cd /tmp/t && {cmd}'"
         agent = lambda cmd: f"runuser -u mcp-kicad-t -- sh -c 'umask 002; cd /var/lib/kicad/t && {cmd}'"
         log = lambda branch: f"git -C /var/lib/kicad-src/t.git log --format=%s {branch}"
+        call = lambda name, args: ["tools/call", {"name": name, "arguments": args}]
+        project = call("kicad_set_project", {"project_dir": "/var/lib/kicad/t"})
 
-        # The project is the source's clone.
+        def tools(*calls, failing=()):
+            out = session("kicad-t", [project, *calls])
+            for i, result in enumerate(out["results"]):
+                text = "\n".join(c.get("text", "") for c in result["content"])
+                print(f"kicad-t git: {text[:300]!r}")
+                assert bool(result.get("isError")) == (i in failing), text
+            return out
+
         mcp.succeed(
             "test -f /var/lib/kicad/t/a",
             "runuser -u kicad-sync-t -- git clone -q /var/lib/kicad-src/t.git /tmp/t",
         )
-        # An agent's commit goes up to agent, the server's branch.
-        mcp.succeed("systemctl start kicad-sync-t")
-        mcp.succeed(agent("echo b > b && git add b && git commit -qm b"), "systemctl start kicad-sync-t",
-                    f"{log('agent')} | grep -qx b", f"! {log('main')} | grep -qx b")
-        # And while the agent keeps editing (a tracked file changed, not committed): its commit goes up, the edit stays.
-        mcp.succeed(agent("echo e > e && git add e && git commit -qm e && echo edit >> a"), "systemctl start kicad-sync-t",
-                    f"{log('agent')} | head -n 1 | grep -qx e", "grep -qx edit /var/lib/kicad/t/a")
-
-        # Someone pushed to main (a footprint, a document) while the agent is still mid-edit: it's merged in, the
-        # edit stays, and agent has both.
-        mcp.succeed(
-            upstream("git pull -q origin main && echo c > c && git add c && git commit -qm c && git push -q origin HEAD:main"),
-            "systemctl start kicad-sync-t",
-            "test -f /var/lib/kicad/t/c", "grep -qx edit /var/lib/kicad/t/a",
-            f"{log('agent')} | grep -qx c", f"{log('agent')} | grep -qx e",
+        # Its own branch, a commit, a push.
+        mcp.succeed(agent("echo b > b"))
+        tools(
+            call("vcs_fetch", {}),
+            call("vcs_branch", {"name": "layout", "create": True}),
+            call("vcs_commit_checkpoint", {"message": "b", "auto_drc": False}),
+            call("vcs_push", {}),
         )
-        mcp.succeed(agent("git checkout -q a"))
+        mcp.succeed(f"{log('layout')} | head -n 1 | grep -qx b", f"! {log('main')} | grep -qx b")
 
-        # A conflict, the same line on both sides: the agent's commit still goes up to agent, the merge is undone,
-        # no markers left in the project.
+        # Someone pushed to main (a footprint, a document): the agent pulls it in while mid-edit, and pushes.
+        mcp.succeed(
+            upstream("echo c > c && git add c && git commit -qm c && git push -q origin HEAD:main"),
+            agent("echo edit >> b"),
+        )
+        tools(call("vcs_pull", {"branch": "main"}), call("vcs_push", {}))
+        mcp.succeed("test -f /var/lib/kicad/t/c", "grep -qx edit /var/lib/kicad/t/b", f"{log('layout')} | grep -qx c")
+        mcp.succeed(agent("git checkout -q b"))
+
+        # A conflict, the same line on both sides: the pull fails and undoes itself, the agent's commit stays.
         mcp.succeed(
             upstream("git pull -q origin main && echo x > a && git commit -qam x && git push -q origin HEAD:main"),
-            agent("echo y > a && git commit -qam y"),
+            agent("echo y > a"),
         )
-        mcp.fail("systemctl start kicad-sync-t")
+        tools(call("vcs_commit_checkpoint", {"message": "y", "auto_drc": False}), call("vcs_pull", {"branch": "main"}),
+              failing={2})
         mcp.succeed(
-            f"{log('agent')} | head -n 1 | grep -qx y",
             "test ! -e /var/lib/kicad/t/.git/MERGE_HEAD",
             "grep -qx y /var/lib/kicad/t/a",
             "git -C /var/lib/kicad/t log -1 --format=%s | grep -qx y",
         )
+
+        # The server has no key and no way around the sockets: its config sends the source's url through them.
+        mcp.succeed("systemctl show -p Environment mcp-kicad-t | grep -q GIT_CONFIG_GLOBAL")
 
     with subtest("kicad live board editing, one board after another"):
         # Through the project's headless KiCad (kicad-api-t): select a board, draw on it, save; then the next.

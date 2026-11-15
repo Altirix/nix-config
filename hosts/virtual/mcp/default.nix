@@ -20,9 +20,9 @@
   };
 
   # A KiCad MCP server per project (modules/services/mcp/servers/kicad.nix), at mcp.peacocks.me/kicad/<project>/mcp.
-  # One per line of work: agents on different projects never share a server or files. Each follows its repo's main
-  # (something committed first) and pushes agents' commits to its agent branch, with the project's deploy key
-  # (README.md, KiCad).
+  # One per line of work: agents on different projects never share a server or files. Each starts on its repo's main
+  # (something committed first); agents fetch, pull and push themselves, through sockets that hold the project's
+  # deploy key away from them (README.md, KiCad).
   # Three KiCad servers, each with its own headless KiCad (a few hundred MB with a board open) and kicad-cli for checks
   # and exports, beside the rest (Incus' default is 1/1GiB).
   homelab.vm = {

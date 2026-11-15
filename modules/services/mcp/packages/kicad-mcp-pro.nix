@@ -172,6 +172,9 @@ python.pkgs.buildPythonApplication (finalAttrs: {
     # unless detail=true), and re-running the autorouter stacked copies of its tracks under the same UUIDs (it
     # replaced its earlier ones line by line, KiCad writes them over several).
     ./kicad-mcp-pro-tool-fixes.patch
+    # Git with the project's remote, which it had none of: vcs_fetch, vcs_branch, vcs_pull (a merge, undone on a
+    # conflict) and vcs_push (never forced). Remote branches are always named, .git/config may be read-only.
+    ./kicad-mcp-pro-git-remote.patch
   ];
 
   pythonImportsCheck = [ "kicad_mcp" ];
