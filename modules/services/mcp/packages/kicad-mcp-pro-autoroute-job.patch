@@ -1,6 +1,6 @@
 --- a/src/kicad_mcp/utils/freerouting.py
 +++ b/src/kicad_mcp/utils/freerouting.py
-@@ -324,14 +324,25 @@
+@@ -327,14 +327,25 @@
          timeout: float,
      ) -> tuple[subprocess.CompletedProcess[str], float]:
          start_time = time.perf_counter()

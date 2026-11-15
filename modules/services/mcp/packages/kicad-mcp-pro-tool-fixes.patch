@@ -63,13 +63,20 @@
  from collections.abc import Awaitable, Callable
  from dataclasses import dataclass
  from pathlib import Path
-@@ -54,6 +56,41 @@
+@@ -54,6 +56,64 @@
      pass
  
  
 +
-+def _drop_dsn_nets(text: str, names: set[str]) -> str:
-+    """The DSN without these nets: their (net ...) blocks go, and their names from the (class ...) lists."""
++_EXCLUDED_CLASS = "kicad_mcp_excluded"
++
++
++def _exclude_dsn_nets(text: str, names: set[str]) -> str:
++    """The DSN with these nets moved into a class of their own, _EXCLUDED_CLASS, for FreeRouting to skip (-inc).
++
++    The nets stay in the DSN, so their tracks, vias and zones are still obstacles it routes around; it only takes
++    net class names to skip, not net names. The new class gets the rules of the first class a net came from.
++    """
 +    from ..utils.sexpr import _extract_block
 +
 +    def unquote(token: str) -> str:
@@ -78,46 +85,63 @@
 +    token = r'("(?:[^"\\]|\\.)*"|[^\s()]+)'
 +    out: list[str] = []
 +    pos = 0
-+    for match in re.finditer(r"\((net|class)\s+" + token, text):
++    moved: list[str] = []
++    rules = ""
++    for match in re.finditer(r"\(class\s+" + token, text):
 +        if match.start() < pos:
 +            continue
-+        kind, name = match.group(1), unquote(match.group(2))
 +        block, consumed = _extract_block(text, match.start())
-+        if kind == "net" and name in names:
-+            out.append(text[pos : match.start()])
-+            pos = match.start() + consumed
-+        elif kind == "class":
-+            # The net names run up to the class's first sub-block: the first "(" outside a quoted name.
-+            head_end, quoted = len(block), False
-+            for index, char in enumerate(block[1:], start=1):
-+                if char == '"':
-+                    quoted = not quoted
-+                elif char == "(" and not quoted:
-+                    head_end = index
-+                    break
-+            head, rest = block[:head_end], block[head_end:]
-+            kept = re.sub(r"\s" + token, lambda m: "" if unquote(m.group(1)) in names else m.group(0), head[len(match.group(0)):])
-+            out.append(text[pos : match.start()] + match.group(0) + kept + rest)
-+            pos = match.start() + consumed
++        # The net names run up to the class's first sub-block: the first "(" outside a quoted name.
++        head_end, quoted = len(block), False
++        for index, char in enumerate(block[1:], start=1):
++            if char == '"':
++                quoted = not quoted
++            elif char == "(" and not quoted:
++                head_end = index
++                break
++        head, rest = block[:head_end], block[head_end:]
++
++        def keep(m: re.Match[str]) -> str:
++            if unquote(m.group(1)) in names:
++                moved.append(m.group(1))
++                return ""
++            return m.group(0)
++
++        before = len(moved)
++        kept = re.sub(r"\s" + token, keep, head[len(match.group(0)) :])
++        if len(moved) > before and not rules:
++            rules = rest
++        out.append(text[pos : match.start()] + match.group(0) + kept + rest)
++        pos = match.start() + consumed
 +    out.append(text[pos:])
-+    return "".join(out)
++    result = "".join(out)
++    if not moved:
++        return result
++    network = re.search(r"\(network\b", result)
++    if network is None:
++        return result
++    _, consumed = _extract_block(result, network.start())
++    close = network.start() + consumed - 1
++    extra = f"  (class {_EXCLUDED_CLASS} {' '.join(dict.fromkeys(moved))}\n      {rules.strip()[:-1].rstrip()}\n    )\n  "
++    return result[:close] + extra + result[close:]
 +
  async def _execute_freerouting_phase(
      runner: AutorouteRunner,
      pcb_file: Path,
-@@ -72,6 +109,11 @@
+@@ -72,6 +132,12 @@
      try:
          await progress(10, 100, "Exporting DSN for FreeRouting...")
          dsn_file = await anyio.to_thread.run_sync(lambda: runner.export_dsn(pcb_file, dsn_target))
 +        if exclude_nets:
-+            # FreeRouting's ignore option (-inc) only takes net classes: leave the nets out of what it routes.
++            # FreeRouting's ignore option (-inc) only takes net classes: the nets go into one of their own for it.
 +            dsn_file.write_text(
-+                _drop_dsn_nets(dsn_file.read_text(encoding="utf-8"), set(exclude_nets)), encoding="utf-8"
++                _exclude_dsn_nets(dsn_file.read_text(encoding="utf-8"), set(exclude_nets)), encoding="utf-8"
 +            )
++            net_classes_to_ignore = [*(net_classes_to_ignore or []), _EXCLUDED_CLASS]
          await progress(40, 100, "Running FreeRouting...")
          result = await anyio.to_thread.run_sync(
              lambda: runner.run_freerouting(
-@@ -84,7 +126,6 @@
+@@ -84,7 +150,6 @@
                  if freerouting_jar_path
                  else None,
                  net_classes_to_ignore=net_classes_to_ignore,
@@ -178,7 +202,44 @@
      @headless_compatible
 --- a/src/kicad_mcp/utils/router_core.py
 +++ b/src/kicad_mcp/utils/router_core.py
-@@ -280,14 +280,21 @@
+@@ -257,6 +257,36 @@
+     return "\n".join(lines)
+ 
+ 
++def _existing_copper(pcb_text: str, net_numbers: dict[str, int]) -> tuple[set[object], set[object]]:
++    """Keys of the board's tracks and vias: net, layer, ends (either way round), width; net, position, size."""
++    names = {number: name for name, number in net_numbers.items()}
++    number = r"(-?[0-9.]+)"
++    segments: set[object] = set()
++    vias: set[object] = set()
++    for match in re.finditer(r"\((segment|via)[\s(]", pcb_text):
++        block, _ = _extract_block(pcb_text, match.start())
++        net_match = re.search(r'\(net\s+(?:"((?:[^"\\]|\\.)*)"|(\d+))', block)
++        if net_match is None:
++            continue
++        net = net_match.group(1) if net_match.group(1) is not None else names.get(int(net_match.group(2)), "")
++        net = re.sub(r"\\(.)", r"\1", net)
++        if match.group(1) == "segment":
++            start = re.search(r"\(start\s+" + number + r"\s+" + number, block)
++            end = re.search(r"\(end\s+" + number + r"\s+" + number, block)
++            width = re.search(r"\(width\s+" + number, block)
++            layer = re.search(r'\(layer\s+"?([^"\s)]+)', block)
++            if start and end and width and layer:
++                ends = frozenset({(round(float(start[1]), 4), round(float(start[2]), 4)),
++                                  (round(float(end[1]), 4), round(float(end[2]), 4))})
++                segments.add((net, layer[1], ends, round(float(width[1]), 4)))
++        else:
++            at = re.search(r"\(at\s+" + number + r"\s+" + number, block)
++            size = re.search(r"\(size\s+" + number, block)
++            if at and size:
++                vias.add((net, (round(float(at[1]), 4), round(float(at[2]), 4)), round(float(size[1]), 4)))
++    return segments, vias
++
++
+ def apply_ses_to_pcb(pcb_text: str, ses_text: str) -> tuple[str, SesRoute]:
+     """Return ``(updated_pcb_text, route)`` with the SES routing applied.
+ 
+@@ -280,14 +310,50 @@
      # UUIDs) so re-applying the same SES replaces rather than duplicates the routing. Only
      # our own items are touched -- hand-routed tracks have different UUIDs and are kept.
      applied_uuids = set(re.findall(r'\(uuid "([0-9a-f-]+)"\)\)$', rendered, re.MULTILINE))
@@ -192,6 +253,7 @@
 -    cleaned = "\n".join(kept_lines)
 +    # Whole (segment ...) and (via ...) blocks, not lines: KiCad's format upgrade after every write spreads each
 +    # over several lines, and a line match missed them, so every run added another copy under the same UUIDs.
++    net_names_by_number = {number: name for name, number in net_numbers.items()}
 +    parts: list[str] = []
 +    position = 0
 +    for match in re.finditer(r"\((?:segment|via)[\s(]", pcb_text):
@@ -199,12 +261,61 @@
 +            continue
 +        block, consumed = _extract_block(pcb_text, match.start())
 +        uid = re.search(r'\(uuid\s+"?([0-9a-f-]+)"?\)', block)
-+        if uid is not None and uid.group(1) in applied_uuids:
++        net = re.search(r'\(net\s+(?:"((?:[^"\\]|\\.)*)"|(\d+))', block)
++        net_name = None
++        if net is not None:
++            net_name = net.group(1) if net.group(1) is not None else net_names_by_number.get(int(net.group(2)))
++        # This module's own earlier routing on a net routed again now: its UUIDs are version 5 (uuid5, made from
++        # the geometry), KiCad's own and hand-routed copper's are random (version 4). A re-route that takes a
++        # different path would otherwise leave the old one behind.
++        ours = uid is not None and len(uid.group(1)) == 36 and uid.group(1)[14] == "5" and net_name in route.net_names
++        if uid is not None and (uid.group(1) in applied_uuids or ours):
 +            line_start = pcb_text.rfind("\n", position, match.start())
 +            parts.append(pcb_text[position : line_start if line_start != -1 else match.start()])
 +            position = match.start() + consumed
 +    parts.append(pcb_text[position:])
 +    cleaned = "".join(parts)
++
++    # FreeRouting's session repeats the copper the board already had (hand-routed tracks, excluded nets'): only
++    # what's new goes in, or every run would add another copy of it.
++    have_segments, have_vias = _existing_copper(cleaned, net_numbers)
++    new = SesRoute(
++        units_per_mm=route.units_per_mm,
++        segments=[
++            seg for seg in route.segments
++            if (seg.net_name, seg.layer, frozenset({(round(seg.start[0], 4), round(seg.start[1], 4)),
++                                                   (round(seg.end[0], 4), round(seg.end[1], 4))}),
++                round(seg.width_mm, 4)) not in have_segments
++        ],
++        vias=[
++            via for via in route.vias
++            if (via.net_name, (round(via.at[0], 4), round(via.at[1], 4)), round(via.size_mm, 4)) not in have_vias
++        ],
++    )
++    rendered = render_pcb_items(new, net_numbers, named_nets=named_nets)
++    if not rendered:
++        return cleaned if cleaned != pcb_text else pcb_text, route
  
      trailing = ""
      body = cleaned
+--- a/src/kicad_mcp/utils/freerouting.py
++++ b/src/kicad_mcp/utils/freerouting.py
+@@ -172,11 +172,14 @@
+         target = cfg.resolve_within_project(dsn_path)
+         target.parent.mkdir(parents=True, exist_ok=True)
+ 
+-        if target.exists():
+-            return target
+-
++        # Exported afresh from the board every time: a DSN left from an earlier run is that earlier board, and
++        # FreeRouting would route old placement and old nets. A staged file only counts without a CLI export.
+         caps = get_cli_capabilities(cfg.kicad_cli)
+-        if caps.supports_specctra_export and self._cli_export_dsn(cfg.kicad_cli, pcb_path, target):
++        if caps.supports_specctra_export:
++            target.unlink(missing_ok=True)
++            if self._cli_export_dsn(cfg.kicad_cli, pcb_path, target):
++                return target
++        elif target.exists():
+             return target
+ 
+         candidates = [
