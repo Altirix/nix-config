@@ -1,0 +1,210 @@
+--- a/src/kicad_mcp/tools/pcb.py
++++ b/src/kicad_mcp/tools/pcb.py
+@@ -741,8 +741,8 @@
+ 
+ 
+ def _format_selection_id(item: object) -> str:
+-    item_id = getattr(getattr(item, "id", None), "value", "")
+-    return str(item_id)[:8] + ("..." if item_id else "")
++    # The whole UUID: pcb_delete_items and the other tools that take an id need all of it.
++    return str(getattr(getattr(item, "id", None), "value", ""))
+ 
+ 
+ def _get_pcb_file_for_sync() -> Path:
+@@ -3430,22 +3430,34 @@
+ 
+     @mcp.tool()
+     @requires_kicad_running
+-    def pcb_delete_items(item_ids: list[str]) -> str:
+-        """Delete items by UUID."""
++    def pcb_delete_items(item_ids: list[str] | None = None, all_of: str | None = None) -> str:
++        """Delete items by UUID, or with all_of="tracks", "vias" or "tracks_and_vias" every one of them."""
+         from kipy.proto.common.types import KIID
+ 
+-        if not item_ids:
++        if all_of not in (None, "tracks", "vias", "tracks_and_vias"):
++            return 'all_of is "tracks", "vias" or "tracks_and_vias".'
++        if not item_ids and all_of is None:
+             return "No item IDs were supplied."
+         kiids = []
+-        for item_id in item_ids:
++        for item_id in item_ids or []:
+             kiid = KIID()
+             kiid.value = item_id
+             kiids.append(kiid)
++
++        def _delete(board: Board) -> tuple[object, ...]:
++            if all_of in ("tracks", "tracks_and_vias"):
++                kiids.extend(track.id for track in board.get_tracks())
++            if all_of in ("vias", "tracks_and_vias"):
++                kiids.extend(via.id for via in board.get_vias())
++            if kiids:
++                board.remove_items_by_id(kiids)
++            return tuple(kiids)
++
+         try:
+             execute_live_board_mutation(
+                 "pcb_delete_items",
+-                lambda board: (board.remove_items_by_id(kiids), tuple(kiids))[1],
+-                verifier=_verify_deleted_items,
++                _delete,
++                verifier=lambda board, deleted: not deleted or _verify_deleted_items(board, deleted),
+             )
+         except Exception as exc:
+             return f"Failed to delete items: {exc}"
+--- a/src/kicad_mcp/routing/autorouter.py
++++ b/src/kicad_mcp/routing/autorouter.py
+@@ -2,6 +2,8 @@
+ 
+ from __future__ import annotations
+ 
++import re
++
+ from collections.abc import Awaitable, Callable
+ from dataclasses import dataclass
+ from pathlib import Path
+@@ -54,6 +56,41 @@
+     pass
+ 
+ 
++
++def _drop_dsn_nets(text: str, names: set[str]) -> str:
++    """The DSN without these nets: their (net ...) blocks go, and their names from the (class ...) lists."""
++    from ..utils.sexpr import _extract_block
++
++    def unquote(token: str) -> str:
++        return token[1:-1] if len(token) >= 2 and token[0] == token[-1] == '"' else token
++
++    token = r'("(?:[^"\\]|\\.)*"|[^\s()]+)'
++    out: list[str] = []
++    pos = 0
++    for match in re.finditer(r"\((net|class)\s+" + token, text):
++        if match.start() < pos:
++            continue
++        kind, name = match.group(1), unquote(match.group(2))
++        block, consumed = _extract_block(text, match.start())
++        if kind == "net" and name in names:
++            out.append(text[pos : match.start()])
++            pos = match.start() + consumed
++        elif kind == "class":
++            # The net names run up to the class's first sub-block: the first "(" outside a quoted name.
++            head_end, quoted = len(block), False
++            for index, char in enumerate(block[1:], start=1):
++                if char == '"':
++                    quoted = not quoted
++                elif char == "(" and not quoted:
++                    head_end = index
++                    break
++            head, rest = block[:head_end], block[head_end:]
++            kept = re.sub(r"\s" + token, lambda m: "" if unquote(m.group(1)) in names else m.group(0), head[len(match.group(0)):])
++            out.append(text[pos : match.start()] + match.group(0) + kept + rest)
++            pos = match.start() + consumed
++    out.append(text[pos:])
++    return "".join(out)
++
+ async def _execute_freerouting_phase(
+     runner: AutorouteRunner,
+     pcb_file: Path,
+@@ -72,6 +109,11 @@
+     try:
+         await progress(10, 100, "Exporting DSN for FreeRouting...")
+         dsn_file = await anyio.to_thread.run_sync(lambda: runner.export_dsn(pcb_file, dsn_target))
++        if exclude_nets:
++            # FreeRouting's ignore option (-inc) only takes net classes: leave the nets out of what it routes.
++            dsn_file.write_text(
++                _drop_dsn_nets(dsn_file.read_text(encoding="utf-8"), set(exclude_nets)), encoding="utf-8"
++            )
+         await progress(40, 100, "Running FreeRouting...")
+         result = await anyio.to_thread.run_sync(
+             lambda: runner.run_freerouting(
+@@ -84,7 +126,6 @@
+                 if freerouting_jar_path
+                 else None,
+                 net_classes_to_ignore=net_classes_to_ignore,
+-                exclude_nets=exclude_nets,
+                 drc_report_path=drc_target,
+             )
+         )
+--- a/src/kicad_mcp/tools/validation.py
++++ b/src/kicad_mcp/tools/validation.py
+@@ -476,6 +476,7 @@
+     error: str | None,
+     *,
+     save_report: bool,
++    detail: bool = True,
+ ) -> VerdictReport:
+     report_status, classification_error = drc_runner.classify_legacy_drc_result(report, error)
+     if report_status == "malformed":
+@@ -582,17 +583,24 @@
+         if entry not in violations
+     )
+     verdict = VerdictReport.verdict_for([finding.severity for finding in findings])
++    total_findings = len(findings)
++    if not detail:
++        # A summary: KiCad's own report and every finding run to hundreds of kB on a real board.
++        limit = get_config().max_items_per_response
++        if total_findings > limit:
++            lines.append(f"Showing {limit} of {total_findings} findings, run_drc(detail=true) for all of them.")
++            findings = findings[:limit]
+     return VerdictReport(
+         text="\n".join(lines),
+         summary=(
+             "DRC is clean."
+             if verdict == "PASS"
+-            else f"DRC reported {len(findings)} actionable finding(s)."
++            else f"DRC reported {total_findings} actionable finding(s)."
+         ),
+         verdict=verdict,
+         failure_mode="none" if verdict == "PASS" else "design",
+         retryable=False,
+-        evidence=[{"report_path": str(path), "violations": validated_report}],
++        evidence=[{"report_path": str(path), "violations": validated_report} if detail else {"report_path": str(path)}],
+         remediation=(
+             "" if verdict == "PASS" else "Fix DRC findings and rerun run_drc(save_report=True)."
+         ),
+@@ -4430,10 +4438,10 @@
+ def _register_pcb_gate_tools(mcp: FastMCP) -> None:
+     @mcp.tool()
+     @headless_compatible
+-    def run_drc(save_report: bool = False) -> VerdictReport:
+-        """Return full DRC report with PCB violations, unconnected items, and courtyard issues."""
++    def run_drc(save_report: bool = False, detail: bool = False) -> VerdictReport:
++        """Run DRC: the counts and the first findings, or with detail=true every finding and KiCad's whole report."""
+         path, report, error = _run_drc_report("drc_report.json")
+-        return _drc_report_payload(path, report, error, save_report=save_report)
++        return _drc_report_payload(path, report, error, save_report=save_report, detail=detail)
+ 
+     @mcp.tool()
+     @headless_compatible
+--- a/src/kicad_mcp/utils/router_core.py
++++ b/src/kicad_mcp/utils/router_core.py
+@@ -280,14 +280,21 @@
+     # UUIDs) so re-applying the same SES replaces rather than duplicates the routing. Only
+     # our own items are touched -- hand-routed tracks have different UUIDs and are kept.
+     applied_uuids = set(re.findall(r'\(uuid "([0-9a-f-]+)"\)\)$', rendered, re.MULTILINE))
+-    kept_lines = [
+-        line
+-        for line in pcb_text.splitlines()
+-        if not (
+-            ("(segment " in line or "(via " in line) and any(uid in line for uid in applied_uuids)
+-        )
+-    ]
+-    cleaned = "\n".join(kept_lines)
++    # Whole (segment ...) and (via ...) blocks, not lines: KiCad's format upgrade after every write spreads each
++    # over several lines, and a line match missed them, so every run added another copy under the same UUIDs.
++    parts: list[str] = []
++    position = 0
++    for match in re.finditer(r"\((?:segment|via)[\s(]", pcb_text):
++        if match.start() < position:
++            continue
++        block, consumed = _extract_block(pcb_text, match.start())
++        uid = re.search(r'\(uuid\s+"?([0-9a-f-]+)"?\)', block)
++        if uid is not None and uid.group(1) in applied_uuids:
++            line_start = pcb_text.rfind("\n", position, match.start())
++            parts.append(pcb_text[position : line_start if line_start != -1 else match.start()])
++            position = match.start() + consumed
++    parts.append(pcb_text[position:])
++    cleaned = "".join(parts)
+ 
+     trailing = ""
+     body = cleaned
