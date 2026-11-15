@@ -355,8 +355,10 @@ moves on its own: work reaches GitHub when an agent pushes, your footprints and 
 tell agents to push when they're done. Files not in git are never touched. The server's git has no key: the
 source's url goes through two sockets (`kicad-git-<project>-upload-pack`, `-receive-pack`) that only its server
 reaches, and behind each, per connection, the project's sync user runs git's own service on that one repo with
-the deploy key. A compromised server can still push to any branch of it, so protect `main` on GitHub (no force
-pushes, no deletion). See the flow below. Add a project in
+the deploy key. Pushes go through a gate first, a bare repo of the sync user's that refuses pushes to the
+protected branches (`protect`, main), force pushes and deletions, and pushes the rest on to GitHub within the same
+push (GitHub's own branch protection needs a paid plan for private repos). So agents push branches of their own and
+you merge them into main on GitHub. See the flow below. Add a project in
 `hosts/virtual/mcp/default.nix` with a free port of its own (9200-9299), deploy `mcp` and `ionos-de` (the route) and
 widen nothing: `labs: edge to mcp` covers 9200-9299.
 

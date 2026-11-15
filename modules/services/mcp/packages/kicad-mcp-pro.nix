@@ -168,7 +168,7 @@ python.pkgs.buildPythonApplication (finalAttrs: {
     ./kicad-mcp-pro-freerouting-ses.patch
     # What agents ran into on real boards: listings cut ids to 8 characters though deletes need all of them,
     # pcb_delete_items couldn't clear every track (all_of), exclude_nets went to FreeRouting as net classes it
-    # ignored (the nets are left out of its DSN now), run_drc returned KiCad's whole report every time (a summary
+    # ignored (the nets are left out of its DSN now), run_drc returned KiCad's whole report and every finding (a summary
     # unless detail=true), and re-running the autorouter stacked copies of its tracks under the same UUIDs (it
     # replaced its earlier ones line by line, KiCad writes them over several).
     ./kicad-mcp-pro-tool-fixes.patch

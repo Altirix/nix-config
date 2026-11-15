@@ -141,11 +141,11 @@
      verdict = VerdictReport.verdict_for([finding.severity for finding in findings])
 +    total_findings = len(findings)
 +    if not detail:
-+        # A summary: KiCad's own report and every finding run to hundreds of kB on a real board.
-+        limit = get_config().max_items_per_response
-+        if total_findings > limit:
-+            lines.append(f"Showing {limit} of {total_findings} findings, run_drc(detail=true) for all of them.")
-+            findings = findings[:limit]
++        # A summary: KiCad's own report and the findings, each with its evidence, run to hundreds of kB on a real
++        # board. The text above has the counts and the first violations.
++        if findings:
++            lines.append(f"{total_findings} finding(s) with their locations and evidence: run_drc(detail=true).")
++        findings = []
      return VerdictReport(
          text="\n".join(lines),
          summary=(

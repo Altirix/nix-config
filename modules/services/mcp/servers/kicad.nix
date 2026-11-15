@@ -58,7 +58,7 @@ let
   '';
   # What git must never take from a repo agents write to, whatever its config says: hooks, an fsmonitor, a signing
   # program, transports other than these.
-  gitGuard = lib.imap0 (i: kv: { "GIT_CONFIG_KEY_${toString i}" = lib.head kv; "GIT_CONFIG_VALUE_${toString i}" = lib.last kv; }) [
+  gitGuard = [
     [ "core.hooksPath" "/dev/null" ]
     [ "core.fsmonitor" "false" ]
     [ "commit.gpgSign" "false" ]
@@ -67,18 +67,30 @@ let
     [ "protocol.https.allow" "always" ]
     [ "protocol.file.allow" "always" ]
   ];
+  # git config through the environment, entries later in the list winning.
+  gitConfigEnv = entries: { GIT_CONFIG_COUNT = toString (lib.length entries); } // lib.mergeAttrsList (lib.imap0
+    (i: kv: { "GIT_CONFIG_KEY_${toString i}" = lib.head kv; "GIT_CONFIG_VALUE_${toString i}" = lib.last kv; }) entries);
+  # Pushes go through a gate, a bare repo of the sync user's: it refuses force updates and deletions itself, and its
+  # hook refuses the protected branches (`protect`, main) and pushes every other branch on to the source, never
+  # forced, before taking it, all within the agent's push (GitHub only protects private repos' branches on a paid
+  # plan). Agents push branches of their own, never to main, and never rewrite or delete one.
+  pushGateHooks = pkgs.writeShellApplication {
+    name = "pre-receive";
+    runtimeInputs = [ pkgs.git ];
+    text = builtins.readFile ../scripts/kicad-push-gate.sh;
+  };
+  pushGate = p: "/var/lib/${syncUser p}/gate.git";
 
   # Cloning, and the git services behind the sockets: the project's sync user, with its key, seeing only its own repo (what an agent leaves in
   # .git, alternates or linked refs, can't reach another's).
   sourceUnit = p: src: {
     after = [ "network-online.target" ];
     wants = [ "network-online.target" ];
-    environment = {
-      GIT_CONFIG_COUNT = toString (lib.length gitGuard);
+    environment = gitConfigEnv gitGuard // {
       GIT_SSH_COMMAND = "${lib.getExe pkgs.openssh} -o UserKnownHostsFile=/var/lib/${syncUser p}/known_hosts"
         + " -o StrictHostKeyChecking=accept-new"
         + lib.optionalString (ssh src.url) " -i ${config.sops.secrets.${keySecret p}.path} -o IdentitiesOnly=yes";
-    } // lib.mergeAttrsList gitGuard;
+    };
     serviceConfig = {
       Type = "oneshot";
       User = syncUser p;
@@ -110,6 +122,11 @@ in
           branch = mkOption {
             type = types.str;
             default = "main";
+          };
+          # Branches agents can't push to: they change only by your merges on GitHub.
+          protect = mkOption {
+            type = types.listOf types.str;
+            default = [ "main" ];
           };
         };
       });
@@ -273,11 +290,12 @@ in
         ExecStartPost = "+${config.systemd.package}/bin/systemctl start --no-block mcp-kicad-${p}.service";
       };
     })) cfg.projects
-    # Behind each socket, per connection: git's own service on the source, as the sync user, with the key over ssh
-    # (or the source's path, for a local one). Whatever the server asks for, it gets that one repo.
-    // lib.listToAttrs (lib.concatMap (p: let src = cfg.projects.${p}; in map (service:
-      lib.nameValuePair "kicad-git-${p}-${service}@" (lib.recursiveUpdate (sourceUnit p src) {
-        description = "git ${service} for KiCad project ${p}";
+    # Behind each socket, per connection, as the sync user: fetches straight from the source (over ssh with the key,
+    # or its path for a local one), pushes through the gate, which is first brought in line with the source. Whatever
+    # the server asks for, it gets that one repo.
+    // lib.listToAttrs (lib.concatMap (p: let src = cfg.projects.${p}; in [
+      (lib.nameValuePair "kicad-git-${p}-upload-pack@" (lib.recursiveUpdate (sourceUnit p src) {
+        description = "git fetch for KiCad project ${p}";
         serviceConfig = {
           Type = "simple";
           StandardInput = "socket";
@@ -288,11 +306,32 @@ in
               (lib.getExe pkgs.openssh) "-T" "-o" "BatchMode=yes" "-o" "IdentitiesOnly=yes"
               "-i" config.sops.secrets.${keySecret p}.path
               "-o" "UserKnownHostsFile=/var/lib/${syncUser p}/known_hosts" "-o" "StrictHostKeyChecking=accept-new"
-              target.host "git-${service} '${target.path}'"
+              target.host "git-upload-pack '${target.path}'"
             ]
-          else [ git service src.url ]);
+          else [ git "upload-pack" src.url ]);
         };
-      })) [ "upload-pack" "receive-pack" ]) projects);
+      }))
+      (lib.nameValuePair "kicad-git-${p}-receive-pack@" (lib.recursiveUpdate (sourceUnit p src) {
+        description = "git push for KiCad project ${p}";
+        environment = gitConfigEnv (gitGuard ++ [
+          [ "core.hooksPath" "${pushGateHooks}/bin" ]
+          [ "receive.denyNonFastForwards" "true" ]
+          [ "receive.denyDeletes" "true" ]
+        ]) // { KICAD_SOURCE = src.url; KICAD_PROTECTED = lib.concatStringsSep " " src.protect; };
+        serviceConfig = {
+          Type = "simple";
+          StandardInput = "socket";
+          StandardOutput = "socket";
+          StandardError = "journal";
+          # Quiet: what they print would go into the push's protocol.
+          ExecStartPre = map utils.escapeSystemdExecArgs [
+            [ git "init" "--quiet" "--bare" (pushGate p) ]
+            [ git "-C" (pushGate p) "fetch" "--quiet" "--prune" src.url "+refs/heads/*:refs/heads/*" ]
+          ];
+          ExecStart = utils.escapeSystemdExecArgs [ git "receive-pack" (pushGate p) ];
+        };
+      }))
+    ]) projects);
 
     # The project's two git sockets, for its server only.
     systemd.sockets = lib.listToAttrs (lib.concatMap (p: map (service: lib.nameValuePair "kicad-git-${p}-${service}" {

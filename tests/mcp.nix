@@ -199,8 +199,16 @@ in
             "git -C /var/lib/kicad/t log -1 --format=%s | grep -qx y",
         )
 
-        # The server has no key and no way around the sockets: its config sends the source's url through them.
-        mcp.succeed("systemctl show -p Environment mcp-kicad-t | grep -q GIT_CONFIG_GLOBAL")
+        # The gate: main can't be pushed, and no branch can be rewritten or deleted, by the tools or by git itself
+        # with the server's config.
+        tools(call("vcs_push", {"branch": "main"}), failing={1})
+        mcp.succeed(f"! {log('main')} | grep -qx y")
+        gitconfig = "$(systemctl show -p Environment --value mcp-kicad-t | tr ' ' '\\n' | sed -n 's/^GIT_CONFIG_GLOBAL=//p')"
+        raw = lambda cmd: f"runuser -u mcp-kicad-t -- env GIT_CONFIG_GLOBAL={gitconfig} sh -c 'cd /var/lib/kicad/t && {cmd}'"
+        layout = mcp.succeed("git -C /var/lib/kicad-src/t.git rev-parse layout").strip()
+        mcp.fail(raw("git push --force origin $(git rev-list --max-parents=0 HEAD):refs/heads/layout"))
+        mcp.fail(raw("git push origin :refs/heads/layout"))
+        mcp.succeed(f"test $(git -C /var/lib/kicad-src/t.git rev-parse layout) = {layout}")
 
     with subtest("kicad live board editing, one board after another"):
         # Through the project's headless KiCad (kicad-api-t): select a board, draw on it, save; then the next.
