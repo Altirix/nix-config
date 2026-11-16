@@ -50,8 +50,10 @@ let
     if scp != null then { host = lib.elemAt scp 0; path = lib.elemAt scp 1; }
     else { host = lib.elemAt uri 0; path = lib.elemAt uri 1; };
   # The server's own git config: the source's url goes through the project's sockets (git's ext transport, socat).
+  # -t: once git has sent its side, socat waits this long for the answer (0.5 s by default, less than a push takes
+  # to reach GitHub through the gate, which answers only after that).
   serverGitConfig = p: src: pkgs.writeText "kicad-${p}.gitconfig" ''
-    [url "ext::${lib.getExe pkgs.socat} STDIO UNIX-CONNECT:/run/kicad-git-${p}/%S"]
+    [url "ext::${lib.getExe pkgs.socat} -t 600 STDIO UNIX-CONNECT:/run/kicad-git-${p}/%S"]
     	insteadOf = ${src.url}
     [protocol "ext"]
     	allow = always

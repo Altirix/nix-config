@@ -19,5 +19,7 @@ while read -r _ new ref; do
     echo "deleting ${ref#refs/heads/} isn't allowed" >&2
     exit 1
   fi
-  git push --quiet "$KICAD_SOURCE" "$new:$ref" || exit 1
+  # Out of the gate's quarantine (its incoming objects stay readable): a source on this machine would take the push
+  # as made inside it, and refuse to update its refs.
+  env -u GIT_QUARANTINE_PATH git push --quiet "$KICAD_SOURCE" "$new:$ref" || exit 1
 done

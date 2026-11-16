@@ -52,6 +52,8 @@ in
       homelab.mcp.kicad.projects.t = { port = 9200; url = "/var/lib/kicad-src/t.git"; };
       homelab.mcp.kicad.mode = "experimental";
       systemd.services."kicad-git-t-receive-pack@".serviceConfig.ReadWritePaths = [ "/var/lib/kicad-src" ];
+      # Without KVM the VM is emulated, and loading KiCad's footprint libraries takes kicad-cli's DRC minutes.
+      systemd.services.mcp-kicad-t.environment.KICAD_MCP_CLI_TIMEOUT = "600";
       systemd.services.kicad-src-t = {
         requiredBy = [ "kicad-repo-t.service" ];
         before = [ "kicad-repo-t.service" ];
@@ -151,7 +153,9 @@ in
         # through the project's sockets.
         upstream = lambda cmd: f"runuser -u kicad-sync-t -- sh -c 'cd /tmp/t && {cmd}'"
         agent = lambda cmd: f"runuser -u mcp-kicad-t -- sh -c 'umask 002; cd /var/lib/kicad/t && {cmd}'"
-        log = lambda branch: f"git -C /var/lib/kicad-src/t.git log --format=%s {branch}"
+        # The source as root, who doesn't own it.
+        src_git = "git -c safe.directory=/var/lib/kicad-src/t.git -C /var/lib/kicad-src/t.git"
+        src_log = lambda branch: f"{src_git} log --format=%s {branch}"
         call = lambda name, args: ["tools/call", {"name": name, "arguments": args}]
         project = call("kicad_set_project", {"project_dir": "/var/lib/kicad/t"})
 
@@ -175,7 +179,7 @@ in
             call("vcs_commit_checkpoint", {"message": "b", "auto_drc": False}),
             call("vcs_push", {}),
         )
-        mcp.succeed(f"{log('layout')} | head -n 1 | grep -qx b", f"! {log('main')} | grep -qx b")
+        mcp.succeed(f"{src_log('layout')} | head -n 1 | grep -qx b", f"! {src_log('main')} | grep -qx b")
 
         # Someone pushed to main (a footprint, a document): the agent pulls it in while mid-edit, and pushes.
         mcp.succeed(
@@ -183,7 +187,7 @@ in
             agent("echo edit >> b"),
         )
         tools(call("vcs_pull", {"branch": "main"}), call("vcs_push", {}))
-        mcp.succeed("test -f /var/lib/kicad/t/c", "grep -qx edit /var/lib/kicad/t/b", f"{log('layout')} | grep -qx c")
+        mcp.succeed("test -f /var/lib/kicad/t/c", "grep -qx edit /var/lib/kicad/t/b", f"{src_log('layout')} | grep -qx c")
         mcp.succeed(agent("git checkout -q b"))
 
         # A conflict, the same line on both sides: the pull fails and undoes itself, the agent's commit stays.
@@ -202,13 +206,13 @@ in
         # The gate: main can't be pushed, and no branch can be rewritten or deleted, by the tools or by git itself
         # with the server's config.
         tools(call("vcs_push", {"branch": "main"}), failing={1})
-        mcp.succeed(f"! {log('main')} | grep -qx y")
+        mcp.succeed(f"! {src_log('main')} | grep -qx y")
         gitconfig = "$(systemctl show -p Environment --value mcp-kicad-t | tr ' ' '\\n' | sed -n 's/^GIT_CONFIG_GLOBAL=//p')"
         raw = lambda cmd: f"runuser -u mcp-kicad-t -- env GIT_CONFIG_GLOBAL={gitconfig} sh -c 'cd /var/lib/kicad/t && {cmd}'"
-        layout = mcp.succeed("git -C /var/lib/kicad-src/t.git rev-parse layout").strip()
+        layout = mcp.succeed(f"{src_git} rev-parse layout").strip()
         mcp.fail(raw("git push --force origin $(git rev-list --max-parents=0 HEAD):refs/heads/layout"))
         mcp.fail(raw("git push origin :refs/heads/layout"))
-        mcp.succeed(f"test $(git -C /var/lib/kicad-src/t.git rev-parse layout) = {layout}")
+        mcp.succeed(f"test $({src_git} rev-parse layout) = {layout}")
 
     with subtest("kicad live board editing, one board after another"):
         # Through the project's headless KiCad (kicad-api-t): select a board, draw on it, save; then the next.
@@ -297,7 +301,7 @@ in
             status = session("kicad-t", [rt_project, call("route_autoroute_status", {})])["results"][1]
             return "Finished after" in json.dumps(status)
 
-        retry(autoroute_done, timeout=300)
+        retry(autoroute_done, timeout_seconds=300)
 
         out = session("kicad-t", [
             ["tools/call", {"name": "kicad_set_project", "arguments": {"project_dir": repo, "pcb_file": f"{repo}/nope.kicad_pcb"}}],
