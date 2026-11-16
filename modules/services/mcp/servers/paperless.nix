@@ -25,6 +25,8 @@ in
         PAPERLESS_PUBLIC_URL = paperless.homelab.paperless.url;
         # post_document's file_path reads nothing off this VM, uploads come as content.
         PAPERLESS_MCP_UPLOAD_PATHS = "/var/empty";
+        # A call Paperless doesn't answer fails after this instead of hanging (packages/paperless-mcp.nix).
+        PAPERLESS_MCP_TIMEOUT_MS = "120000";
       };
       environmentFile = lib.mkIf enable (lib.mkDefault config.sops.templates."mcp-paperless.env".path);
     };

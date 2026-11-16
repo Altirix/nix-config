@@ -18,6 +18,10 @@ buildNpmPackage (finalAttrs: {
     hash = "sha256-F2WQEenKpZS2FiqPCCQjpI+8ohywht0tKoHdQyplMQM=";
   };
 
+  # Its axios calls have no timeout: with Paperless busy (OCR) a call never returns and the client sees the server
+  # hang. PAPERLESS_MCP_TIMEOUT_MS (default 2 min) makes them fail instead.
+  patches = [ ./paperless-mcp-timeout.patch ];
+
   postPatch = ''
     cp ${lockfile} package-lock.json
   '';

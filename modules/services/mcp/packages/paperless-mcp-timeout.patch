@@ -1,0 +1,11 @@
+--- a/build/api/PaperlessAPI.js
++++ b/build/api/PaperlessAPI.js
+@@ -14,6 +14,8 @@
+ Object.defineProperty(exports, "__esModule", { value: true });
+ exports.PaperlessAPI = void 0;
+ const axios_1 = __importDefault(require("axios"));
++// No timeout by default: a Paperless that stops answering holds every call open for good.
++axios_1.default.defaults.timeout = Number(process.env.PAPERLESS_MCP_TIMEOUT_MS) || 120000;
+ const form_data_1 = __importDefault(require("form-data"));
+ const utils_1 = require("./utils");
+ class PaperlessAPI {
