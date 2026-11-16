@@ -20,6 +20,8 @@ let
   # tables live.
   kicadConfig = p: "/var/lib/mcp-kicad-${p}/.config/kicad/10.99";
   server = pkgs.callPackage ../packages/kicad-mcp-pro.nix { inherit kicad; };
+  # The router agents use (packages/kicad-routing-tools.nix).
+  routingTools = pkgs.callPackage ../packages/kicad-routing-tools.nix { };
   # Where the libraries are, for the server (and its kicad-cli) and the headless KiCad alike: what the library
   # tables' ${KICAD10_...} and ${KICAD11_...} stand for.
   libraryEnv = {
@@ -140,8 +142,8 @@ in
       default = "/var/lib/kicad";
     };
     # readonly: inspect, check, export. write: create projects, edit schematics and boards, commit too.
-    # experimental: write, plus routing (differential pairs, length tuning, FreeRouting's autorouter) and
-    # manufacturing exports, which KiCad MCP Pro keeps behind it.
+    # experimental: write, plus routing (KiCadRoutingTools, differential pairs, length tuning) and manufacturing
+    # exports, which KiCad MCP Pro keeps behind it.
     mode = mkOption {
       type = types.enum [ "readonly" "write" "experimental" ];
       default = "write";
@@ -221,14 +223,9 @@ in
         KICAD_API_SOCKET = "ipc://${apiSocket p}";
         KICAD_MCP_OPERATING_MODE = cfg.mode;
         KICAD_MCP_PROFILE = cfg.profile;
-        # The autorouter: FreeRouting's jar on the server's own Java (it runs no containers), headless and without
-        # its usage reports. Its check for a newer release still goes out, to GitHub's API.
-        KICAD_MCP_FREEROUTING_JAR = "${pkgs.freerouting}/share/freerouting/freerouting-executable.jar";
-        KICAD_MCP_JAVA_EXECUTABLE = lib.getExe' pkgs.jdk25_headless "java";
-        FREEROUTING__GUI__ENABLED = "false";
-        # A real board takes it longer than the default 15 minutes: the most KiCad MCP Pro allows.
-        KICAD_MCP_FREEROUTING_TIMEOUT_SEC = "7200";
-        FREEROUTING__USAGE_AND_DIAGNOSTIC_DATA__DISABLE_ANALYTICS = "true";
+        # Routing: KiCadRoutingTools' scripts (route_krt_start), on its own Python.
+        KICAD_MCP_KRT_DIR = "${routingTools}/share/kicad-routing-tools";
+        KICAD_MCP_KRT_PYTHON = routingTools.python.interpreter;
         # It looks for the libraries beside kicad-cli, which they aren't on NixOS.
         KICAD_MCP_SYMBOL_LIBRARY_DIR = "${symbols}/symbols";
         KICAD_MCP_FOOTPRINT_LIBRARY_DIR = "${footprints}/footprints";

@@ -332,11 +332,19 @@ the agent moves on, and its unsaved live edits go with it (so do they after the 
 that doesn't exist is an error, boards are generated or created first. A project has one selected board, shared by
 every agent on it: two agents editing different boards at once take it from each other.
 
-Routing (`mode = "experimental"` on `mcp`, KiCad MCP Pro keeps it behind that): `route_autoroute_freerouting` runs
-FreeRouting (nixpkgs', on the server's Java, headless, its usage reports off, up to 2 hours) and writes the result
-onto the open board (`packages/kicad-mcp-pro-freerouting-ses.patch`). A real board takes it longer than a client
-waits for one call, so agents use `route_autoroute_start`, which returns at once, and check `route_autoroute_status`
-every 5-10 minutes: its passes and score so far, then the result, applied. They leave the board alone meanwhile. `route_differential_pair`, `route_tune_length` and
+Routing (`mode = "experimental"` on `mcp`, KiCad MCP Pro keeps it behind that) is KiCadRoutingTools
+(`packages/kicad-routing-tools.nix`, built from source, its Rust router too), in place of FreeRouting, which on a board
+that already had copper never finished a pass. Its scripts work on files: `route_krt_start` saves the open board,
+copies it with its `.kicad_pro` and `.kicad_dru` into `.kicad-mcp/krt/` and runs one there in the background
+(`autoroute.py` for the whole chain, or step by step: `route_planes.py`, the fan-outs, `route_diff.py`, `route.py`
+with its length and time matching), returning straight away, or with the output when it ends within
+`wait_seconds` (`--help`, the checks). `route_krt_status` reports its steps so far, then the result; agents check
+it every 5-10 minutes. `route_krt_apply` makes a board it wrote the project's board, which KiCad reloads: live edits
+made since the copy are lost, so agents leave the board alone meanwhile. `route_krt_docs` has its documentation and
+routing skills (`skills/plan-pcb-routing`). It routes to the fab limits in the project's rules: autoroute.py reads
+the `.kicad_pro` and `.kicad_dru`, and where they disagree it goes by the `.kicad_dru` and says so (on the PalmRemote
+core board, 0.1 mm tracks and 0.45 mm vias, which KiCad's DRC then flags against the project's 0.2 and 0.5), so keep
+the two the same; the other scripts take the limits as options (`packages/kicad-mcp-pro-krt.patch`). `route_differential_pair`, `route_tune_length` and
 `tune_diff_pair_length` don't draw: they write the width, gap, skew and length targets into the project's design
 rules (`<project>.kicad_dru`, committed with it) and report the lengths as they are, DRC checks them. Every edit
 goes straight to the file, there's no undo on the server: commit before anything big, `git revert` is the undo.
@@ -375,7 +383,7 @@ flowchart LR
     proxy["mcp-proxy<br/>mcp-kicad-&lt;project&gt;"] --> pro["KiCad MCP Pro<br/>(patched)"]
     pro -->|"IPC socket<br/>open, edit, save the selected board"| api["headless KiCad<br/>kicad-api-&lt;project&gt;"]
     pro -->|"ERC, DRC, exports"| cli["kicad-cli"]
-    pro -->|"DSN out, SES back"| fr["FreeRouting<br/>(Java)"]
+    pro -->|"a copy of the board in, a routed one back"| krt["KiCadRoutingTools<br/>(background job)"]
     pro -->|"schematics, sync, rules<br/>vcs_fetch, vcs_branch, vcs_pull, vcs_push"| repo[("/var/lib/kicad/&lt;project&gt;<br/>git clone")]
     api -->|"saves boards"| repo
     repo -->|"git, no key"| sock["kicad-git-&lt;project&gt; sockets<br/>upload-pack, receive-pack"]

@@ -162,24 +162,18 @@ python.pkgs.buildPythonApplication (finalAttrs: {
   # to, and the board selected with kicad_set_project is opened (or created) there, the one before saved and closed.
   patches = [
     ./kicad-mcp-pro-headless.patch
-    # Applying FreeRouting's result (route_autoroute_freerouting): its SES writer only wrote numbered nets, refusing
-    # the named-only ones KiCad's development branch saves (it writes names there now, checked against the board's
-    # own), and read FreeRouting's coordinates 10x too large (its resolution factor counts).
-    ./kicad-mcp-pro-freerouting-ses.patch
     # What agents ran into on real boards: listings cut ids to 8 characters though deletes need all of them,
-    # pcb_delete_items couldn't clear every track (all_of), exclude_nets went to FreeRouting as net classes it
-    # ignored (they go into a class of their own it skips), run_drc returned KiCad's whole report and every finding (a summary
-    # unless detail=true), and re-running the autorouter stacked copies of its tracks under the same UUIDs (it
-    # replaced its earlier ones line by line, KiCad writes them over several).
+    # pcb_delete_items couldn't clear every track (all_of), and run_drc returned KiCad's whole report and every
+    # finding (a summary unless detail=true).
     ./kicad-mcp-pro-tool-fixes.patch
     # Git with the project's remote, which it had none of: vcs_fetch, vcs_branch, vcs_pull (a merge, undone on a
     # conflict) and vcs_push (never forced). Remote branches are always named, .git/config may be read-only.
     ./kicad-mcp-pro-git-remote.patch
-    # The autorouter as a background job: a real board takes FreeRouting longer than a client waits for one call.
-    # route_autoroute_start returns at once (nets: only those, a group at a time; max_minutes), route_autoroute_status
-    # reports its passes from FreeRouting's log (now written as it runs) and the result once it's applied, and
-    # route_autoroute_cancel stops it.
-    ./kicad-mcp-pro-autoroute-job.patch
+    # KiCadRoutingTools in place of FreeRouting, which stalled for hours on a board with copper on it: its
+    # scripts as a background job on a copy of the board (route_krt_start, route_krt_status, route_krt_cancel),
+    # route_krt_apply to make a result the board, route_krt_docs for its documentation and routing skills.
+    # FreeRouting's DSN, SES and autorouter tools aren't registered.
+    ./kicad-mcp-pro-krt.patch
   ];
 
   pythonImportsCheck = [ "kicad_mcp" ];

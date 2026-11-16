@@ -1,0 +1,473 @@
+--- a/src/kicad_mcp/project/workflow.py
++++ b/src/kicad_mcp/project/workflow.py
+@@ -59,7 +59,7 @@ AGENT_WORKFLOW_PHASES: tuple[dict[str, object], ...] = (
+         "phase": "routing",
+         "role": "Builder",
+         "high_level_tool": "route_board_with_quality_gates",
+-        "next_action": "route_autoroute_freerouting()",
++        "next_action": "route_krt_start('autoroute.py', ...)",
+         "gates": ["PCB"],
+     },
+     {
+--- a/src/kicad_mcp/prompts/workflows.py
++++ b/src/kicad_mcp/prompts/workflows.py
+@@ -44,9 +44,9 @@ Board: {board_size_mm} mm, {layer_count} copper layer(s), target fab {target_fab
+    - `pcb_visual_qa()` then `pcb_fix_readability()` to clear overlapping
+      reference designators and flag any off-board parts
+ 4. Routing:
+-   - `route_export_dsn()`
+-   - `route_autoroute_freerouting()`
+-   - `route_import_ses()`
++   - `route_krt_start("autoroute.py", ["<board>.kicad_pcb", "routed.kicad_pcb"])`, then
++     `route_krt_status()` until it's done
++   - `route_krt_apply("routed.kicad_pcb")`
+    - `pcb_refill_zones()`
+ 5. Validation and release:
+    - `project_full_validation_loop(max_iterations=5)`
+@@ -99,11 +99,10 @@ Move a design from schematic capture to PCB layout.
+ 5. Export the netlist.
+ 6. Inspect footprints and assign missing ones.
+ 7. Move footprints, then run `pcb_visual_qa()` and `pcb_fix_readability()` to clear
+-   overlapping reference designators, then run the post-placement routing pass
+-   (apply the routed session in KiCad when the tool surfaces the manual import step):
+-   a. `route_export_dsn()`
+-   b. `route_autoroute_freerouting()` — Docker-first, JAR fallback
+-   c. `route_import_ses()`
++   overlapping reference designators, then run the post-placement routing pass:
++   a. `route_krt_start("autoroute.py", ["<board>.kicad_pcb", "routed.kicad_pcb"])`
++   b. `route_krt_status()` every 5-10 minutes until it's done
++   c. `route_krt_apply("routed.kicad_pcb")`
+    d. `pcb_refill_zones()`
+    e. `run_drc()`
+ 8. Compare PCB versus schematic footprints.
+@@ -128,16 +127,16 @@ Move a design from schematic capture to PCB layout.
+ 
+     @mcp.prompt()
+     def post_placement_routing() -> list[TextContent]:
+-        """Route a placed PCB through DSN, FreeRouting, SES import, and DRC."""
++        """Route a placed PCB with KiCadRoutingTools, then refill and DRC."""
+         text = """
+ Run the mandatory post-placement routing loop.
+ 
+ 1. Confirm placement is acceptable with `pcb_score_placement()`.
+-2. Export routing input with `route_export_dsn()`.
+-3. Run `route_autoroute_freerouting()` after placement; it routes headlessly and
+-   surfaces the KiCad import step (`human_gate_required`) when the SES must be applied.
+-4. Apply the routed result with `route_import_ses()`, then perform the KiCad GUI
+-   import it describes.
++2. Plan it: `route_krt_docs("skills/plan-pcb-routing")`, or let
++   `route_krt_start("autoroute.py", ["<board>.kicad_pcb", "routed.kicad_pcb", "--dry-run"])` show its plan.
++3. Route with `route_krt_start("autoroute.py", ["<board>.kicad_pcb", "routed.kicad_pcb"])` (or step by step:
++   route_planes.py, the fan-outs, route_diff.py, route.py), checking `route_krt_status()` every 5-10 minutes.
++4. Apply the routed board with `route_krt_apply("routed.kicad_pcb")`.
+ 5. Refill copper with `pcb_refill_zones()`.
+ 6. Run `run_drc()` and inspect `kicad://project/fix_queue`.
+ 7. Repeat only the failing step; do not restart schematic capture unless the transfer gate fails.
+@@ -305,7 +304,7 @@ Run a high-speed review loop for critical nets.
+ 4. Run `si_check_via_stub()` and look for critical-frequency resonance warnings.
+ 5. Run `emc_check_return_path_continuity(reference_plane_layer="auto")`.
+ 6. Re-route or add stitching vias where the return path is weak.
+-7. Run `route_autoroute_freerouting()` only when DSN/SES staging is ready.
++7. Re-route the critical nets with `route_krt_start("route.py", [...])`: `--time-matching`, `--impedance`.
+ 8. Re-check SI/EMC and create a `vcs_commit_checkpoint()` when the board improves.
+ """.strip()
+         return [TextContent(type="text", text=text)]
+--- a/src/kicad_mcp/tools/router.py
++++ b/src/kicad_mcp/tools/router.py
+@@ -524,15 +524,17 @@ TOOL_CATEGORIES: dict[str, ToolCategory] = {
+     },
+     "routing": {
+         "description": (
+-            "Advanced routing helpers including FreeRouting orchestration and rule-file tuning."
++            "Advanced routing helpers including KiCadRoutingTools (autorouting, planes, fan-outs, "
++            "differential pairs, length and time matching) and rule-file tuning."
+         ),
+         "tools": [
+             "route_single_track",
+             "route_from_pad_to_pad",
+-            "route_export_dsn",
+-            "route_import_ses",
+-            "route_apply_ses",
+-            "route_autoroute_freerouting",
++            "route_krt_start",
++            "route_krt_status",
++            "route_krt_cancel",
++            "route_krt_apply",
++            "route_krt_docs",
+             "route_set_net_class_rules",
+             "route_differential_pair",
+             "route_tune_length",
+--- a/src/kicad_mcp/tools/routing.py
++++ b/src/kicad_mcp/tools/routing.py
+@@ -56,17 +56,10 @@ def register(mcp: FastMCP) -> None:
+ 
+     routing_manual_tracks.register(mcp)
+ 
+-    from . import routing_specctra_staging
++    # KiCadRoutingTools in place of FreeRouting (its DSN export, SES import and autorouter).
++    from . import routing_krt
+ 
+-    routing_specctra_staging.register(mcp)
+-
+-    from . import routing_ses_apply
+-
+-    routing_ses_apply.register(mcp)
+-
+-    from . import routing_autorouter
+-
+-    routing_autorouter.register(mcp)
++    routing_krt.register(mcp)
+ 
+     from . import routing_net_class_rules
+ 
+--- /dev/null
++++ b/src/kicad_mcp/tools/routing_krt.py
+@@ -0,0 +1,348 @@
++"""KiCadRoutingTools (KRT) as background jobs: its CLIs read and write .kicad_pcb files, on a copy of the board."""
++
++# pyright: reportUnusedFunction=false
++
++from __future__ import annotations
++
++import contextlib
++import json
++import os
++import re
++import shutil
++import signal
++import subprocess
++import threading
++import time
++from collections.abc import Callable
++from dataclasses import dataclass, field
++from pathlib import Path
++from typing import cast
++
++from mcp.server.mcpserver import MCPServer as FastMCP
++
++from ..config import get_config
++from ..connection import get_board
++from .metadata import headless_compatible
++from .pcb import (
++    _get_pcb_file_for_sync,
++    _reload_board_after_file_sync,
++    _run_queued_ipc_mutation,
++    _transactional_board_write,
++)
++
++_SCRIPT_DIRS = ("py_router", "py_tools")
++_SCRIPT_NAME = re.compile(r"[A-Za-z0-9_]+\.py")
++_PAGE = 20_000
++
++
++@dataclass
++class _Job:
++    """The one KRT command running in the background (route_krt_start), and how it ended."""
++
++    command: list[str]
++    started: float
++    log_path: Path
++    process: subprocess.Popen[bytes]
++    returncode: int | None = None
++    finished: float | None = None
++    timed_out: bool = False
++    lock: threading.Lock = field(default_factory=threading.Lock)
++
++
++_JOB: _Job | None = None
++
++
++def _krt_dir() -> Path:
++    value = os.environ.get("KICAD_MCP_KRT_DIR")
++    if not value:
++        raise ValueError("KiCadRoutingTools isn't installed here (KICAD_MCP_KRT_DIR is unset).")
++    return Path(value)
++
++
++def _work_dir() -> Path:
++    cfg = get_config()
++    if cfg.project_dir is None:
++        raise ValueError("No project selected: kicad_set_project() first.")
++    path = cfg.project_dir / ".kicad-mcp" / "krt"
++    path.mkdir(parents=True, exist_ok=True)
++    return path
++
++
++def _minutes(seconds: float) -> str:
++    return f"{int(seconds // 60)} min {int(seconds % 60)} s"
++
++
++def _script(name: str) -> Path:
++    if _SCRIPT_NAME.fullmatch(name):
++        for folder in _SCRIPT_DIRS:
++            path = _krt_dir() / folder / name
++            if path.is_file():
++                return path
++    known = sorted(
++        path.name
++        for folder in _SCRIPT_DIRS
++        for path in (_krt_dir() / folder).glob("*.py")
++        if "__main__" in path.read_text(encoding="utf-8", errors="replace")
++    )
++    raise ValueError(f"No KiCadRoutingTools script {name!r}. Scripts: {', '.join(known)}")
++
++
++def _save_open_board() -> str:
++    """Save the board KiCad has open, so the copy has every live edit; the file on disk when that can't be done."""
++
++    def _save() -> None:
++        save = cast(Callable[[], None], get_board().save)
++        save()
++        from ..kicad.session import _note_board_saved
++
++        _note_board_saved()
++
++    try:
++        _run_queued_ipc_mutation("pcb_save", _save)
++    except Exception as exc:  # noqa: BLE001 - KiCad not running, or no board open: the file is what there is
++        return f"The open board couldn't be saved ({_clip(str(exc), 200)}), so the copy is the file on disk."
++    return "The open board was saved first."
++
++
++def _copy_board(work: Path) -> Path:
++    """The board and its rules (.kicad_pro, .kicad_dru: KRT reads the fab limits there) into the work folder."""
++    board = _get_pcb_file_for_sync()
++    for suffix in (".kicad_pcb", ".kicad_pro", ".kicad_dru"):
++        source = board.with_suffix(suffix)
++        if source.exists():
++            shutil.copyfile(source, work / source.name)
++    return work / board.name
++
++
++def _clip(line: str, limit: int = 300) -> str:
++    line = line.rstrip()
++    return line if len(line) <= limit else line[:limit] + " ..."
++
++
++def _autoroute_lines(text: str) -> list[str]:
++    """autoroute.py's own record of its plan: each step and its result, and the summary."""
++    steps: dict[str, str] = {}
++    summary: list[str] = []
++    for line in text.splitlines():
++        kind, _, payload = line.partition(": ")
++        if kind not in {"AUTOROUTE_STEP", "AUTOROUTE_SUMMARY", "AUTOROUTE_PLAN"}:
++            continue
++        try:
++            record = json.loads(payload)
++        except ValueError:
++            continue
++        if kind == "AUTOROUTE_PLAN":
++            steps = {step["tag"]: f"- {step['tag']}: waiting ({step['what']})" for step in record.get("steps", [])}
++            rules = record.get("rules", {})
++            summary = [f"Rules ({record.get('rules_source', '?')}): " + ", ".join(f"{k} {v}" for k, v in rules.items())]
++        elif kind == "AUTOROUTE_STEP":
++            tag, state = record.get("tag", "?"), record.get("state", "?")
++            if state == "done":
++                result = record.get("result") or f"rc={record.get('rc')}"
++                steps[tag] = f"- {tag}: {result} ({record.get('seconds', 0):.0f} s), board {Path(record.get('board', '')).name}"
++            elif state == "running":
++                steps[tag] = f"- {tag}: running"
++            else:
++                steps[tag] = f"- {tag}: {state}, {record.get('reason', '')}"
++        else:
++            items = record.get("drc_items", [])
++            summary.append(
++                f"Result: {record.get('open')} open nets {record.get('open_nets', [])[:20]}, {record.get('drc')} DRC "
++                f"findings (first: {', '.join(items[:10])}), {record.get('seconds', 0):.0f} s. "
++                f"Output: {Path(record.get('output', '')).name}, every step's board in "
++                f"{Path(record.get('work', '')).name}/"
++            )
++    return [*steps.values(), *summary] if steps or summary else []
++
++
++def _report(job: _Job) -> str:
++    with job.lock:
++        returncode, finished, timed_out = job.returncode, job.finished, job.timed_out
++    try:
++        text = job.log_path.read_text(encoding="utf-8", errors="replace")
++    except OSError:
++        text = ""
++    lines = _autoroute_lines(text)
++    if not lines:
++        tail = [line for line in text.splitlines() if line.strip()]
++        lines = [_clip(line) for line in tail[-(40 if finished is not None else 15):]] or ["(no output yet)"]
++    body = "\n".join(lines)
++    if len(body) > 8000:
++        body = "...\n" + body[-8000:]
++    command = " ".join(job.command)
++    if finished is None:
++        head = f"Running for {_minutes(time.monotonic() - job.started)}: {command}"
++        foot = "Check again with route_krt_status in 5-10 minutes; route_krt_cancel stops it."
++    else:
++        took = _minutes(finished - job.started)
++        end = (
++            "stopped at its time limit" if timed_out
++            else "stopped (route_krt_cancel)" if returncode == -signal.SIGKILL
++            else f"exit code {returncode}"
++        )
++        head = f"Finished after {took}, {end}: {command}"
++        foot = (
++            f"Full log: .kicad-mcp/krt/{job.log_path.name}. Boards here: {', '.join(_boards())}. "
++            "route_krt_apply(file) puts one on the board."
++        )
++    return f"{head}\n{body}\n{foot}"
++
++
++def _boards() -> list[str]:
++    work = _work_dir()
++    return sorted(str(path.relative_to(work)) for path in work.glob("*.kicad_pcb"))
++
++
++def _kill(job: _Job) -> None:
++    """The script and everything it started (autoroute.py runs each step as a process of its own)."""
++    with contextlib.suppress(ProcessLookupError):
++        os.killpg(job.process.pid, signal.SIGKILL)
++
++
++def _wait(job: _Job, timeout: float) -> None:
++    try:
++        job.process.wait(timeout=timeout)
++    except subprocess.TimeoutExpired:
++        with job.lock:
++            job.timed_out = True
++        _kill(job)
++        job.process.wait()
++    with job.lock:
++        job.returncode = job.process.returncode
++        job.finished = time.monotonic()
++
++
++def register(mcp: FastMCP) -> None:
++    """Register the KiCadRoutingTools tools."""
++
++    @mcp.tool()
++    @headless_compatible
++    def route_krt_start(
++        script: str,
++        args: list[str] | None = None,
++        copy_board: bool = True,
++        max_minutes: float = 60,
++        wait_seconds: float = 20,
++    ) -> str:
++        """Run a KiCadRoutingTools script in the background, in the project's .kicad-mcp/krt/ folder.
++
++        Its scripts read a .kicad_pcb and write a new one; the board itself only changes with route_krt_apply.
++        copy_board saves the open board and copies it, with its .kicad_pro and .kicad_dru (the fab limits KRT
++        routes to), into that folder under its own name: pass that name as the input, and any new name as the
++        output (routed.kicad_pcb). copy_board=false keeps the folder as it is, to chain one step's output into
++        the next. args go to the script as they are, as its --help (args=["--help"]) shows.
++
++        The main scripts (route_krt_docs has their documentation and the routing skills):
++        - autoroute.py BOARD OUT: plans and runs the whole chain from the board (planes, fan-outs, differential
++          pairs, every net, repeat passes), --dry-run shows the plan only.
++        - route.py BOARD OUT --nets ...: route nets, a group at a time; length matching (--length-match-group),
++          time matching (--time-matching) and widths for an impedance (--impedance) are its options too.
++        - route_planes.py BOARD OUT --nets GND --plane-layers In1.Cu: power and ground planes.
++        - route_diff.py BOARD OUT --nets ...: differential pairs, with their own length matching.
++        - qfn_fanout.py / bga_fanout.py BOARD --output OUT --component U1: fan-outs.
++        - check_drc.py BOARD, check_connected.py BOARD, list_nets.py BOARD: checks, quick.
++        Fab limits: autoroute.py takes them from the copied .kicad_pro/.kicad_dru; route.py and the others take
++        --track-width, --clearance, --via-size, --via-drill, and move to finer vias where they must unless given
++        --fab-tier standard (a hard floor).
++
++        Returns its output when it ends within wait_seconds (help, checks); otherwise it's running, and
++        route_krt_status reports its progress (check every 5-10 minutes). max_minutes stops it. One at a time.
++        """
++        global _JOB
++        if _JOB is not None and _JOB.finished is None:
++            return f"A KRT job is already running: route_krt_status.\n{_report(_JOB)}"
++        work = _work_dir()
++        path = _script(script)
++        note = ""
++        if copy_board:
++            note = _save_open_board() + f" Copied as {_copy_board(work).name}.\n"
++        log_path = work / f"{Path(script).stem}.log"
++        command = [os.environ.get("KICAD_MCP_KRT_PYTHON", "python3"), "-u", "-X", "utf8", str(path), *(args or [])]
++        # Not the server's own settings, which KRT would echo into every log.
++        env = {key: value for key, value in os.environ.items() if not key.startswith(("KICAD_MCP_", "KICAD_API"))}
++        env["PYTHONDONTWRITEBYTECODE"] = "1"
++        with log_path.open("wb") as log:
++            process = subprocess.Popen(
++                command,
++                cwd=work,
++                stdin=subprocess.DEVNULL,
++                stdout=log,
++                stderr=subprocess.STDOUT,
++                env=env,
++                start_new_session=True,
++            )
++        job = _Job(command=[script, *(args or [])], started=time.monotonic(), log_path=log_path, process=process)
++        _JOB = job
++        threading.Thread(
++            target=_wait, args=(job, max(1.0, max_minutes) * 60), name="kicad-mcp-krt", daemon=True
++        ).start()
++        deadline = time.monotonic() + max(0.0, min(wait_seconds, 60))
++        while time.monotonic() < deadline and job.finished is None:
++            time.sleep(0.5)
++        return note + _report(job)
++
++    @mcp.tool()
++    @headless_compatible
++    def route_krt_status() -> str:
++        """How the KRT job (route_krt_start) is getting on: autoroute.py's steps so far, else its latest output."""
++        if _JOB is None:
++            return "No KRT job has been started: route_krt_start."
++        return _report(_JOB)
++
++    @mcp.tool()
++    @headless_compatible
++    def route_krt_cancel() -> str:
++        """Stop the KRT job (route_krt_start) and everything it started. The board is unchanged."""
++        job = _JOB
++        if job is None or job.finished is not None:
++            return "No KRT job is running."
++        _kill(job)
++        return f"Stopped {' '.join(job.command)} after {_minutes(time.monotonic() - job.started)}."
++
++    @mcp.tool()
++    @headless_compatible
++    def route_krt_apply(file: str) -> str:
++        """Make a board KRT wrote (a file in .kicad-mcp/krt/, as route_krt_status lists) the project's board.
++
++        It replaces the whole board, which KiCad then reloads: edits made since the job copied the board are
++        lost. Refill the zones (pcb_refill_zones) and run run_drc after.
++        """
++        if _JOB is not None and _JOB.finished is None:
++            return "A KRT job is running: wait for it, or route_krt_cancel."
++        work = _work_dir().resolve()
++        source = (work / file).resolve()
++        if not source.is_relative_to(work) or source.suffix != ".kicad_pcb" or not source.is_file():
++            return f"No board {file!r} in .kicad-mcp/krt/. Boards there: {', '.join(_boards())}"
++        text = source.read_text(encoding="utf-8")
++        board = _transactional_board_write(lambda _current: text)
++        try:
++            reload = _reload_board_after_file_sync()
++        except Exception as exc:  # noqa: BLE001 - the file is written; KiCad opens it when it's next asked
++            reload = f"KiCad couldn't be asked to reload it ({_clip(str(exc), 200)}): it opens the new file next time."
++        return f"{Path(board).name} is now {file}. {reload}"
++
++    @mcp.tool()
++    @headless_compatible
++    def route_krt_docs(name: str = "", offset: int = 0) -> str:
++        """KiCadRoutingTools' documentation and its routing skills, a page at a time.
++
++        No name lists them. Good starts: skills/plan-pcb-routing (how to plan a board's routing step by step),
++        README.md, docs/length-matching.md, docs/differential-pairs.md, docs/route-plane.md,
++        skills/review-routed-board. offset continues a long one where the last page ended.
++        """
++        root = _krt_dir()
++        entries = {"README.md": root / "README.md"}
++        entries |= {f"docs/{path.name}": path for path in sorted((root / "docs").glob("*.md"))}
++        entries |= {
++            f"skills/{path.parent.name}": path for path in sorted((root / ".claude" / "skills").glob("*/SKILL.md"))
++        }
++        if not name:
++            return "KiCadRoutingTools documentation, by name:\n" + "\n".join(f"- {key}" for key in entries)
++        path = entries.get(name.removesuffix("/SKILL.md"))
++        if path is None:
++            return f"No {name!r}. Names: {', '.join(entries)}"
++        text = path.read_text(encoding="utf-8", errors="replace")
++        page = text[max(0, offset) : max(0, offset) + _PAGE]
++        end = max(0, offset) + len(page)
++        more = f"\n\n[{end} of {len(text)} characters: offset={end} for the rest]" if end < len(text) else ""
++        return page + more

@@ -30,7 +30,7 @@
     memory = "6GiB";
   };
 
-  # Routing too: differential pairs and length tuning for the boards' display lanes, and FreeRouting.
+  # Routing too: differential pairs and length tuning for the boards' display lanes, and KiCadRoutingTools.
   homelab.mcp.kicad.mode = "experimental";
   homelab.mcp.kicad.projects = {
     palmremote = { port = 9200; url = "git@github.com:Altirix/A1990-A2141-PalmRemote.git"; };
