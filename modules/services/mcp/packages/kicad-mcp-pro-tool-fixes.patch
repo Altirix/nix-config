@@ -1,0 +1,105 @@
+--- a/src/kicad_mcp/tools/pcb.py
++++ b/src/kicad_mcp/tools/pcb.py
+@@ -741,8 +741,8 @@
+ 
+ 
+ def _format_selection_id(item: object) -> str:
+-    item_id = getattr(getattr(item, "id", None), "value", "")
+-    return str(item_id)[:8] + ("..." if item_id else "")
++    # The whole UUID: pcb_delete_items and the other tools that take an id need all of it.
++    return str(getattr(getattr(item, "id", None), "value", ""))
+ 
+ 
+ def _get_pcb_file_for_sync() -> Path:
+@@ -3430,22 +3430,34 @@
+ 
+     @mcp.tool()
+     @requires_kicad_running
+-    def pcb_delete_items(item_ids: list[str]) -> str:
+-        """Delete items by UUID."""
++    def pcb_delete_items(item_ids: list[str] | None = None, all_of: str | None = None) -> str:
++        """Delete items by UUID, or with all_of="tracks", "vias" or "tracks_and_vias" every one of them."""
+         from kipy.proto.common.types import KIID
+ 
+-        if not item_ids:
++        if all_of not in (None, "tracks", "vias", "tracks_and_vias"):
++            return 'all_of is "tracks", "vias" or "tracks_and_vias".'
++        if not item_ids and all_of is None:
+             return "No item IDs were supplied."
+         kiids = []
+-        for item_id in item_ids:
++        for item_id in item_ids or []:
+             kiid = KIID()
+             kiid.value = item_id
+             kiids.append(kiid)
++
++        def _delete(board: Board) -> tuple[object, ...]:
++            if all_of in ("tracks", "tracks_and_vias"):
++                kiids.extend(track.id for track in board.get_tracks())
++            if all_of in ("vias", "tracks_and_vias"):
++                kiids.extend(via.id for via in board.get_vias())
++            if kiids:
++                board.remove_items_by_id(kiids)
++            return tuple(kiids)
++
+         try:
+             execute_live_board_mutation(
+                 "pcb_delete_items",
+-                lambda board: (board.remove_items_by_id(kiids), tuple(kiids))[1],
+-                verifier=_verify_deleted_items,
++                _delete,
++                verifier=lambda board, deleted: not deleted or _verify_deleted_items(board, deleted),
+             )
+         except Exception as exc:
+             return f"Failed to delete items: {exc}"
+--- a/src/kicad_mcp/tools/validation.py
++++ b/src/kicad_mcp/tools/validation.py
+@@ -476,6 +476,7 @@
+     error: str | None,
+     *,
+     save_report: bool,
++    detail: bool = True,
+ ) -> VerdictReport:
+     report_status, classification_error = drc_runner.classify_legacy_drc_result(report, error)
+     if report_status == "malformed":
+@@ -582,17 +583,24 @@
+         if entry not in violations
+     )
+     verdict = VerdictReport.verdict_for([finding.severity for finding in findings])
++    total_findings = len(findings)
++    if not detail:
++        # A summary: KiCad's own report and the findings, each with its evidence, run to hundreds of kB on a real
++        # board. The text above has the counts and the first violations.
++        if findings:
++            lines.append(f"{total_findings} finding(s) with their locations and evidence: run_drc(detail=true).")
++        findings = []
+     return VerdictReport(
+         text="\n".join(lines),
+         summary=(
+             "DRC is clean."
+             if verdict == "PASS"
+-            else f"DRC reported {len(findings)} actionable finding(s)."
++            else f"DRC reported {total_findings} actionable finding(s)."
+         ),
+         verdict=verdict,
+         failure_mode="none" if verdict == "PASS" else "design",
+         retryable=False,
+-        evidence=[{"report_path": str(path), "violations": validated_report}],
++        evidence=[{"report_path": str(path), "violations": validated_report} if detail else {"report_path": str(path)}],
+         remediation=(
+             "" if verdict == "PASS" else "Fix DRC findings and rerun run_drc(save_report=True)."
+         ),
+@@ -4430,10 +4438,10 @@
+ def _register_pcb_gate_tools(mcp: FastMCP) -> None:
+     @mcp.tool()
+     @headless_compatible
+-    def run_drc(save_report: bool = False) -> VerdictReport:
+-        """Return full DRC report with PCB violations, unconnected items, and courtyard issues."""
++    def run_drc(save_report: bool = False, detail: bool = False) -> VerdictReport:
++        """Run DRC: the counts and the first findings, or with detail=true every finding and KiCad's whole report."""
+         path, report, error = _run_drc_report("drc_report.json")
+-        return _drc_report_payload(path, report, error, save_report=save_report)
++        return _drc_report_payload(path, report, error, save_report=save_report, detail=detail)
+ 
+     @mcp.tool()
+     @headless_compatible

@@ -3,9 +3,10 @@
 # KiCad projects for agents (README.md, kicad). Each project is a clone of its source (GitHub, with a commit to start
 # from) in `dir`/<project> with its own KiCad MCP Pro server, published at /kicad/<project>/mcp and confined to it:
 # agents on different projects never share a server or files. Headless: kicad-cli runs ERC/DRC and exports, and the
-# project's own headless KiCad (kicad-api-<project>) takes live board edits, one board at a time. Every minute the project's commits (vcs_commit_checkpoint) are rebased onto
-# its source's `branch` and pushed there, so the source's new commits come down and the agents' go up, whoever else
-# pushes to it too. It stops on uncommitted changes or a conflict, never overwriting work.
+# project's own headless KiCad (kicad-api-<project>) takes live board edits, one board at a time. Agents do git
+# themselves (vcs_fetch, vcs_branch, vcs_pull, vcs_push): the server's git reaches the source through two sockets,
+# fetching and pushing, that run git's own service on that one repo as the project's sync user, which alone holds
+# its deploy key. The server can't read the key or reach any other repo.
 let
   cfg = config.homelab.mcp.kicad;
   inherit (lib) mkOption types;
@@ -19,14 +20,20 @@ let
   # tables live.
   kicadConfig = p: "/var/lib/mcp-kicad-${p}/.config/kicad/10.99";
   server = pkgs.callPackage ../packages/kicad-mcp-pro.nix { inherit kicad; };
+  # The router agents use (packages/kicad-routing-tools.nix).
+  routingTools = pkgs.callPackage ../packages/kicad-routing-tools.nix { };
   # Where the libraries are, for the server (and its kicad-cli) and the headless KiCad alike: what the library
   # tables' ${KICAD10_...} and ${KICAD11_...} stand for.
   libraryEnv = {
     KICAD10_SYMBOL_DIR = "${symbols}/symbols";
     KICAD10_FOOTPRINT_DIR = "${footprints}/footprints";
+    KICAD10_3DMODEL_DIR = models3d;
     KICAD11_SYMBOL_DIR = "${symbols}/symbols";
     KICAD11_FOOTPRINT_DIR = "${footprints}/footprints";
+    KICAD11_3DMODEL_DIR = models3d;
   };
+  # The parts' 3D models (pcb_render_3d), about 460 MB in the store.
+  models3d = "${kicad.libraries.packages3d}/share/kicad/3dmodels";
   # Each project's headless KiCad, its API socket only the project's server reaches.
   apiSocket = p: "/run/kicad-api-${p}/api.sock";
   git = lib.getExe pkgs.git;
@@ -37,9 +44,29 @@ let
   # Each project's own user for its source, owning only its deploy key.
   syncUser = p: "kicad-sync-${p}";
   projects = lib.attrNames cfg.projects;
+  # The sockets for a project's git, one per direction, `upload-pack` (fetch) and `receive-pack` (push): the path git's
+  # ext transport asks for (%S, git-upload-pack or git-receive-pack).
+  gitSocket = p: service: "/run/kicad-git-${p}/git-${service}";
+  # An ssh url's host (or ssh://host[:port]) and the path git's service takes on it.
+  sshTarget = url:
+    let
+      scp = builtins.match "([^/:]+@[^/:]+):(.*)" url;
+      uri = builtins.match "(ssh://[^/]+)(/.*)" url;
+    in
+    if scp != null then { host = lib.elemAt scp 0; path = lib.elemAt scp 1; }
+    else { host = lib.elemAt uri 0; path = lib.elemAt uri 1; };
+  # The server's own git config: the source's url goes through the project's sockets (git's ext transport, socat).
+  # -t: once git has sent its side, socat waits this long for the answer (0.5 s by default, less than a push takes
+  # to reach GitHub through the gate, which answers only after that).
+  serverGitConfig = p: src: pkgs.writeText "kicad-${p}.gitconfig" ''
+    [url "ext::${lib.getExe pkgs.socat} -t 600 STDIO UNIX-CONNECT:/run/kicad-git-${p}/%S"]
+    	insteadOf = ${src.url}
+    [protocol "ext"]
+    	allow = always
+  '';
   # What git must never take from a repo agents write to, whatever its config says: hooks, an fsmonitor, a signing
   # program, transports other than these.
-  gitGuard = lib.imap0 (i: kv: { "GIT_CONFIG_KEY_${toString i}" = lib.head kv; "GIT_CONFIG_VALUE_${toString i}" = lib.last kv; }) [
+  gitGuard = [
     [ "core.hooksPath" "/dev/null" ]
     [ "core.fsmonitor" "false" ]
     [ "commit.gpgSign" "false" ]
@@ -48,18 +75,30 @@ let
     [ "protocol.https.allow" "always" ]
     [ "protocol.file.allow" "always" ]
   ];
+  # git config through the environment, entries later in the list winning.
+  gitConfigEnv = entries: { GIT_CONFIG_COUNT = toString (lib.length entries); } // lib.mergeAttrsList (lib.imap0
+    (i: kv: { "GIT_CONFIG_KEY_${toString i}" = lib.head kv; "GIT_CONFIG_VALUE_${toString i}" = lib.last kv; }) entries);
+  # Pushes go through a gate, a bare repo of the sync user's: it refuses force updates and deletions itself, and its
+  # hook refuses the protected branches (`protect`, main) and pushes every other branch on to the source, never
+  # forced, before taking it, all within the agent's push (GitHub only protects private repos' branches on a paid
+  # plan). Agents push branches of their own, never to main, and never rewrite or delete one.
+  pushGateHooks = pkgs.writeShellApplication {
+    name = "pre-receive";
+    runtimeInputs = [ pkgs.git ];
+    text = builtins.readFile ../scripts/kicad-push-gate.sh;
+  };
+  pushGate = p: "/var/lib/${syncUser p}/gate.git";
 
-  # Cloning and syncing: the project's sync user, with its key, seeing only its own repo (what an agent leaves in
+  # Cloning, and the git services behind the sockets: the project's sync user, with its key, seeing only its own repo (what an agent leaves in
   # .git, alternates or linked refs, can't reach another's).
   sourceUnit = p: src: {
     after = [ "network-online.target" ];
     wants = [ "network-online.target" ];
-    environment = {
-      GIT_CONFIG_COUNT = toString (lib.length gitGuard);
+    environment = gitConfigEnv gitGuard // {
       GIT_SSH_COMMAND = "${lib.getExe pkgs.openssh} -o UserKnownHostsFile=/var/lib/${syncUser p}/known_hosts"
         + " -o StrictHostKeyChecking=accept-new"
         + lib.optionalString (ssh src.url) " -i ${config.sops.secrets.${keySecret p}.path} -o IdentitiesOnly=yes";
-    } // lib.mergeAttrsList gitGuard;
+    };
     serviceConfig = {
       Type = "oneshot";
       User = syncUser p;
@@ -87,10 +126,15 @@ in
         options = {
           port = mkOption { type = types.port; };
           url = mkOption { type = types.str; };
-          # The one branch the project follows and pushes to. Another than main (e.g. agent) to merge from yourself.
+          # The branch the clone starts on; agents switch and push branches themselves after that.
           branch = mkOption {
             type = types.str;
             default = "main";
+          };
+          # Branches agents can't push to: they change only by your merges on GitHub.
+          protect = mkOption {
+            type = types.listOf types.str;
+            default = [ "main" ];
           };
         };
       });
@@ -102,15 +146,23 @@ in
       default = "/var/lib/kicad";
     };
     # readonly: inspect, check, export. write: create projects, edit schematics and boards, commit too.
+    # experimental: write, plus routing (KiCadRoutingTools, differential pairs, length tuning) and manufacturing
+    # exports, which KiCad MCP Pro keeps behind it.
     mode = mkOption {
-      type = types.enum [ "readonly" "write" ];
+      type = types.enum [ "readonly" "write" "experimental" ];
       default = "write";
+    };
+    # The most each project's server may use, with every job it runs (shell_run, KiCadRoutingTools: a router step
+    # on the PalmRemote core board peaks at 2.5 GB).
+    memoryMax = mkOption {
+      type = types.str;
+      default = "6G";
     };
     # KiCad MCP Pro's tool set. builder has creating projects, schematic, library, board and routing editing,
     # ERC/DRC and its git tools; its own `default` is review only, which hides them even in write mode.
     profile = mkOption {
       type = types.str;
-      default = if cfg.mode == "write" then "builder" else "review";
+      default = if cfg.mode == "readonly" then "review" else "builder";
     };
   };
 
@@ -156,7 +208,7 @@ in
       enable = true;
       config = {
         safe.directory = map repo projects;
-        # Who the sync's rebases and agents' commits are by, git can't make one up without a mail domain.
+        # Who agents' commits and merges are by, git can't make one up without a mail domain.
         user = { name = "KiCad MCP"; email = "kicad@${config.networking.hostName}.incus"; };
         # Never committed, whatever the project's own .gitignore says: KiCad's lock files and caches, the server's
         # reports.
@@ -170,7 +222,9 @@ in
       publishAt = "/kicad/${p}/mcp";
       command = lib.getExe server;
       inherit (project) port;
-      path = [ kicad pkgs.git ];
+      # What shell_run finds: kicad-cli, git, bash, ngspice (and KiCadRoutingTools' Python as python3,
+      # KICAD_MCP_KRT_PYTHON).
+      path = [ kicad pkgs.git pkgs.bash pkgs.ngspice ];
       environment = {
         KICAD_MCP_PROJECT_DIR = repo p;
         KICAD_MCP_WORKSPACE_ROOT = repo p;
@@ -181,9 +235,16 @@ in
         KICAD_API_SOCKET = "ipc://${apiSocket p}";
         KICAD_MCP_OPERATING_MODE = cfg.mode;
         KICAD_MCP_PROFILE = cfg.profile;
+        # Routing: KiCadRoutingTools' scripts (route_krt_start), on its own Python.
+        KICAD_MCP_KRT_DIR = "${routingTools}/share/kicad-routing-tools";
+        KICAD_MCP_KRT_PYTHON = routingTools.python.interpreter;
+        # Simulation (sim_*), and ngspice in the shell.
+        KICAD_MCP_NGSPICE_CLI = lib.getExe' pkgs.ngspice "ngspice";
         # It looks for the libraries beside kicad-cli, which they aren't on NixOS.
         KICAD_MCP_SYMBOL_LIBRARY_DIR = "${symbols}/symbols";
         KICAD_MCP_FOOTPRINT_LIBRARY_DIR = "${footprints}/footprints";
+        # Its git (vcs_fetch, vcs_pull, vcs_push) reaches the source through the project's sockets, never with the key.
+        GIT_CONFIG_GLOBAL = "${serverGitConfig p project}";
       } // libraryEnv;
     }) cfg.projects;
 
@@ -199,6 +260,10 @@ in
         BindReadOnlyPaths = [ "${repo p}/.git/config" "${repo p}/.git/hooks" ];
         ReadWritePaths = [ (repo p) ];
         UMask = "0002";
+        # The server with all it runs. Jobs run niced and are the first the kernel stops when memory runs out, and
+        # the server goes on (systemd would otherwise stop, and restart, the whole unit, every job with it).
+        MemoryMax = cfg.memoryMax;
+        OOMPolicy = "continue";
       };
     }) projects)
     # KiCad itself, headless: the API server the project's MCP server edits boards through, as the same user and in
@@ -244,34 +309,61 @@ in
         ExecStartPost = "+${config.systemd.package}/bin/systemctl start --no-block mcp-kicad-${p}.service";
       };
     })) cfg.projects
-    // lib.mapAttrs' (p: src: lib.nameValuePair "kicad-sync-${p}" (lib.recursiveUpdate (sourceUnit p src) {
-      description = "Keep KiCad project ${p} in step with ${src.url}";
-      after = [ "kicad-repo-${p}.service" "network-online.target" ];
-      requires = [ "kicad-repo-${p}.service" ];
-      serviceConfig = {
-        WorkingDirectory = repo p;
-        # The rebase refuses uncommitted changes, an agent's half-done edits never go up. A plain push: if someone
-        # pushed in between, it's refused and the next run rebases onto theirs.
-        ExecStart = map utils.escapeSystemdExecArgs [
-          [ git "fetch" "--quiet" "--prune" "origin" ]
-          [ git "rebase" "--quiet" "origin/${src.branch}" src.branch ]
-          [ git "push" "--quiet" "origin" src.branch ]
-        ];
-        # On a conflict the rebase stops halfway, with markers in the files agents edit: undo it, so the project
-        # keeps its own commits and the next run tries again (the log says what conflicts). Only then: a failed fetch
-        # or push left no rebase to undo.
-        ExecStopPost = utils.escapeSystemdExecArgs [ "${pkgs.runtimeShell}" "-c"
-          "[ \"$SERVICE_RESULT\" = success ] || ! [ -d .git/rebase-merge ] || exec ${git} rebase --abort" ];
-      };
-    })) cfg.projects;
+    # Behind each socket, per connection, as the sync user: fetches straight from the source (over ssh with the key,
+    # or its path for a local one), pushes through the gate, which is first brought in line with the source. Whatever
+    # the server asks for, it gets that one repo.
+    // lib.listToAttrs (lib.concatMap (p: let src = cfg.projects.${p}; in [
+      (lib.nameValuePair "kicad-git-${p}-upload-pack@" (lib.recursiveUpdate (sourceUnit p src) {
+        description = "git fetch for KiCad project ${p}";
+        serviceConfig = {
+          Type = "simple";
+          StandardInput = "socket";
+          StandardOutput = "socket";
+          StandardError = "journal";
+          ExecStart = utils.escapeSystemdExecArgs (if ssh src.url then
+            let target = sshTarget src.url; in [
+              (lib.getExe pkgs.openssh) "-T" "-o" "BatchMode=yes" "-o" "IdentitiesOnly=yes"
+              "-i" config.sops.secrets.${keySecret p}.path
+              "-o" "UserKnownHostsFile=/var/lib/${syncUser p}/known_hosts" "-o" "StrictHostKeyChecking=accept-new"
+              target.host "git-upload-pack '${target.path}'"
+            ]
+          else [ git "upload-pack" src.url ]);
+        };
+      }))
+      (lib.nameValuePair "kicad-git-${p}-receive-pack@" (lib.recursiveUpdate (sourceUnit p src) {
+        description = "git push for KiCad project ${p}";
+        environment = gitConfigEnv (gitGuard ++ [
+          [ "core.hooksPath" "${pushGateHooks}/bin" ]
+          [ "receive.denyNonFastForwards" "true" ]
+          [ "receive.denyDeletes" "true" ]
+        ]) // { KICAD_SOURCE = src.url; KICAD_PROTECTED = lib.concatStringsSep " " src.protect; };
+        serviceConfig = {
+          Type = "simple";
+          StandardInput = "socket";
+          StandardOutput = "socket";
+          StandardError = "journal";
+          # Quiet: what they print would go into the push's protocol.
+          ExecStartPre = map utils.escapeSystemdExecArgs [
+            [ git "init" "--quiet" "--bare" (pushGate p) ]
+            [ git "-C" (pushGate p) "fetch" "--quiet" "--prune" src.url "+refs/heads/*:refs/heads/*" ]
+          ];
+          ExecStart = utils.escapeSystemdExecArgs [ git "receive-pack" (pushGate p) ];
+        };
+      }))
+    ]) projects);
 
-    systemd.timers = lib.mapAttrs' (p: _: lib.nameValuePair "kicad-sync-${p}" {
-      wantedBy = [ "timers.target" ];
-      timerConfig = {
-        OnBootSec = "1min";
-        OnUnitInactiveSec = "1min";
+    # The project's two git sockets, for its server only.
+    systemd.sockets = lib.listToAttrs (lib.concatMap (p: map (service: lib.nameValuePair "kicad-git-${p}-${service}" {
+      description = "git ${service} socket for KiCad project ${p}";
+      wantedBy = [ "sockets.target" ];
+      socketConfig = {
+        ListenStream = gitSocket p service;
+        Accept = true;
+        SocketUser = "mcp-kicad-${p}";
+        SocketGroup = "mcp-kicad-${p}";
+        SocketMode = "0600";
       };
-    }) cfg.projects;
+    }) [ "upload-pack" "receive-pack" ]) projects);
 
     sops.secrets = lib.mapAttrs' (p: _: lib.nameValuePair (keySecret p) { owner = syncUser p; })
       (lib.filterAttrs (_: src: ssh src.url) cfg.projects);

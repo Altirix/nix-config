@@ -1,0 +1,192 @@
+--- a/src/kicad_mcp/tools/version_control.py
++++ b/src/kicad_mcp/tools/version_control.py
+@@ -66,6 +66,7 @@
+     repo_dir: Path,
+     *args: str,
+     check: bool = True,
++    timeout: float = 30,
+ ) -> subprocess.CompletedProcess[str]:
+     result = subprocess.run(
+         [_git_executable(), *args],
+@@ -74,7 +75,7 @@
+         text=True,
+         errors="replace",
+         env=_git_subprocess_env(),
+-        timeout=30,
++        timeout=timeout,
+         check=False,
+     )
+     if check and result.returncode != 0:
+@@ -430,6 +431,140 @@
+     )
+ 
+ 
++# Working with the project's remote (origin): fetch, branches, pull, push. Every remote branch is named explicitly,
++# nothing relies on tracking configuration (a host may keep .git/config read-only), and nothing is ever forced.
++_REMOTE = "origin"
++_NETWORK_TIMEOUT = 300
++
++
++def _remote_repo() -> Path:
++    repo_root = _git_repo_root(_resolve_project_dir())
++    if repo_root is None:
++        raise ValueError(_MISSING_GIT_REPOSITORY_MESSAGE)
++    return repo_root
++
++
++def _current_branch(repo_root: Path) -> str:
++    branch = _run_git(repo_root, "branch", "--show-current").stdout.strip()
++    if not branch:
++        raise ValueError("No branch is checked out (detached HEAD). Switch to one with vcs_branch().")
++    return branch
++
++
++def _branch_status(repo_root: Path, branch: str) -> str:
++    remote = f"{_REMOTE}/{branch}"
++    if _run_git(repo_root, "rev-parse", "--verify", "--quiet", f"refs/remotes/{remote}", check=False).returncode:
++        return "not on the remote yet"
++    counts = _run_git(repo_root, "rev-list", "--left-right", "--count", f"{branch}...{remote}").stdout.split()
++    ahead, behind = (int(counts[0]), int(counts[1])) if len(counts) == 2 else (0, 0)
++    if not ahead and not behind:
++        return "up to date with the remote"
++    return f"{ahead} commit(s) to push, {behind} to pull"
++
++
++@headless_compatible
++def vcs_fetch() -> str:
++    """Fetch every branch from the project's remote, and show how the local branches compare."""
++    repo_root = _remote_repo()
++    _run_git(repo_root, "fetch", "--prune", _REMOTE, timeout=_NETWORK_TIMEOUT)
++    remote_branches = [
++        line.strip().removeprefix(f"{_REMOTE}/")
++        for line in _run_git(repo_root, "branch", "--remotes", "--format=%(refname:short)").stdout.splitlines()
++        if line.strip().startswith(f"{_REMOTE}/") and line.strip() != _REMOTE and "/HEAD" not in line
++    ]
++    local = _run_git(repo_root, "branch", "--format=%(refname:short)").stdout.split()
++    lines = ["Fetched.", f"- Current branch: {_current_branch(repo_root)}", "- Local branches:"]
++    lines += [f"  - {branch}: {_branch_status(repo_root, branch)}" for branch in local] or ["  (none)"]
++    lines.append("- Remote branches: " + (", ".join(remote_branches) or "(none)"))
++    return "\n".join(lines)
++
++
++@headless_compatible
++def vcs_branch(name: str | None = None, create: bool = False, start_point: str | None = None) -> str:
++    """List branches, or switch to one (a remote branch gets a local copy), or create one with create=true.
++
++    start_point is where a new branch starts (default: the current commit), e.g. "origin/main".
++    Switching changes the project files; uncommitted changes that would be overwritten stop it.
++    """
++    repo_root = _remote_repo()
++    if name is None:
++        local = _run_git(repo_root, "branch", "--format=%(refname:short)").stdout.split()
++        current = _current_branch(repo_root)
++        return "\n".join(
++            ["Branches:"] + [f"- {b}{' (current)' if b == current else ''}: {_branch_status(repo_root, b)}" for b in local]
++        )
++    name = name.strip()
++    if _run_git(repo_root, "check-ref-format", "--branch", name, check=False).returncode:
++        raise ValueError(f"'{name}' isn't a valid branch name.")
++    exists = not _run_git(repo_root, "rev-parse", "--verify", "--quiet", f"refs/heads/{name}", check=False).returncode
++    if create:
++        if exists:
++            raise ValueError(f"Branch '{name}' already exists: switch to it with vcs_branch(name='{name}').")
++        _run_git(repo_root, "switch", "--no-track", "-c", name, *([start_point] if start_point else []))
++    elif exists:
++        _run_git(repo_root, "switch", name)
++    elif not _run_git(
++        repo_root, "rev-parse", "--verify", "--quiet", f"refs/remotes/{_REMOTE}/{name}", check=False
++    ).returncode:
++        _run_git(repo_root, "switch", "--no-track", "-c", name, f"{_REMOTE}/{name}")
++    else:
++        raise ValueError(
++            f"No branch '{name}' locally or on the remote (run vcs_fetch() first), or pass create=true."
++        )
++    return f"On branch {name}: {_branch_status(repo_root, name)}."
++
++
++@headless_compatible
++def vcs_pull(branch: str) -> str:
++    """Fetch, then merge the remote's `branch` into the current branch (never a rebase or a force).
++
++    On a conflict nothing is left half-merged: the merge is undone and the conflicting files are listed.
++    """
++    repo_root = _remote_repo()
++    current = _current_branch(repo_root)
++    _run_git(repo_root, "fetch", "--prune", _REMOTE, timeout=_NETWORK_TIMEOUT)
++    remote = f"{_REMOTE}/{branch.strip()}"
++    if _run_git(repo_root, "rev-parse", "--verify", "--quiet", f"refs/remotes/{remote}", check=False).returncode:
++        raise ValueError(f"The remote has no branch '{branch}'.")
++    result = _run_git(repo_root, "merge", "--no-edit", remote, check=False)
++    if result.returncode == 0:
++        summary = result.stdout.strip().splitlines()
++        return "\n".join([f"Merged {remote} into {current}.", *summary[:20]])
++    conflicts = _run_git(repo_root, "diff", "--name-only", "--diff-filter=U", check=False).stdout.split()
++    if (repo_root / ".git" / "MERGE_HEAD").exists():
++        _run_git(repo_root, "merge", "--abort", check=False)
++    detail = result.stderr.strip() or result.stdout.strip()
++    if conflicts:
++        raise ValueError(
++            f"Merging {remote} into {current} conflicts in: {', '.join(conflicts)}. The merge was undone, "
++            "nothing changed. Resolve it by editing those files on one side, commit, and pull again."
++        )
++    raise ValueError(f"Merging {remote} into {current} didn't start, nothing changed: {detail}")
++
++
++@headless_compatible
++def vcs_push(branch: str | None = None) -> str:
++    """Push a local branch (default: the current one) to the same name on the project's remote. Never forced."""
++    repo_root = _remote_repo()
++    branch = (branch or _current_branch(repo_root)).strip()
++    if _run_git(repo_root, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}", check=False).returncode:
++        raise ValueError(f"No local branch '{branch}'.")
++    result = _run_git(
++        repo_root, "push", "--porcelain", _REMOTE, f"refs/heads/{branch}:refs/heads/{branch}",
++        check=False, timeout=_NETWORK_TIMEOUT,
++    )
++    if result.returncode != 0:
++        detail = result.stderr.strip() or result.stdout.strip()
++        if "non-fast-forward" in detail or "fetch first" in detail or "rejected" in detail:
++            raise ValueError(
++                f"The remote's '{branch}' has commits this one doesn't: vcs_pull(branch='{branch}') first, "
++                f"then push again.\n{detail}"
++            )
++        raise ValueError(f"Push failed: {detail}")
++    _run_git(repo_root, "fetch", _REMOTE, branch, check=False, timeout=_NETWORK_TIMEOUT)
++    return f"Pushed {branch} to {_REMOTE}/{branch}."
++
++
+ def register(mcp: FastMCP) -> None:
+     """Register version-control tools."""
+     mcp.tool()(vcs_init_git)
+@@ -438,3 +573,7 @@
+     mcp.tool()(vcs_restore_checkpoint)
+     mcp.tool()(vcs_diff_with_checkpoint)
+     mcp.tool()(vcs_tag_release)
++    mcp.tool()(vcs_fetch)
++    mcp.tool()(vcs_branch)
++    mcp.tool()(vcs_pull)
++    mcp.tool()(vcs_push)
+--- a/src/kicad_mcp/tools/router.py
++++ b/src/kicad_mcp/tools/router.py
+@@ -621,6 +621,10 @@
+             "vcs_restore_checkpoint",
+             "vcs_diff_with_checkpoint",
+             "vcs_tag_release",
++            "vcs_fetch",
++            "vcs_branch",
++            "vcs_pull",
++            "vcs_push",
+         ],
+     },
+ }
+--- a/src/kicad_mcp/capabilities.py
++++ b/src/kicad_mcp/capabilities.py
+@@ -419,7 +419,7 @@
+         return AccessTier.READ
+     if category in {"export", "release_export"} or "_export" in name or name.startswith("export_"):
+         return AccessTier.EXPORT
+-    if category == "version_control" and name in {"vcs_commit_checkpoint", "vcs_tag_release"}:
++    if category == "version_control" and name in {"vcs_commit_checkpoint", "vcs_tag_release", "vcs_push"}:
+         return AccessTier.PUBLISH
+     if category == "manufacturing" and (
+         name.startswith(("mfg_import_", "jobset_export", "fp_export", "sym_export"))

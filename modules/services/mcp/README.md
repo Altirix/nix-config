@@ -332,20 +332,88 @@ the agent moves on, and its unsaved live edits go with it (so do they after the 
 that doesn't exist is an error, boards are generated or created first. A project has one selected board, shared by
 every agent on it: two agents editing different boards at once take it from each other.
 
+Routing (`mode = "experimental"` on `mcp`, KiCad MCP Pro keeps it behind that) is KiCadRoutingTools
+(`packages/kicad-routing-tools.nix`, built from source, its Rust router too), in place of FreeRouting, which on a board
+that already had copper never finished a pass. Its scripts work on files: `route_krt_start` saves the open board,
+copies it with its `.kicad_pro` and `.kicad_dru` into `.kicad-mcp/krt/` and runs one there in the background
+(`autoroute.py` for the whole chain, or step by step: `route_planes.py`, the fan-outs, `route_diff.py`, `route.py`
+with its length and time matching), returning straight away, or with the output when it ends within
+`wait_seconds` (`--help`, the checks). `route_krt_status` reports its steps so far, then the result; agents check
+it every 5-10 minutes. `route_krt_apply` makes a board it wrote the project's board, which KiCad reloads: live edits
+made since the copy are lost, so agents leave the board alone meanwhile. `route_krt_docs` has its documentation and
+routing skills (`skills/plan-pcb-routing`). It routes to the fab limits in the project's rules: autoroute.py reads
+the `.kicad_pro` and `.kicad_dru`, and where they disagree it goes by the `.kicad_dru` and says so (on the PalmRemote
+core board, 0.1 mm tracks and 0.45 mm vias, which KiCad's DRC then flags against the project's 0.2 and 0.5), so keep
+the two the same; the other scripts take the limits as options (`packages/kicad-mcp-pro-krt.patch`). `route_differential_pair`, `route_tune_length` and
+`tune_diff_pair_length` don't draw: they write the width, gap, skew and length targets into the project's design
+rules (`<project>.kicad_dru`, committed with it) and report the lengths as they are, DRC checks them. Every edit
+goes straight to the file, there's no undo on the server: commit before anything big, `git revert` is the undo.
+
+Agents also get the project as they would on a PC (`packages/kicad-mcp-pro-workspace.patch`), so they aren't
+limited to what the tools above return: `file_list`, `file_read`, `file_search` (git grep), `file_write` and
+`file_edit` anywhere in its repo but its `.git` (binary files as base64, up to 8 MB; images read back as
+images); `shell_run`, a bash in the repo as its server, with kicad-cli, git
+(pushes still go through the gate), Python with numpy, scipy, shapely and Pillow, and KiCadRoutingTools in `$KRT`
+(what runs past `wait_seconds` goes on as a job: `shell_status`, `shell_cancel`); `kicad_ipc`, any request of
+KiCad's own API as JSON on the open board (no command lists them); and the board as images: `pcb_render_png` (any layers, inner ones too, or
+sets: `top`, `bottom`, `copper`, `inner`, one image per layer with `each_layer`, zones filled for the image),
+`pcb_render_visual_diff` (two versions, removed in red, added in green) and `pcb_render_3d` (with the parts' 3D
+models, about 460 MB in the store), each also as it was at a step or a KRT result. ngspice is there for the `sim_*`
+tools and the shell. Each project's server, with all it runs, is held to `memoryMax` (6G: a KiCadRoutingTools step on the
+PalmRemote core board peaks at 2.5 GB). When it runs out, the kernel stops a job (they're niced and the first it
+picks), the server goes on (`OOMPolicy=continue`) and the job says it ran out of memory.
+Jobs last as long as the server: a restart (a deploy) ends them, and they can't be detached from it; each leaves a
+record beside its log, so `shell_status` and `route_krt_status` say a job ended with the server. `shell_cancel` and
+`route_krt_cancel` stop one cleanly, SIGTERM then SIGKILL after 10 s (`force` at once). After every call that may have changed something the server makes a step: the
+open board is saved and the repo's files, as git would commit them, go into a commit on `refs/kicad-mcp/steps`
+through an index of its own, so the project's index and branches are untouched and steps are never pushed.
+`vcs_list_steps`, `vcs_diff_steps` and `vcs_restore_step` (itself a step) go through them. The shell is a shell on the
+VM as that project's user: it reaches what the server does, its repo and the internet, not the deploy key or another
+project, and `readonly` mode leaves only the reads.
+
 That API server only exists in KiCad's development branch (what becomes KiCad 11), so every KiCad on the server is
 that one (`packages/kicad-master.nix`, pinned, compiled by the build host, an hour or so), with KiCad MCP Pro patched
 to open the selected board (`packages/kicad-mcp-pro-headless.patch`) and kicad-python built from git against it
 (with `packages/kicad-python-create-items.patch`, its fix for creating items).
-**It saves in its own file format (10.99), which KiCad 10 doesn't open**: to look at or edit a board yourself, use a
-KiCad nightly. Bump KiCad and kicad-python together, their API definitions have to match.
+**It saves in its own file format (10.99), which KiCad 10 doesn't open**: use a KiCad nightly, or export copies KiCad
+10 opens (`kicad-cli pcb downgrade -o board-k10.kicad_pcb board.kicad_pcb`, `kicad-cli sch downgrade`, with KiCad
+master). Bump KiCad and kicad-python together, their API definitions have to match.
 
-Each project is a clone of its source, a repo with something committed (GitHub's "Add a README" will do), on one
-branch (`branch`, main): every minute the project's commits are rebased onto it and pushed, so commits pushed there
-from anywhere else (you, an agent on your PC) come down and the server agents' go up, nobody's overwritten. On
-uncommitted changes or a conflict it stops and leaves the repo as it was (`journalctl -u kicad-sync-<project>` says
-why). For a review step, set `branch = "agent";` and merge agent into main yourself. Add a project in
+Each project is a clone of its source, a repo with something committed (GitHub's "Add a README" will do), on
+`branch` (main) to start with. After that agents do git themselves, as they would on a PC: `vcs_fetch`,
+`vcs_branch` (list, switch, create), `vcs_commit_checkpoint`, `vcs_pull` (merges a branch in, also mid-edit unless
+it touches files with uncommitted edits; a conflict is undone and named) and `vcs_push` (never forced). Nothing
+moves on its own: work reaches GitHub when an agent pushes, your footprints and documents come in when it pulls, so
+tell agents to push when they're done. Files not in git are never touched. The server's git has no key: the
+source's url goes through two sockets (`kicad-git-<project>-upload-pack`, `-receive-pack`) that only its server
+reaches, and behind each, per connection, the project's sync user runs git's own service on that one repo with
+the deploy key. Pushes go through a gate first, a bare repo of the sync user's that refuses pushes to the
+protected branches (`protect`, main), force pushes and deletions, and pushes the rest on to GitHub within the same
+push (GitHub's own branch protection needs a paid plan for private repos). So agents push branches of their own and
+you merge them into main on GitHub. See the flow below. Add a project in
 `hosts/virtual/mcp/default.nix` with a free port of its own (9200-9299), deploy `mcp` and `ionos-de` (the route) and
 widen nothing: `labs: edge to mcp` covers 9200-9299.
+
+```mermaid
+flowchart LR
+  agent["Agent (Claude)"] -->|"https://mcp.peacocks.me/kicad/&lt;project&gt;/mcp<br/>Bearer token"| edge
+  subgraph edge["ionos-de (edge)"]
+    nginx["nginx<br/>token check, access log"] --> gw["agentgateway<br/>MCP calls audited, 1h timeouts"]
+  end
+  gw -->|"WireGuard, router: labs: edge to mcp<br/>10.100.1.11:92xx"| proxy
+  subgraph mcp["mcp VM, one set per project"]
+    proxy["mcp-proxy<br/>mcp-kicad-&lt;project&gt;"] --> pro["KiCad MCP Pro<br/>(patched)"]
+    pro -->|"IPC socket<br/>open, edit, save the selected board"| api["headless KiCad<br/>kicad-api-&lt;project&gt;"]
+    pro -->|"ERC, DRC, exports"| cli["kicad-cli"]
+    pro -->|"a copy of the board in, a routed one back"| krt["KiCadRoutingTools<br/>(background job)"]
+    pro -->|"schematics, sync, rules<br/>vcs_fetch, vcs_branch, vcs_pull, vcs_push"| repo[("/var/lib/kicad/&lt;project&gt;<br/>git clone")]
+    api -->|"saves boards"| repo
+    repo -->|"git, no key"| sock["kicad-git-&lt;project&gt; sockets<br/>upload-pack, receive-pack"]
+    sock -->|"per connection, as the sync user"| svc["git service, deploy key<br/>that one repo only"]
+  end
+  svc -->|ssh| gh["GitHub: the project's repo<br/>any branch the agent picks"]
+  you["You, agents on your PC<br/>footprints, documents"] -->|push| gh
+```
 
 ```nix
 homelab.mcp.kicad.projects.palmremote = { port = 9200; url = "git@github.com:you/palmremote.git"; };

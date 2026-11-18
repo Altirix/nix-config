@@ -50,7 +50,10 @@ in
       # A project kept in step with a repo on the VM, which its pushes write to. The source has a commit before the
       # clone, as a GitHub repo must.
       homelab.mcp.kicad.projects.t = { port = 9200; url = "/var/lib/kicad-src/t.git"; };
-      systemd.services.kicad-sync-t.serviceConfig.ReadWritePaths = [ "/var/lib/kicad-src" ];
+      homelab.mcp.kicad.mode = "experimental";
+      systemd.services."kicad-git-t-receive-pack@".serviceConfig.ReadWritePaths = [ "/var/lib/kicad-src" ];
+      # Without KVM the VM is emulated, and loading KiCad's footprint libraries takes kicad-cli's DRC minutes.
+      systemd.services.mcp-kicad-t.environment.KICAD_MCP_CLI_TIMEOUT = "600";
       systemd.services.kicad-src-t = {
         requiredBy = [ "kicad-repo-t.service" ];
         before = [ "kicad-repo-t.service" ];
@@ -145,43 +148,71 @@ in
             finally:
                 print(mcp.succeed(f"journalctl -u mcp-{name} -o cat | tail -n 40"))
 
-    with subtest("kicad sync"):
-        # Someone working in the source (as kicad-sync-t, which owns it) and an agent in the project.
+    with subtest("kicad git: the agent fetches, branches, pulls and pushes"):
+        # Someone working in the source (as kicad-sync-t, which owns it) and an agent in the project, whose git goes
+        # through the project's sockets.
         upstream = lambda cmd: f"runuser -u kicad-sync-t -- sh -c 'cd /tmp/t && {cmd}'"
         agent = lambda cmd: f"runuser -u mcp-kicad-t -- sh -c 'umask 002; cd /var/lib/kicad/t && {cmd}'"
-        log = lambda branch: f"git -C /var/lib/kicad-src/t.git log --format=%s {branch}"
+        # The source as root, who doesn't own it.
+        src_git = "git -c safe.directory=/var/lib/kicad-src/t.git -C /var/lib/kicad-src/t.git"
+        src_log = lambda branch: f"{src_git} log --format=%s {branch}"
+        call = lambda name, args: ["tools/call", {"name": name, "arguments": args}]
+        project = call("kicad_set_project", {"project_dir": "/var/lib/kicad/t"})
 
-        # The project is the source's clone.
+        def tools(*calls, failing=()):
+            out = session("kicad-t", [project, *calls])
+            for i, result in enumerate(out["results"]):
+                text = "\n".join(c.get("text", "") for c in result["content"])
+                print(f"kicad-t git: {text[:300]!r}")
+                assert bool(result.get("isError")) == (i in failing), text
+            return out
+
         mcp.succeed(
             "test -f /var/lib/kicad/t/a",
             "runuser -u kicad-sync-t -- git clone -q /var/lib/kicad-src/t.git /tmp/t",
         )
-        # An agent's commit goes up to main.
-        mcp.succeed("systemctl start kicad-sync-t")
-        mcp.succeed(agent("echo b > b && git add b && git commit -qm b"), "systemctl start kicad-sync-t",
-                    f"{log('main')} | grep -qx b")
-
-        # Someone else pushed to main and an agent committed: the agent's is rebased onto theirs, under the VM's git
-        # identity, and nothing of theirs is lost.
-        mcp.succeed(
-            upstream("git pull -q origin main && echo c > c && git add c && git commit -qm c && git push -q origin HEAD:main"),
-            agent("echo d > d && git add d && git commit -qm d"),
-            "systemctl start kicad-sync-t",
-            f"{log('main')} | head -n 3 | tr '\\n' ' ' | grep -qx 'd c b '",
-            "test -f /var/lib/kicad/t/c",
+        # Its own branch, a commit, a push.
+        mcp.succeed(agent("echo b > b"))
+        tools(
+            call("vcs_fetch", {}),
+            call("vcs_branch", {"name": "layout", "create": True}),
+            call("vcs_commit_checkpoint", {"message": "b", "auto_drc": False}),
+            call("vcs_push", {}),
         )
+        mcp.succeed(f"{src_log('layout')} | head -n 1 | grep -qx b", f"! {src_log('main')} | grep -qx b")
 
-        # A conflict: nothing goes up, the project keeps its commit and isn't left mid-rebase.
+        # Someone pushed to main (a footprint, a document): the agent pulls it in while mid-edit, and pushes.
+        mcp.succeed(
+            upstream("echo c > c && git add c && git commit -qm c && git push -q origin HEAD:main"),
+            agent("echo edit >> b"),
+        )
+        tools(call("vcs_pull", {"branch": "main"}), call("vcs_push", {}))
+        mcp.succeed("test -f /var/lib/kicad/t/c", "grep -qx edit /var/lib/kicad/t/b", f"{src_log('layout')} | grep -qx c")
+        mcp.succeed(agent("git checkout -q b"))
+
+        # A conflict, the same line on both sides: the pull fails and undoes itself, the agent's commit stays.
         mcp.succeed(
             upstream("git pull -q origin main && echo x > a && git commit -qam x && git push -q origin HEAD:main"),
-            agent("echo y > a && git commit -qam y"),
+            agent("echo y > a"),
         )
-        mcp.fail("systemctl start kicad-sync-t")
+        tools(call("vcs_commit_checkpoint", {"message": "y", "auto_drc": False}), call("vcs_pull", {"branch": "main"}),
+              failing={2})
         mcp.succeed(
-            f"! {log('main')} | grep -qx y",
-            "test ! -e /var/lib/kicad/t/.git/rebase-merge -a ! -e /var/lib/kicad/t/.git/rebase-apply",
+            "test ! -e /var/lib/kicad/t/.git/MERGE_HEAD",
+            "grep -qx y /var/lib/kicad/t/a",
             "git -C /var/lib/kicad/t log -1 --format=%s | grep -qx y",
         )
+
+        # The gate: main can't be pushed, and no branch can be rewritten or deleted, by the tools or by git itself
+        # with the server's config.
+        tools(call("vcs_push", {"branch": "main"}), failing={1})
+        mcp.succeed(f"! {src_log('main')} | grep -qx y")
+        gitconfig = "$(systemctl show -p Environment --value mcp-kicad-t | tr ' ' '\\n' | sed -n 's/^GIT_CONFIG_GLOBAL=//p')"
+        raw = lambda cmd: f"runuser -u mcp-kicad-t -- env GIT_CONFIG_GLOBAL={gitconfig} sh -c 'cd /var/lib/kicad/t && {cmd}'"
+        layout = mcp.succeed(f"{src_git} rev-parse layout").strip()
+        mcp.fail(raw("git push --force origin $(git rev-list --max-parents=0 HEAD):refs/heads/layout"))
+        mcp.fail(raw("git push origin :refs/heads/layout"))
+        mcp.succeed(f"test $({src_git} rev-parse layout) = {layout}")
 
     with subtest("kicad live board editing, one board after another"):
         # Through the project's headless KiCad (kicad-api-t): select a board, draw on it, save; then the next.
@@ -236,7 +267,101 @@ in
         files = mcp.succeed(f"git -C {repo} show --name-only --format= HEAD")
         assert "demo/demo.kicad_pcb" in files and "demo/demo.kicad_sch" in files, files
         assert not any(x in files for x in (".lck", ".kicad_prl", ".kicad-mcp/", "output/")), files
-        # A board that doesn't exist is an error, not a new board.
+        # Two parts on two nets, routed by KiCadRoutingTools on a copy of the board, in the background, then made
+        # the board: DRC finds nothing unconnected.
+        rt = f"{repo}/rt"
+        rt_project = call("kicad_set_project", {"project_dir": rt, "pcb_file": f"{rt}/rt.kicad_pcb", "sch_file": f"{rt}/rt.kicad_sch"})
+        out = session("kicad-t", [
+            call("kicad_create_new_project", {"path": repo, "name": "rt"}),
+            rt_project,
+            *[call("sch_add_symbol", {"library": "Device", "symbol_name": "R", "x_mm": x, "y_mm": 50, "reference": r,
+                                      "value": "10k", "footprint": "Resistor_SMD:R_0603_1608Metric"})
+              for r, x in (("R1", 50), ("R2", 80))],
+            *[call("sch_route_wire_between_pins", {"ref1": "R1", "pin1": p, "ref2": "R2", "pin2": p}) for p in ("1", "2")],
+            call("pcb_sync_from_schematic", {"allow_open_board": True, "force": True}),
+            call("pcb_set_board_outline", {"width_mm": 30, "height_mm": 20, "origin_x_mm": 0, "origin_y_mm": 0}),
+            call("pcb_place_component", {"reference": "R1", "x_mm": 8, "y_mm": 10}),
+            call("pcb_place_component", {"reference": "R2", "x_mm": 22, "y_mm": 10, "rotation_deg": 90}),
+            call("route_krt_start", {"script": "autoroute.py", "args": ["rt.kicad_pcb", "routed.kicad_pcb"],
+                                     "wait_seconds": 0}),
+        ])
+        for result in out["results"]:
+            text = "\n".join(c.get("text", "") for c in result["content"])
+            print(f"kicad-t rt: {text[:300]!r}")
+            assert not result.get("isError"), text
+        assert "Running for" in text or "Finished after" in text, text
+
+        def krt_done(_last: bool) -> bool:
+            status = session("kicad-t", [rt_project, call("route_krt_status", {})])["results"][1]
+            text = "\n".join(c.get("text", "") for c in status["content"])
+            print(f"kicad-t krt: {text[-600:]!r}")
+            return "Finished after" in text and "exit code 0" in text
+
+        retry(krt_done, timeout_seconds=600)
+        out = session("kicad-t", [
+            rt_project,
+            # A check that ends within wait_seconds returns its output; copy_board=false keeps the routed board.
+            call("route_krt_start", {"script": "check_connected.py", "args": ["routed.kicad_pcb"], "copy_board": False}),
+            call("route_krt_apply", {"file": "routed.kicad_pcb"}),
+            call("run_drc", {}),
+            call("route_krt_docs", {}),
+        ])
+        for result in out["results"]:
+            text = "\n".join(c.get("text", "") for c in result["content"])
+            print(f"kicad-t rt: {text[:300]!r}")
+            assert not result.get("isError"), text
+        texts = ["\n".join(c.get("text", "") for c in r["content"]) for r in out["results"]]
+        assert "Finished after" in texts[1], texts[1]
+        assert "Unconnected items: 0" in texts[3], texts[3]
+        assert "skills/plan-pcb-routing" in texts[4], texts[4]
+        mcp.succeed(f"grep -q '(segment' {rt}/rt.kicad_pcb")
+
+        # The project as a workspace: its files, a shell in it, KiCad's own API, the board as an image, and a step
+        # after every call that changed a file, which can be gone back to.
+        out = session("kicad-t", [
+            rt_project,
+            call("file_list", {"path": "rt"}),
+            call("file_search", {"pattern": "\\(segment", "glob": "*.kicad_pcb", "limit": 2}),
+            call("file_write", {"path": "rt/notes.md", "content": "first\n"}),
+            call("file_edit", {"path": "rt/notes.md", "old": "first", "new": "second"}),
+            call("file_read", {"path": "rt/notes.md"}),
+            call("file_read", {"path": "../../../etc/passwd"}),
+            call("file_read", {"path": ".git/config"}),
+            call("shell_run", {"command": "git status --short && kicad-cli version && python3 -c 'import numpy, shapely' && test -d \"$KRT\" && echo shell-ok"}),
+            call("kicad_ipc", {"command": "GetVersion"}),
+            call("kicad_ipc", {"command": "GetItems", "message": {"types": ["KOT_PCB_TRACE"]}}),
+            call("pcb_render_png", {"dpi": 100}),
+            call("vcs_list_steps", {}),
+            call("vcs_restore_step", {"step": "refs/kicad-mcp/steps~1", "paths": ["rt/notes.md"]}),
+            call("file_read", {"path": "rt/notes.md"}),
+            # A binary file in and out (a 1x1 PNG, read back as an image), ngspice, the render's layer sets, a
+            # visual diff against the last step, and 3D.
+            call("file_write", {"path": "rt/pixel.png", "encoding": "base64", "content": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="}),
+            call("file_read", {"path": "rt/pixel.png"}),
+            call("shell_run", {"command": "ngspice -v"}),
+            call("pcb_render_png", {"layers": "copper", "each_layer": True, "dpi": 100}),
+            call("pcb_render_visual_diff", {"before": "refs/kicad-mcp/steps", "dpi": 100}),
+            call("pcb_render_3d", {"rotate": "-45,0,45", "width": 400, "height": 300}),
+        ])
+        texts = ["\n".join(c.get("text", "") for c in r["content"]) for r in out["results"]]
+        for i, (result, text) in enumerate(zip(out["results"], texts)):
+            print(f"kicad-t workspace: {text[:300]!r}")
+            assert bool(result.get("isError")) == (i in (6, 7)), text
+        assert "rt/rt.kicad_pcb" in texts[1] and "(segment" in texts[2], texts[1:3]
+        assert "second" in texts[5] and "shell-ok" in texts[8] and "exit code 0" in texts[8], (texts[5], texts[8])
+        assert '"major": 10' in texts[9] and "kiapi.board.types.Track" in texts[10], texts[9:11]
+        assert any(c.get("type") == "image" for c in out["results"][11]["content"]), out["results"][11]
+        assert "file_edit: rt/notes.md" in texts[12] and "file_write: rt/notes.md" in texts[12], texts[12]
+        assert "first" in texts[14], texts[14]
+        images = lambda r: sum(c.get("type") == "image" for c in r["content"])
+        assert "Wrote rt/pixel.png (70 B)" in texts[15] and images(out["results"][16]) == 1, texts[15:17]
+        assert "ngspice-" in texts[17], texts[17]
+        assert images(out["results"][18]) == 2 and "B.Cu, Edge.Cuts" in texts[18], texts[18]
+        assert images(out["results"][19]) == 1 and images(out["results"][20]) == 1, texts[19:21]
+        # Steps are a ref of their own: the project's index never had notes.md.
+        steps_git = f"runuser -u mcp-kicad-t -- git -C {repo}"
+        mcp.succeed(f"{steps_git} rev-parse refs/kicad-mcp/steps", f"! {steps_git} ls-files --error-unmatch rt/notes.md")
+
         out = session("kicad-t", [
             ["tools/call", {"name": "kicad_set_project", "arguments": {"project_dir": repo, "pcb_file": f"{repo}/nope.kicad_pcb"}}],
             ["tools/call", {"name": "pcb_add_track", "arguments": {"x1_mm": 0, "y1_mm": 0, "x2_mm": 1, "y2_mm": 0}}],

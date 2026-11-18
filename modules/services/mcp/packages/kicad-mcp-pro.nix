@@ -160,7 +160,27 @@ python.pkgs.buildPythonApplication (finalAttrs: {
 
   # Headless KiCad (kicad-cli api-server, servers/kicad.nix): its development version counts as the release it leads
   # to, and the board selected with kicad_set_project is opened (or created) there, the one before saved and closed.
-  patches = [ ./kicad-mcp-pro-headless.patch ];
+  patches = [
+    ./kicad-mcp-pro-headless.patch
+    # What agents ran into on real boards: listings cut ids to 8 characters though deletes need all of them,
+    # pcb_delete_items couldn't clear every track (all_of), and run_drc returned KiCad's whole report and every
+    # finding (a summary unless detail=true).
+    ./kicad-mcp-pro-tool-fixes.patch
+    # Git with the project's remote, which it had none of: vcs_fetch, vcs_branch, vcs_pull (a merge, undone on a
+    # conflict) and vcs_push (never forced). Remote branches are always named, .git/config may be read-only.
+    ./kicad-mcp-pro-git-remote.patch
+    # KiCadRoutingTools in place of FreeRouting, which stalled for hours on a board with copper on it: its
+    # scripts as a background job on a copy of the board (route_krt_start, route_krt_status, route_krt_cancel),
+    # route_krt_apply to make a result the board, route_krt_docs for its documentation and routing skills.
+    # FreeRouting's DSN, SES and autorouter tools aren't registered.
+    ./kicad-mcp-pro-krt.patch
+    # The project as a workspace, so agents get at it as they would on a PC: file_list, file_read, file_search,
+    # file_write and file_edit in its repo (never its .git), shell_run (with shell_status and shell_cancel for
+    # what runs on), kicad_ipc (KiCad's own API requests as JSON, any of them), pcb_render_png (the board, or a
+    # step or KRT result, as an image), and a step after every call that changed a file: a commit on
+    # refs/kicad-mcp/steps through an index of its own (vcs_list_steps, vcs_diff_steps, vcs_restore_step).
+    ./kicad-mcp-pro-workspace.patch
+  ];
 
   pythonImportsCheck = [ "kicad_mcp" ];
 
