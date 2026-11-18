@@ -27,9 +27,13 @@ let
   libraryEnv = {
     KICAD10_SYMBOL_DIR = "${symbols}/symbols";
     KICAD10_FOOTPRINT_DIR = "${footprints}/footprints";
+    KICAD10_3DMODEL_DIR = models3d;
     KICAD11_SYMBOL_DIR = "${symbols}/symbols";
     KICAD11_FOOTPRINT_DIR = "${footprints}/footprints";
+    KICAD11_3DMODEL_DIR = models3d;
   };
+  # The parts' 3D models (pcb_render_3d), about 460 MB in the store.
+  models3d = "${kicad.libraries.packages3d}/share/kicad/3dmodels";
   # Each project's headless KiCad, its API socket only the project's server reaches.
   apiSocket = p: "/run/kicad-api-${p}/api.sock";
   git = lib.getExe pkgs.git;
@@ -148,6 +152,11 @@ in
       type = types.enum [ "readonly" "write" "experimental" ];
       default = "write";
     };
+    # The most each project's server may use, with every job it runs (shell_run, KiCadRoutingTools).
+    memoryMax = mkOption {
+      type = types.str;
+      default = "3G";
+    };
     # KiCad MCP Pro's tool set. builder has creating projects, schematic, library, board and routing editing,
     # ERC/DRC and its git tools; its own `default` is review only, which hides them even in write mode.
     profile = mkOption {
@@ -212,8 +221,9 @@ in
       publishAt = "/kicad/${p}/mcp";
       command = lib.getExe server;
       inherit (project) port;
-      # What shell_run finds: kicad-cli, git, bash (and KiCadRoutingTools' Python as python3, KICAD_MCP_KRT_PYTHON).
-      path = [ kicad pkgs.git pkgs.bash ];
+      # What shell_run finds: kicad-cli, git, bash, ngspice (and KiCadRoutingTools' Python as python3,
+      # KICAD_MCP_KRT_PYTHON).
+      path = [ kicad pkgs.git pkgs.bash pkgs.ngspice ];
       environment = {
         KICAD_MCP_PROJECT_DIR = repo p;
         KICAD_MCP_WORKSPACE_ROOT = repo p;
@@ -227,6 +237,8 @@ in
         # Routing: KiCadRoutingTools' scripts (route_krt_start), on its own Python.
         KICAD_MCP_KRT_DIR = "${routingTools}/share/kicad-routing-tools";
         KICAD_MCP_KRT_PYTHON = routingTools.python.interpreter;
+        # Simulation (sim_*), and ngspice in the shell.
+        KICAD_MCP_NGSPICE_CLI = lib.getExe' pkgs.ngspice "ngspice";
         # It looks for the libraries beside kicad-cli, which they aren't on NixOS.
         KICAD_MCP_SYMBOL_LIBRARY_DIR = "${symbols}/symbols";
         KICAD_MCP_FOOTPRINT_LIBRARY_DIR = "${footprints}/footprints";
@@ -247,6 +259,9 @@ in
         BindReadOnlyPaths = [ "${repo p}/.git/config" "${repo p}/.git/hooks" ];
         ReadWritePaths = [ (repo p) ];
         UMask = "0002";
+        # The server with all it runs (shell_run, KiCadRoutingTools): a runaway job is stopped here, never the
+        # project's headless KiCad (a unit of its own) or the VM. Jobs run niced and go first when memory runs out.
+        MemoryMax = cfg.memoryMax;
       };
     }) projects)
     # KiCad itself, headless: the API server the project's MCP server edits boards through, as the same user and in

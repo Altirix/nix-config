@@ -1,6 +1,6 @@
 --- a/src/kicad_mcp/capabilities.py
 +++ b/src/kicad_mcp/capabilities.py
-@@ -369,6 +369,12 @@ def _is_read_tool(name: str, category: str) -> bool:
+@@ -369,6 +369,14 @@ def _is_read_tool(name: str, category: str) -> bool:
          "project_quality_gate_report",
          "sch_cosmetic_score",
          "sch_visual_qa",
@@ -10,6 +10,8 @@
 +        "file_search",
 +        "shell_status",
 +        "pcb_render_png",
++        "pcb_render_visual_diff",
++        "pcb_render_3d",
      }:
          return True
      return name.startswith(
@@ -52,8 +54,271 @@
      for category, module in simple_tool_map:
          if category in enabled:
 --- /dev/null
++++ b/src/kicad_mcp/tools/board_render.py
+@@ -0,0 +1,260 @@
++"""The board as images, for agents to look at: chosen layers (inner ones too), a visual diff of two versions, 3D.
++
++Any version can be drawn: the open board as it is now (saved first, so live edits show), another board in the project
++(a KiCadRoutingTools result), or the board as it was at a step or commit.
++"""
++
++# pyright: reportUnusedFunction=false
++
++from __future__ import annotations
++
++import base64
++import re
++import subprocess
++from pathlib import Path
++from typing import Any
++
++from mcp.server.mcpserver import MCPServer as FastMCP
++from mcp.types import CallToolResult, ImageContent, TextContent
++
++from ..config import get_config
++from .metadata import headless_compatible
++
++_MAX_IMAGES = 12
++_LAYER = re.compile(r'^\s*\(\s*\d+\s+"([^"]+)"\s+(signal|power|mixed|jumper|user)\b', re.MULTILINE)
++_SETS = {
++    "top": ["F.Cu", "F.Mask", "F.SilkS"],
++    "bottom": ["B.Cu", "B.Mask", "B.SilkS"],
++}
++
++
++def _root() -> Path:
++    return get_config().workspace.resolve()
++
++
++def _out_dir() -> Path:
++    path = _root() / ".kicad-mcp" / "render"
++    path.mkdir(parents=True, exist_ok=True)
++    return path
++
++
++def board_source(file: str = "", step: str = "") -> Path:
++    """The board file to draw: the open board (saved first), another one in the project, or one at a step/commit."""
++    from .pcb import _get_pcb_file_for_sync
++    from .routing_krt import _save_open_board
++    from .workspace import _path
++
++    board = _path(file) if file else _get_pcb_file_for_sync().resolve()
++    if not step:
++        if not file:
++            _save_open_board()
++        return board
++    relative = str(board.relative_to(_root()))
++    shown = subprocess.run(["git", "-C", str(_root()), "show", f"{step}:{relative}"],
++                           capture_output=True, text=True, timeout=60)
++    if shown.returncode != 0:
++        raise ValueError(f"{relative} isn't in {step}: {shown.stderr.strip()}")
++    copy = _out_dir() / f"{re.sub(r'[^A-Za-z0-9_.-]', '_', step)[:40]}-{board.name}"
++    copy.write_text(shown.stdout, encoding="utf-8")
++    return copy
++
++
++def _board_layers(board: Path) -> list[str]:
++    text = board.read_text(encoding="utf-8", errors="replace")
++    start = text.find("(layers")
++    return [name for name, _ in _LAYER.findall(text[start : start + 20000])] if start >= 0 else []
++
++
++def expand_layers(board: Path, layers: str, outline: bool = True) -> list[str]:
++    """KiCad layer names from a list that may name sets: copper (every copper layer), inner (In1.Cu ...), top,
++    bottom; the board's outline (Edge.Cuts) is added unless outline is false."""
++    present = _board_layers(board)
++    copper = [name for name in present if name.endswith(".Cu")]
++    out: list[str] = []
++    for token in (part.strip() for part in layers.split(",")):
++        if not token:
++            continue
++        if token == "copper":
++            out += copper
++        elif token == "inner":
++            out += [name for name in copper if name.startswith("In")]
++        elif token in _SETS:
++            out += _SETS[token]
++        else:
++            out.append(token)
++    unknown = [name for name in out if present and name not in present]
++    if unknown:
++        raise ValueError(f"The board has no {', '.join(unknown)}. Its layers: {', '.join(present)}")
++    if outline and "Edge.Cuts" not in out:
++        out.append("Edge.Cuts")
++    return list(dict.fromkeys(out))
++
++
++def plot_png(board: Path, layers: list[str], name: str, *, mirror: bool = False, dpi: int = 200,
++             black_and_white: bool = False, crop: bool = True, fill_zones: bool = True) -> tuple[Path, dict[str, object]]:
++    """Plot layers of a board to SVG with kicad-cli (the board's area only), then to PNG. fill_zones fills the
++    zones for the plot (planes saved unfilled show), the board file is left as it is."""
++    from .export_support import _run_cli
++    from .schematic import _render_svg_to_png
++
++    svg = _out_dir() / f"{name}.svg"
++    svg.unlink(missing_ok=True)
++    args = ["pcb", "export", "svg", "--mode-single", "--page-size-mode", "2", "--exclude-drawing-sheet",
++            "--layers", ",".join(layers), "--output", str(svg),
++            *(["--mirror"] if mirror else []), *(["--black-and-white"] if black_and_white else []),
++            *(["--check-zones"] if fill_zones else []), str(board)]
++    code, _stdout, stderr = _run_cli(*args)
++    if code != 0 or not svg.exists():
++        raise RuntimeError(f"kicad-cli couldn't plot {board.name}: {stderr.strip()[:500]}")
++    png = _out_dir() / f"{name}.png"
++    meta: dict[str, object] = dict(_render_svg_to_png(svg, png, dpi=dpi, crop_to_content=crop))
++    return png, meta
++
++
++def _image(path: Path) -> ImageContent:
++    return ImageContent(type="image", data=base64.b64encode(path.read_bytes()).decode("ascii"), mimeType="image/png")
++
++
++def _result(images: list[tuple[str, Path]], meta: dict[str, Any]) -> CallToolResult:
++    content: list[TextContent | ImageContent] = []
++    for caption, path in images:
++        content += [TextContent(type="text", text=caption), _image(path)]
++    return CallToolResult(isError=False, content=content, structuredContent=meta)
++
++
++def _diff_image(before: Path, after: Path, out: Path) -> dict[str, int]:
++    """Before and after as masks: unchanged grey, only before red, only after green."""
++    from PIL import Image, ImageChops
++
++    with Image.open(before) as a, Image.open(after) as b:
++        width, height = max(a.width, b.width), max(a.height, b.height)
++        same_size = a.size == b.size
++
++        def mask(image: Image.Image) -> Image.Image:
++            canvas = Image.new("L", (width, height), 0)
++            canvas.paste(image.convert("RGBA").getchannel("A").point(lambda v: 255 if v > 128 else 0), (0, 0))
++            return canvas
++
++        old, new = mask(a), mask(b)
++    both = ImageChops.multiply(old, new)
++    removed = ImageChops.subtract(old, new)
++    added = ImageChops.subtract(new, old)
++    picture = Image.new("RGB", (width, height), (255, 255, 255))
++    picture.paste((190, 190, 190), mask=both)
++    picture.paste((215, 40, 40), mask=removed)
++    picture.paste((30, 160, 60), mask=added)
++    picture.save(out)
++
++    def count(image: Image.Image) -> int:
++        return int(sum(image.histogram()[255:]))
++
++    return {"unchanged_px": count(both), "removed_px": count(removed), "added_px": count(added),
++            "same_size": int(same_size)}
++
++
++def register(mcp: FastMCP) -> None:
++    """Register the board image tools."""
++
++    @mcp.tool()
++    @headless_compatible
++    def pcb_render_png(
++        layers: str = "top",
++        side: str = "top",
++        each_layer: bool = False,
++        file: str = "",
++        step: str = "",
++        dpi: int = 200,
++        fill_zones: bool = True,
++    ) -> CallToolResult:
++        """The board as an image, in KiCad's colours: the layers given, comma separated, KiCad's names (In1.Cu,
++        F.SilkS, User.Comments) or sets: top (F.Cu, F.Mask, F.SilkS), bottom, copper (every copper layer), inner
++        (In1.Cu ...). The outline is always drawn. side=bottom looks from below (mirrored). each_layer draws one
++        image per layer, to see inner layers on their own. file draws another board in the project (a KRT result in
++        .kicad-mcp/krt/); step the board at a step (vcs_list_steps) or commit. fill_zones fills the zones for the
++        image (a plane saved unfilled still shows), never in the board.
++        """
++        board = board_source(file, step)
++        names = expand_layers(board, layers)
++        groups = [[name, "Edge.Cuts"] for name in names if name != "Edge.Cuts"] if each_layer else [names]
++        if len(groups) > _MAX_IMAGES:
++            raise ValueError(f"{len(groups)} images: ask for at most {_MAX_IMAGES} layers at a time.")
++        images = []
++        for group in groups:
++            tag = group[0].replace(".", "_") if each_layer else "layers"
++            png, _meta = plot_png(board, group, f"{board.stem}-{side}-{tag}", mirror=side == "bottom", dpi=dpi,
++                                  fill_zones=fill_zones)
++            images.append((", ".join(group) + (" (from below)" if side == "bottom" else ""), png))
++        return _result(images, {"board": board.name, "layers": names, "side": side, "step": step})
++
++    @mcp.tool()
++    @headless_compatible
++    def pcb_render_visual_diff(
++        before: str,
++        after: str = "",
++        layers: str = "copper",
++        side: str = "top",
++        each_layer: bool = False,
++        file: str = "",
++        dpi: int = 200,
++        fill_zones: bool = False,
++    ) -> CallToolResult:
++        """What changed on the board between two versions, as an image: grey is unchanged, red only before (removed),
++        green only after (added). before and after are steps (vcs_list_steps) or commits; no after is the open board
++        now. layers as for pcb_render_png (default every copper layer); each_layer one image per layer. Zones aren't
++        filled unless fill_zones: a filled plane covers what changed on the layers drawn with it, so diff planes
++        with each_layer.
++        """
++        old = board_source(file, before)
++        new = board_source(file, after)
++        names = expand_layers(new, layers)
++        groups = [[name, "Edge.Cuts"] for name in names if name != "Edge.Cuts"] if each_layer else [names]
++        if len(groups) > _MAX_IMAGES:
++            raise ValueError(f"{len(groups)} images: ask for at most {_MAX_IMAGES} layers at a time.")
++        images, counts = [], {}
++        for group in groups:
++            tag = group[0].replace(".", "_") if each_layer else "layers"
++            kwargs: dict[str, Any] = {"mirror": side == "bottom", "dpi": dpi, "black_and_white": True, "crop": False,
++                                      "fill_zones": fill_zones}
++            a, _ = plot_png(old, group, f"diff-before-{tag}", **kwargs)
++            b, _ = plot_png(new, group, f"diff-after-{tag}", **kwargs)
++            out = _out_dir() / f"diff-{tag}.png"
++            counts[", ".join(group)] = stats = _diff_image(a, b, out)
++            note = "" if stats.pop("same_size") else " (the outline changed: aligned at its top left)"
++            images.append((f"{', '.join(group)}: {stats['removed_px']} px removed, {stats['added_px']} px added{note}",
++                           out))
++        return _result(images, {"before": before, "after": after or "now", "layers": names, "pixels": counts})
++
++    @mcp.tool()
++    @headless_compatible
++    def pcb_render_3d(
++        side: str = "top",
++        rotate: str = "",
++        zoom: float = 1.0,
++        pan: str = "",
++        perspective: bool = False,
++        quality: str = "basic",
++        width: int = 1600,
++        height: int = 900,
++        preset: str = "",
++        file: str = "",
++        step: str = "",
++    ) -> CallToolResult:
++        """The board in 3D with its parts' models, from KiCad's 3D viewer: side top, bottom, left, right, front or
++        back; rotate 'X,Y,Z' in degrees ('-45,0,45' is isometric); zoom; pan 'X,Y,Z'; perspective; quality basic
++        (fast) or high (raytraced, slower); preset one of the board's 3D appearance presets (what's shown: silk,
++        mask, parts). file and step as for pcb_render_png.
++        """
++        from .export_support import _run_cli
++
++        board = board_source(file, step)
++        out = _out_dir() / f"{board.stem}-3d-{side}.png"
++        out.unlink(missing_ok=True)
++        args = ["pcb", "render", "--output", str(out), "--side", side, "--quality", quality,
++                "--width", str(width), "--height", str(height), "--zoom", str(zoom),
++                *(["--rotate", rotate] if rotate else []), *(["--pan", pan] if pan else []),
++                *(["--perspective"] if perspective else []), *(["--preset", preset] if preset else []), str(board)]
++        code, _stdout, stderr = _run_cli(*args)
++        if code != 0 or not out.exists():
++            raise RuntimeError(f"kicad-cli couldn't render {board.name} in 3D: {stderr.strip()[:500]}")
++        return _result([(f"{board.name} in 3D, from {side}", out)],
++                       {"board": board.name, "side": side, "rotate": rotate, "step": step})
+--- /dev/null
 +++ b/src/kicad_mcp/tools/jobs.py
-@@ -0,0 +1,106 @@
+@@ -0,0 +1,116 @@
 +"""Commands run in the background for a tool (route_krt_start, shell_run): output to a log, a time limit, cancel."""
 +
 +from __future__ import annotations
@@ -112,6 +377,15 @@
 +    return env | extra
 +
 +
++def _yield(pid: int) -> None:
++    """Below the server and KiCad for CPU, and the first the kernel stops when memory runs out; what it starts
++    inherits both. Set from here (preexec_fn isn't safe in a threaded server), straight after it starts."""
++    with contextlib.suppress(OSError):
++        os.setpriority(os.PRIO_PROCESS, pid, 10)
++    with contextlib.suppress(OSError), open(f"/proc/{pid}/oom_score_adj", "w") as score:
++        score.write("1000")
++
++
 +def start(argv: list[str], *, label: str, cwd: Path, log_path: Path, env: dict[str, str], max_minutes: float) -> Job:
 +    """Start argv in a session of its own (so a cancel stops everything it starts), its output into log_path."""
 +    log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -125,6 +399,7 @@
 +            env=env,
 +            start_new_session=True,
 +        )
++    _yield(process.pid)
 +    job = Job(label=label, started=time.monotonic(), log_path=log_path, process=process)
 +    threading.Thread(target=_watch, args=(job, max(1.0, max_minutes) * 60), name="kicad-mcp-job", daemon=True).start()
 +    return job
@@ -162,7 +437,7 @@
 +        job.finished = time.monotonic()
 --- a/src/kicad_mcp/tools/router.py
 +++ b/src/kicad_mcp/tools/router.py
-@@ -627,6 +627,27 @@ TOOL_CATEGORIES: dict[str, ToolCategory] = {
+@@ -627,6 +627,30 @@ TOOL_CATEGORIES: dict[str, ToolCategory] = {
              "vcs_branch",
              "vcs_pull",
              "vcs_push",
@@ -174,7 +449,8 @@
 +    "workspace": {
 +        "description": (
 +            "The project as a workspace: read, search and write its files, run commands in it (kicad-cli, "
-+            "KiCadRoutingTools, git, Python), send KiCad's own API requests, and see the board as an image."
++            "KiCadRoutingTools, git, Python, ngspice), send KiCad's own API requests, and see the board: any "
++            "layers, a visual diff of two versions, 3D."
 +        ),
 +        "tools": [
 +            "file_list",
@@ -187,10 +463,12 @@
 +            "shell_cancel",
 +            "kicad_ipc",
 +            "pcb_render_png",
++            "pcb_render_visual_diff",
++            "pcb_render_3d",
          ],
      },
  }
-@@ -661,6 +682,12 @@ _REVIEW_TOOLS: tuple[str, ...] = (
+@@ -661,6 +685,14 @@ _REVIEW_TOOLS: tuple[str, ...] = (
      "lib_verify_component_contract",
      "sch_visual_qa",
      "lib_get_bom_with_pricing",
@@ -198,20 +476,23 @@
 +    "file_read",
 +    "file_search",
 +    "pcb_render_png",
++    "pcb_render_visual_diff",
++    "pcb_render_3d",
 +    "vcs_list_steps",
 +    "vcs_diff_steps",
  )
  
  _BUILD_TOOLS: tuple[str, ...] = (
-@@ -774,6 +801,7 @@ PROFILE_CATEGORIES: dict[str, tuple[str, ...]] = {
+@@ -774,6 +806,8 @@ PROFILE_CATEGORIES: dict[str, tuple[str, ...]] = {
          "routing",
          "validation",
          "version_control",
 +        "workspace",
++        "simulation",
      ),
      "critic": (
          "project",
-@@ -819,7 +847,7 @@ PROFILE_CATEGORIES: dict[str, tuple[str, ...]] = {
+@@ -819,7 +853,7 @@ PROFILE_CATEGORIES: dict[str, tuple[str, ...]] = {
      "analysis": ("project", "pcb_read", "signal_integrity", "power_integrity", "emc", "validation"),
      "agent_full": tuple(TOOL_CATEGORIES.keys()),
      # Backward-compatible aliases kept for existing clients.
@@ -611,7 +892,7 @@
 +        return f"Restored {', '.join(paths) if paths else 'every file'} as at {step}. {reload}"
 --- /dev/null
 +++ b/src/kicad_mcp/tools/workspace.py
-@@ -0,0 +1,415 @@
+@@ -0,0 +1,396 @@
 +"""The project as a workspace: its files, a shell in it, KiCad's API as it is, and the board as an image.
 +
 +Everything stays in the project's repo (the workspace root): paths outside it, and its .git, are refused; git goes
@@ -622,6 +903,7 @@
 +
 +from __future__ import annotations
 +
++import base64
 +import importlib
 +import itertools
 +import json
@@ -630,14 +912,14 @@
 +import shutil
 +import subprocess
 +from pathlib import Path
-+from typing import Any, cast
++from typing import Any
 +
 +from mcp.server.mcpserver import MCPServer as FastMCP
 +from mcp.types import CallToolResult
 +
 +from ..config import get_config
-+from ..mcp_media import image_tool_result
-+from . import jobs
++from ..mcp_media import image_tool_result, text_tool_result
++from . import board_render, jobs
 +from .metadata import headless_compatible
 +
 +_READ_LINES = 400
@@ -646,6 +928,8 @@
 +_OUTPUT_HEAD = 2_000
 +_OUTPUT_TAIL = 10_000
 +_MAX_RUNNING = 4
++_MAX_BINARY = 8 * 1024 * 1024
++_IMAGES = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 +_SHELL: dict[str, jobs.Job] = {}
 +_SHELL_IDS = itertools.count(1)
 +
@@ -690,10 +974,13 @@
 +    return ""
 +
 +
-+def _write(target: Path, text: str) -> None:
++def _write(target: Path, data: str | bytes) -> None:
 +    target.parent.mkdir(parents=True, exist_ok=True)
 +    temp = target.with_name(f".{target.name}.kicad-mcp-tmp")
-+    temp.write_text(text, encoding="utf-8")
++    if isinstance(data, bytes):
++        temp.write_bytes(data)
++    else:
++        temp.write_text(data, encoding="utf-8")
 +    if target.exists():
 +        shutil.copymode(target, temp)
 +    else:
@@ -832,13 +1119,21 @@
 +
 +    @mcp.tool()
 +    @headless_compatible
-+    def file_read(path: str, offset: int = 1, limit: int = _READ_LINES) -> str:
-+        """A text file from the project, its lines numbered, from line offset, limit lines at a time (a board or
-+        schematic is S-expressions: file_search finds what to read)."""
++    def file_read(path: str, offset: int = 1, limit: int = _READ_LINES, encoding: str = "text") -> CallToolResult:
++        """A file from the project. Text comes with its lines numbered, from line offset, limit lines at a time (a
++        board or schematic is S-expressions: file_search finds what to read). An image (PNG, JPEG, GIF, WebP) comes
++        as an image. Any other binary file (a PDF, a STEP model) with encoding="base64", up to 8 MB."""
 +        target = _path(path)
++        if target.suffix.lower() in _IMAGES and encoding == "text":
++            return image_tool_result(target, {"path": _shown(target), "bytes": target.stat().st_size})
 +        data = target.read_bytes()
++        if encoding == "base64":
++            if len(data) > _MAX_BINARY:
++                raise ValueError(f"{_shown(target)} is {len(data)} B, more than 8 MB.")
++            return text_tool_result(base64.b64encode(data).decode("ascii"),
++                                    metadata={"path": _shown(target), "bytes": len(data), "encoding": "base64"})
 +        if b"\0" in data[:8192]:
-+            return f"{_shown(target)} is binary ({len(data)} B)."
++            return text_tool_result(f"{_shown(target)} is binary ({len(data)} B): encoding=\"base64\" to get it.")
 +        lines = data.decode("utf-8", errors="replace").splitlines()
 +        start = max(1, offset)
 +        out, size = [], 0
@@ -851,7 +1146,7 @@
 +            out.append(f"{number:>6}\t{line}")
 +        last = start + len(out) - 1
 +        more = f"\n[lines {start}-{last} of {len(lines)}: offset={last + 1} for more]" if last < len(lines) else ""
-+        return "\n".join(out) + more
++        return text_tool_result("\n".join(out) + more)
 +
 +    @mcp.tool()
 +    @headless_compatible
@@ -878,12 +1173,21 @@
 +
 +    @mcp.tool()
 +    @headless_compatible
-+    def file_write(path: str, content: str) -> str:
-+        """Write a file in the project, whole (made if it's new, folders too). KiCad reloads the board when it's
-+        the open board's file. For a change inside a file, file_edit."""
++    def file_write(path: str, content: str, encoding: str = "text") -> str:
++        """Write a file in the project, whole (made if it's new, folders too). encoding="base64" for a binary file (a
++        datasheet PDF, a 3D model, an image), content its base64, up to 8 MB. KiCad reloads the board when it's the
++        open board's file. For a change inside a text file, file_edit."""
 +        target = _path(path, write=True)
-+        _write(target, content)
-+        return f"Wrote {_shown(target)} ({len(content.encode())} B).{_after_write(target)}"
++        data: str | bytes = content
++        if encoding == "base64":
++            data = base64.b64decode(content, validate=True)
++            if len(data) > _MAX_BINARY:
++                raise ValueError(f"{len(data)} B is more than 8 MB.")
++        elif encoding != "text":
++            raise ValueError('encoding is "text" or "base64".')
++        _write(target, data)
++        size = len(data) if isinstance(data, bytes) else len(data.encode())
++        return f"Wrote {_shown(target)} ({size} B).{_after_write(target)}"
 +
 +    @mcp.tool()
 +    @headless_compatible
@@ -984,46 +1288,4 @@
 +            text = text[:max_chars] + f"\n... [{len(text) - max_chars} more characters: ask for less, or raise max_chars]"
 +        return text
 +
-+    @mcp.tool()
-+    @headless_compatible
-+    def pcb_render_png(
-+        layers: str = "F.Cu,B.Cu,F.SilkS,B.SilkS,F.Mask,Edge.Cuts",
-+        side: str = "top",
-+        file: str = "",
-+        step: str = "",
-+        dpi: int = 200,
-+    ) -> CallToolResult:
-+        """The board as an image: the layers given (comma separated, KiCad's names), from the top, or the bottom
-+        (mirrored). file renders another board in the project (a KRT result in .kicad-mcp/krt/); step renders the
-+        board as it was at a step (vcs_list_steps) or commit. The open board is saved first, so live edits show.
-+        """
-+        from .export_support import _run_cli
-+        from .pcb import _get_pcb_file_for_sync
-+        from .routing_krt import _save_open_board
-+        from .schematic import _render_svg_to_png
-+
-+        out_dir = _root() / ".kicad-mcp" / "render"
-+        out_dir.mkdir(parents=True, exist_ok=True)
-+        board = _path(file) if file else _get_pcb_file_for_sync().resolve()
-+        if step:
-+            relative = str(board.relative_to(_root()))
-+            shown = subprocess.run(["git", "-C", str(_root()), "show", f"{step}:{relative}"],
-+                                   capture_output=True, text=True, timeout=60)
-+            if shown.returncode != 0:
-+                raise ValueError(f"{relative} isn't in {step}: {shown.stderr.strip()}")
-+            board = out_dir / f"{step[:12]}-{board.name}"
-+            board.write_text(shown.stdout, encoding="utf-8")
-+        elif not file:
-+            _save_open_board()
-+        name = f"{board.stem}-{side}"
-+        svg = out_dir / f"{name}.svg"
-+        args = ["pcb", "export", "svg", "--mode-single", "--page-size-mode", "2", "--exclude-drawing-sheet",
-+                "--layers", layers, "--output", str(svg), *(["--mirror"] if side == "bottom" else []), str(board)]
-+        code, _stdout, stderr = _run_cli(*args)
-+        if code != 0 or not svg.exists():
-+            raise RuntimeError(f"kicad-cli couldn't plot {board.name}: {stderr.strip()[:500]}")
-+        png = out_dir / f"{name}.png"
-+        meta = cast(dict[str, Any], _render_svg_to_png(svg, png, dpi=dpi, crop_to_content=True))
-+        meta |= {"board": _shown(board) if board.is_relative_to(_root()) else board.name, "layers": layers,
-+                 "side": side, "step": step}
-+        return image_tool_result(png, meta)
++    board_render.register(mcp)

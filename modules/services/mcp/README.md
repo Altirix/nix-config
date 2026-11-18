@@ -351,11 +351,16 @@ goes straight to the file, there's no undo on the server: commit before anything
 
 Agents also get the project as they would on a PC (`packages/kicad-mcp-pro-workspace.patch`), so they aren't
 limited to what the tools above return: `file_list`, `file_read`, `file_search` (git grep), `file_write` and
-`file_edit` anywhere in its repo but its `.git`; `shell_run`, a bash in the repo as its server, with kicad-cli, git
+`file_edit` anywhere in its repo but its `.git` (binary files as base64, up to 8 MB; images read back as
+images); `shell_run`, a bash in the repo as its server, with kicad-cli, git
 (pushes still go through the gate), Python with numpy, scipy, shapely and Pillow, and KiCadRoutingTools in `$KRT`
 (what runs past `wait_seconds` goes on as a job: `shell_status`, `shell_cancel`); `kicad_ipc`, any request of
-KiCad's own API as JSON on the open board (no command lists them); and `pcb_render_png`, the board as an image, also
-as it was at a step or a KRT result. After every call that may have changed something the server makes a step: the
+KiCad's own API as JSON on the open board (no command lists them); and the board as images: `pcb_render_png` (any layers, inner ones too, or
+sets: `top`, `bottom`, `copper`, `inner`, one image per layer with `each_layer`, zones filled for the image),
+`pcb_render_visual_diff` (two versions, removed in red, added in green) and `pcb_render_3d` (with the parts' 3D
+models, about 460 MB in the store), each also as it was at a step or a KRT result. ngspice is there for the `sim_*`
+tools and the shell. Each project's server, with all it runs, is held to `memoryMax` (3G), its jobs niced and the
+first the kernel stops, so a runaway one never takes the headless KiCad down with it. After every call that may have changed something the server makes a step: the
 open board is saved and the repo's files, as git would commit them, go into a commit on `refs/kicad-mcp/steps`
 through an index of its own, so the project's index and branches are untouched and steps are never pushed.
 `vcs_list_steps`, `vcs_diff_steps` and `vcs_restore_step` (itself a step) go through them. The shell is a shell on the

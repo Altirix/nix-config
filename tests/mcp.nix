@@ -334,6 +334,14 @@ in
             call("vcs_list_steps", {}),
             call("vcs_restore_step", {"step": "refs/kicad-mcp/steps~1", "paths": ["rt/notes.md"]}),
             call("file_read", {"path": "rt/notes.md"}),
+            # A binary file in and out (a 1x1 PNG, read back as an image), ngspice, the render's layer sets, a
+            # visual diff against the last step, and 3D.
+            call("file_write", {"path": "rt/pixel.png", "encoding": "base64", "content": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="}),
+            call("file_read", {"path": "rt/pixel.png"}),
+            call("shell_run", {"command": "ngspice -v"}),
+            call("pcb_render_png", {"layers": "copper", "each_layer": True, "dpi": 100}),
+            call("pcb_render_visual_diff", {"before": "refs/kicad-mcp/steps", "dpi": 100}),
+            call("pcb_render_3d", {"rotate": "-45,0,45", "width": 400, "height": 300}),
         ])
         texts = ["\n".join(c.get("text", "") for c in r["content"]) for r in out["results"]]
         for i, (result, text) in enumerate(zip(out["results"], texts)):
@@ -345,6 +353,11 @@ in
         assert any(c.get("type") == "image" for c in out["results"][11]["content"]), out["results"][11]
         assert "file_edit: rt/notes.md" in texts[12] and "file_write: rt/notes.md" in texts[12], texts[12]
         assert "first" in texts[14], texts[14]
+        images = lambda r: sum(c.get("type") == "image" for c in r["content"])
+        assert "Wrote rt/pixel.png (70 B)" in texts[15] and images(out["results"][16]) == 1, texts[15:17]
+        assert "ngspice-" in texts[17], texts[17]
+        assert images(out["results"][18]) == 2 and "B.Cu, Edge.Cuts" in texts[18], texts[18]
+        assert images(out["results"][19]) == 1 and images(out["results"][20]) == 1, texts[19:21]
         # Steps are a ref of their own: the project's index never had notes.md.
         steps_git = f"runuser -u mcp-kicad-t -- git -C {repo}"
         mcp.succeed(f"{steps_git} rev-parse refs/kicad-mcp/steps", f"! {steps_git} ls-files --error-unmatch rt/notes.md")
