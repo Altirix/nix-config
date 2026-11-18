@@ -400,6 +400,9 @@ in
         };
         enableACME = s.https;
         forceSSL = s.https;
+        # HTTP/2 off until nixpkgs ships nginx 1.30.7 (CVE-2026-123633, CVE-2026-123007: HTTP/2 RCE in 1.9.5 to
+        # 1.30.6). Remove once it lands.
+        http2 = false;
         locations = {
           "/" = if s.upstream != null then proxied // {
             proxyPass = s.upstream;
