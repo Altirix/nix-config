@@ -1,6 +1,6 @@
 --- a/src/kicad_mcp/capabilities.py
 +++ b/src/kicad_mcp/capabilities.py
-@@ -369,6 +369,14 @@ def _is_read_tool(name: str, category: str) -> bool:
+@@ -369,6 +369,17 @@ def _is_read_tool(name: str, category: str) -> bool:
          "project_quality_gate_report",
          "sch_cosmetic_score",
          "sch_visual_qa",
@@ -12,6 +12,9 @@
 +        "pcb_render_png",
 +        "pcb_render_visual_diff",
 +        "pcb_render_3d",
++        # KiCadRoutingTools' progress and documentation (tools/routing_krt.py).
++        "route_krt_status",
++        "route_krt_docs",
      }:
          return True
      return name.startswith(
@@ -225,7 +228,7 @@
 +        fill_zones: bool = True,
 +    ) -> CallToolResult:
 +        """The board as an image, in KiCad's colours: the layers given, comma separated, KiCad's names (In1.Cu,
-+        F.SilkS, User.Comments) or sets: top (F.Cu, F.Mask, F.SilkS), bottom, copper (every copper layer), inner
++        F.SilkS, Cmts.User) or sets: top (F.Cu, F.Mask, F.SilkS), bottom, copper (every copper layer), inner
 +        (In1.Cu ...). The outline is always drawn. side=bottom looks from below (mirrored). each_layer draws one
 +        image per layer, to see inner layers on their own. file draws another board in the project (a KRT result in
 +        .kicad-mcp/krt/); step the board at a step (vcs_list_steps) or commit. fill_zones fills the zones for the
@@ -1008,7 +1011,7 @@
 +        return f"Restored {', '.join(paths) if paths else 'every file'} as at {step}. {reload}"
 --- /dev/null
 +++ b/src/kicad_mcp/tools/workspace.py
-@@ -0,0 +1,417 @@
+@@ -0,0 +1,419 @@
 +"""The project as a workspace: its files, a shell in it, KiCad's API as it is, and the board as an image.
 +
 +Everything stays in the project's repo (the workspace root): paths outside it, and its .git, are refused; git goes
@@ -1245,6 +1248,8 @@
 +        as an image. Any other binary file (a PDF, a STEP model) with encoding="base64", up to 8 MB."""
 +        target = _path(path)
 +        if target.suffix.lower() in _IMAGES and encoding == "text":
++            if target.stat().st_size > _MAX_BINARY:
++                raise ValueError(f"{_shown(target)} is {target.stat().st_size} B, more than 8 MB.")
 +            return image_tool_result(target, {"path": _shown(target), "bytes": target.stat().st_size})
 +        data = target.read_bytes()
 +        if encoding == "base64":
