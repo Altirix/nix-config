@@ -152,10 +152,11 @@ in
       type = types.enum [ "readonly" "write" "experimental" ];
       default = "write";
     };
-    # The most each project's server may use, with every job it runs (shell_run, KiCadRoutingTools).
+    # The most each project's server may use, with every job it runs (shell_run, KiCadRoutingTools: a router step
+    # on the PalmRemote core board peaks at 2.5 GB).
     memoryMax = mkOption {
       type = types.str;
-      default = "3G";
+      default = "6G";
     };
     # KiCad MCP Pro's tool set. builder has creating projects, schematic, library, board and routing editing,
     # ERC/DRC and its git tools; its own `default` is review only, which hides them even in write mode.
@@ -259,9 +260,10 @@ in
         BindReadOnlyPaths = [ "${repo p}/.git/config" "${repo p}/.git/hooks" ];
         ReadWritePaths = [ (repo p) ];
         UMask = "0002";
-        # The server with all it runs (shell_run, KiCadRoutingTools): a runaway job is stopped here, never the
-        # project's headless KiCad (a unit of its own) or the VM. Jobs run niced and go first when memory runs out.
+        # The server with all it runs. Jobs run niced and are the first the kernel stops when memory runs out, and
+        # the server goes on (systemd would otherwise stop, and restart, the whole unit, every job with it).
         MemoryMax = cfg.memoryMax;
+        OOMPolicy = "continue";
       };
     }) projects)
     # KiCad itself, headless: the API server the project's MCP server edits boards through, as the same user and in

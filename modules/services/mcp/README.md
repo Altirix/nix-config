@@ -359,8 +359,12 @@ KiCad's own API as JSON on the open board (no command lists them); and the board
 sets: `top`, `bottom`, `copper`, `inner`, one image per layer with `each_layer`, zones filled for the image),
 `pcb_render_visual_diff` (two versions, removed in red, added in green) and `pcb_render_3d` (with the parts' 3D
 models, about 460 MB in the store), each also as it was at a step or a KRT result. ngspice is there for the `sim_*`
-tools and the shell. Each project's server, with all it runs, is held to `memoryMax` (3G), its jobs niced and the
-first the kernel stops, so a runaway one never takes the headless KiCad down with it. After every call that may have changed something the server makes a step: the
+tools and the shell. Each project's server, with all it runs, is held to `memoryMax` (6G: a KiCadRoutingTools step on the
+PalmRemote core board peaks at 2.5 GB). When it runs out, the kernel stops a job (they're niced and the first it
+picks), the server goes on (`OOMPolicy=continue`) and the job says it ran out of memory.
+Jobs last as long as the server: a restart (a deploy) ends them, and they can't be detached from it; each leaves a
+record beside its log, so `shell_status` and `route_krt_status` say a job ended with the server. `shell_cancel` and
+`route_krt_cancel` stop one cleanly, SIGTERM then SIGKILL after 10 s (`force` at once). After every call that may have changed something the server makes a step: the
 open board is saved and the repo's files, as git would commit them, go into a commit on `refs/kicad-mcp/steps`
 through an index of its own, so the project's index and branches are untouched and steps are never pushed.
 `vcs_list_steps`, `vcs_diff_steps` and `vcs_restore_step` (itself a step) go through them. The shell is a shell on the

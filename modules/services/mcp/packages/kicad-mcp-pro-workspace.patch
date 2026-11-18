@@ -318,12 +318,19 @@
 +                       {"board": board.name, "side": side, "rotate": rotate, "step": step})
 --- /dev/null
 +++ b/src/kicad_mcp/tools/jobs.py
-@@ -0,0 +1,116 @@
-+"""Commands run in the background for a tool (route_krt_start, shell_run): output to a log, a time limit, cancel."""
+@@ -0,0 +1,210 @@
++"""Commands run in the background for a tool (route_krt_start, shell_run): output to a log, a time limit, cancel.
++
++A job is the server's: it runs in the server's unit, so it ends when the server restarts (a deploy), and nothing it
++does (nohup, setsid, a trailing &) takes it out of there. Each job leaves a record beside its log
++(<log>.json): how it ended, or, when the server restarted under it, that it ended with the server. When the kernel
++stops a job for memory (the server's memoryMax), the job ends and says so; the server goes on.
++"""
 +
 +from __future__ import annotations
 +
 +import contextlib
++import json
 +import os
 +import signal
 +import subprocess
@@ -331,6 +338,9 @@
 +import time
 +from dataclasses import dataclass, field
 +from pathlib import Path
++
++# How long a cancelled job gets to stop on its own (SIGTERM) before it's killed.
++GRACE_SECONDS = 10
 +
 +
 +@dataclass
@@ -341,9 +351,13 @@
 +    started: float
 +    log_path: Path
 +    process: subprocess.Popen[bytes]
++    started_at: float = field(default_factory=time.time)
 +    returncode: int | None = None
 +    finished: float | None = None
 +    timed_out: bool = False
++    cancelled: bool = False
++    out_of_memory: bool = False
++    oom_kills: int = 0
 +    lock: threading.Lock = field(default_factory=threading.Lock)
 +
 +    @property
@@ -354,16 +368,26 @@
 +    def ending(self) -> str:
 +        """How it ended, for a report: its exit code, or why it was stopped."""
 +        with self.lock:
-+            if self.timed_out:
-+                return "stopped at its time limit"
-+            if self.returncode == -signal.SIGKILL:
-+                return "stopped (cancelled)"
-+            return f"exit code {self.returncode}"
++            return _ending(self.returncode, timed_out=self.timed_out, cancelled=self.cancelled,
++                           out_of_memory=self.out_of_memory)
 +
 +    def took(self) -> str:
 +        with self.lock:
 +            end = self.finished if self.finished is not None else time.monotonic()
 +        return minutes(end - self.started)
++
++
++def _ending(returncode: int | None, *, timed_out: bool, cancelled: bool, out_of_memory: bool) -> str:
++    if out_of_memory:
++        return (f"exit code {returncode}, after the kernel stopped it or a process it started: out of memory (the server's limit, memoryMax, counts every job): "
++                "do less at once, or route a group of nets at a time")
++    if timed_out:
++        return "stopped at its time limit (max_minutes)"
++    if cancelled:
++        return "stopped (cancelled)"
++    if returncode is not None and returncode < 0:
++        return f"ended by signal {signal.Signals(-returncode).name}"
++    return f"exit code {returncode}"
 +
 +
 +def minutes(seconds: float) -> str:
@@ -386,6 +410,51 @@
 +        score.write("1000")
 +
 +
++def _oom_kills() -> int:
++    """How many processes the kernel has stopped for memory in the server's unit (its cgroup's memory.events)."""
++    try:
++        group = Path("/proc/self/cgroup").read_text().strip().split("::", 1)[1]
++        for line in (Path("/sys/fs/cgroup") / group.lstrip("/") / "memory.events").read_text().splitlines():
++            key, _, value = line.partition(" ")
++            if key == "oom_kill":
++                return int(value)
++    except (OSError, IndexError, ValueError):
++        pass
++    return 0
++
++
++def _record_path(job_log: Path) -> Path:
++    return job_log.with_suffix(".json")
++
++
++def _write_record(job: Job) -> None:
++    with job.lock:
++        record = {
++            "label": job.label,
++            "started": job.started_at,
++            "pid": job.process.pid,
++            "ended": None if job.finished is None else time.time(),
++            "ending": None if job.finished is None else _ending(job.returncode, timed_out=job.timed_out,
++                                                                 cancelled=job.cancelled,
++                                                                 out_of_memory=job.out_of_memory),
++        }
++    with contextlib.suppress(OSError):
++        _record_path(job.log_path).write_text(json.dumps(record), encoding="utf-8")
++
++
++def previous(log_path: Path) -> str | None:
++    """What a job from before the server's last start says about itself, from its record; None without one."""
++    try:
++        record = json.loads(_record_path(log_path).read_text(encoding="utf-8"))
++    except (OSError, ValueError):
++        return None
++    when = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(record.get("started", 0)))
++    if record.get("ended") is None:
++        return f"{record.get('label')} (started {when}) ended when the server restarted, unfinished"
++    took = minutes(record["ended"] - record.get("started", record["ended"]))
++    return f"{record.get('label')} (started {when}) finished after {took}, {record.get('ending')}"
++
++
 +def start(argv: list[str], *, label: str, cwd: Path, log_path: Path, env: dict[str, str], max_minutes: float) -> Job:
 +    """Start argv in a session of its own (so a cancel stops everything it starts), its output into log_path."""
 +    log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -400,7 +469,8 @@
 +            start_new_session=True,
 +        )
 +    _yield(process.pid)
-+    job = Job(label=label, started=time.monotonic(), log_path=log_path, process=process)
++    job = Job(label=label, started=time.monotonic(), log_path=log_path, process=process, oom_kills=_oom_kills())
++    _write_record(job)
 +    threading.Thread(target=_watch, args=(job, max(1.0, max_minutes) * 60), name="kicad-mcp-job", daemon=True).start()
 +    return job
 +
@@ -412,9 +482,29 @@
 +        time.sleep(0.2)
 +
 +
-+def kill(job: Job) -> None:
++def _signal(job: Job, sig: signal.Signals) -> None:
 +    with contextlib.suppress(ProcessLookupError):
-+        os.killpg(job.process.pid, signal.SIGKILL)
++        os.killpg(job.process.pid, sig)
++
++
++def stop(job: Job, *, force: bool = False) -> None:
++    """Stop a job and everything it started: SIGTERM, so it can stop on its own and write what it has, then
++    SIGKILL after GRACE_SECONDS; force kills it at once."""
++    with job.lock:
++        job.cancelled = True
++    if force:
++        _signal(job, signal.SIGKILL)
++        return
++    _signal(job, signal.SIGTERM)
++
++    def later() -> None:
++        try:
++            job.process.wait(timeout=GRACE_SECONDS)
++        except subprocess.TimeoutExpired:
++            pass
++        _signal(job, signal.SIGKILL)  # what it started too, which may outlive it
++
++    threading.Thread(target=later, name="kicad-mcp-job-stop", daemon=True).start()
 +
 +
 +def output(job: Job) -> str:
@@ -430,11 +520,15 @@
 +    except subprocess.TimeoutExpired:
 +        with job.lock:
 +            job.timed_out = True
-+        kill(job)
++        stop(job)
 +        job.process.wait()
 +    with job.lock:
 +        job.returncode = job.process.returncode
++        # It, or something it started (a router step), was stopped by the kernel for memory while it ran.
++        if job.returncode != 0 and not job.cancelled and not job.timed_out:
++            job.out_of_memory = _oom_kills() > job.oom_kills
 +        job.finished = time.monotonic()
++    _write_record(job)
 --- a/src/kicad_mcp/tools/router.py
 +++ b/src/kicad_mcp/tools/router.py
 @@ -627,6 +627,30 @@ TOOL_CATEGORIES: dict[str, ToolCategory] = {
@@ -630,7 +724,7 @@
  def register(mcp: FastMCP) -> None:
      """Register the KiCadRoutingTools tools."""
  
-@@ -249,37 +197,24 @@ def register(mcp: FastMCP) -> None:
+@@ -249,55 +197,53 @@ def register(mcp: FastMCP) -> None:
          route_krt_status reports its progress (check every 5-10 minutes). max_minutes stops it. One at a time.
          """
          global _JOB
@@ -680,21 +774,43 @@
  
      @mcp.tool()
      @headless_compatible
-@@ -294,10 +229,10 @@ def register(mcp: FastMCP) -> None:
-     def route_krt_cancel() -> str:
-         """Stop the KRT job (route_krt_start) and everything it started. The board is unchanged."""
+     def route_krt_status() -> str:
+-        """How the KRT job (route_krt_start) is getting on: autoroute.py's steps so far, else its latest output."""
++        """How the KRT job (route_krt_start) is getting on: autoroute.py's steps so far, else its latest output.
++
++        A job lasts as long as the server: a restart (a deploy) ends it, and nothing (nohup, setsid) takes it out
++        of the server. After a restart this says how the last one ended.
++        """
+         if _JOB is None:
+-            return "No KRT job has been started: route_krt_start."
++            logs = sorted(_work_dir().glob("*.log"), key=lambda path: path.stat().st_mtime)
++            said = jobs.previous(logs[-1]) if logs else None
++            if said is None:
++                return "No KRT job has been started: route_krt_start."
++            return f"From before the server restarted: {said}. Its log: .kicad-mcp/krt/{logs[-1].name}"
+         return _report(_JOB)
+ 
+     @mcp.tool()
+     @headless_compatible
+-    def route_krt_cancel() -> str:
+-        """Stop the KRT job (route_krt_start) and everything it started. The board is unchanged."""
++    def route_krt_cancel(force: bool = False) -> str:
++        """Stop the KRT job (route_krt_start) and everything it started, cleanly: it's asked to stop (SIGTERM)
++        and killed after 10 s if it hasn't; force kills it at once. The board is unchanged, and what it wrote so
++        far (autoroute.py's step boards) stays in .kicad-mcp/krt/."""
          job = _JOB
 -        if job is None or job.finished is not None:
 +        if job is None or job.done:
              return "No KRT job is running."
 -        _kill(job)
 -        return f"Stopped {' '.join(job.command)} after {_minutes(time.monotonic() - job.started)}."
-+        jobs.kill(job)
-+        return f"Stopped {job.label} after {job.took()}."
++        jobs.stop(job, force=force)
++        jobs.wait(job, jobs.GRACE_SECONDS + 2)
++        return f"{'Stopped' if job.done else 'Stopping'} {job.label} after {job.took()}."
  
      @mcp.tool()
      @headless_compatible
-@@ -307,7 +242,7 @@ def register(mcp: FastMCP) -> None:
+@@ -307,7 +253,7 @@ def register(mcp: FastMCP) -> None:
          It replaces the whole board, which KiCad then reloads: edits made since the job copied the board are
          lost. Refill the zones (pcb_refill_zones) and run run_drc after.
          """
@@ -892,7 +1008,7 @@
 +        return f"Restored {', '.join(paths) if paths else 'every file'} as at {step}. {reload}"
 --- /dev/null
 +++ b/src/kicad_mcp/tools/workspace.py
-@@ -0,0 +1,396 @@
+@@ -0,0 +1,417 @@
 +"""The project as a workspace: its files, a shell in it, KiCad's API as it is, and the board as an image.
 +
 +Everything stays in the project's repo (the workspace root): paths outside it, and its .git, are refused; git goes
@@ -931,7 +1047,7 @@
 +_MAX_BINARY = 8 * 1024 * 1024
 +_IMAGES = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 +_SHELL: dict[str, jobs.Job] = {}
-+_SHELL_IDS = itertools.count(1)
++_SHELL_IDS: itertools.count[int] | None = None
 +
 +
 +def _root() -> Path:
@@ -992,6 +1108,10 @@
 +    mask = os.umask(0)
 +    os.umask(mask)
 +    return mask
++
++
++def _shell_logs() -> list[Path]:
++    return list((_root() / ".kicad-mcp" / "shell").glob("*.log"))
 +
 +
 +def _shell_report(job_id: str, job: jobs.Job) -> str:
@@ -1212,13 +1332,18 @@
 +        project is there.
 +
 +        Returns its output when it ends within wait_seconds (at most 60); otherwise it runs on as a job,
-+        shell_status(job) reports it and shell_cancel stops it. max_minutes stops it. Output is cut to its first
++        shell_status(job) reports it and shell_cancel stops it cleanly. max_minutes stops it. A job lasts as long
++        as the server: a restart (a deploy) ends it, and detaching it (nohup, setsid, &) doesn't help, it's still
++        the server's. If the kernel stops it for memory, the job says so and the server goes on. Output is cut to its first
 +        2,000 and last 10,000 characters; the whole of it is in .kicad-mcp/shell/<job>.log.
 +        """
 +        running = [job_id for job_id, job in _SHELL.items() if not job.done]
 +        if len(running) >= _MAX_RUNNING:
 +            raise ValueError(f"{len(running)} jobs are running ({', '.join(running)}): wait, or shell_cancel one.")
 +        directory = _path(cwd)
++        global _SHELL_IDS
++        if _SHELL_IDS is None:  # on from the jobs before the server's last start, whose logs stay
++            _SHELL_IDS = itertools.count(max((int(p.stem) for p in _shell_logs() if p.stem.isdigit()), default=0) + 1)
 +        job_id = str(next(_SHELL_IDS))
 +        krt = os.environ.get("KICAD_MCP_KRT_DIR", "")
 +        # KRT's Python first: the server's own launcher puts its Python (no numpy) ahead of the unit's PATH.
@@ -1238,26 +1363,38 @@
 +    @mcp.tool()
 +    @headless_compatible
 +    def shell_status(job: str = "") -> str:
-+        """A shell_run job's output so far, or how it ended. No job lists them all."""
++        """A shell_run job's output so far, or how it ended. No job lists them, the latest first, those from
++        before the server's last start too (a restart ends them: say so, and run them again)."""
 +        if not job:
-+            return "\n".join(
-+                f"{job_id}: {j.ending() if j.done else 'running'}, {j.took()}: {j.label}"
-+                for job_id, j in _SHELL.items()
-+            ) or "No jobs yet."
-+        if job not in _SHELL:
++            lines = [f"{job_id}: {j.ending() if j.done else 'running'}, {j.took()}: {j.label}"
++                     for job_id, j in reversed(_SHELL.items())]
++            for log in sorted(_shell_logs(), key=lambda p: p.stat().st_mtime, reverse=True)[:20]:
++                said = None if log.stem in _SHELL else jobs.previous(log)
++                if said:
++                    lines.append(f"{log.stem}: {said}")
++            return "\n".join(lines) or "No jobs yet."
++        if job in _SHELL:
++            return _shell_report(job, _SHELL[job])
++        log = _root() / ".kicad-mcp" / "shell" / f"{job}.log"
++        said = jobs.previous(log)
++        if said is None:
 +            raise ValueError(f"No job {job!r}: shell_status() lists them.")
-+        return _shell_report(job, _SHELL[job])
++        tail = _clip_output(log.read_text(encoding="utf-8", errors="replace")).rstrip()
++        return f"Job {job}, from before the server restarted: {said}\n{tail[-_OUTPUT_TAIL // 5 :]}"
 +
 +    @mcp.tool()
 +    @headless_compatible
-+    def shell_cancel(job: str) -> str:
-+        """Stop a shell_run job and everything it started."""
++    def shell_cancel(job: str, force: bool = False) -> str:
++        """Stop a shell_run job and everything it started, cleanly: it's asked to stop (SIGTERM, which a script
++        can catch to save its work) and killed after 10 s if it hasn't; force kills it at once."""
 +        if job not in _SHELL:
-+            raise ValueError(f"No job {job!r}: shell_status() lists them.")
-+        if _SHELL[job].done:
-+            return f"Job {job} already ended: {_SHELL[job].ending()}."
-+        jobs.kill(_SHELL[job])
-+        return f"Stopped job {job} after {_SHELL[job].took()}."
++            raise ValueError(f"No job {job!r} running: shell_status() lists them.")
++        target = _SHELL[job]
++        if target.done:
++            return f"Job {job} already ended: {target.ending()}."
++        jobs.stop(target, force=force)
++        jobs.wait(target, jobs.GRACE_SECONDS + 2)
++        return f"{'Stopped' if target.done else 'Stopping'} job {job} after {target.took()}: {target.ending()}."
 +
 +    @mcp.tool()
 +    @headless_compatible
