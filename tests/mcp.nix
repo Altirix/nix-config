@@ -316,6 +316,39 @@ in
         assert "skills/plan-pcb-routing" in texts[4], texts[4]
         mcp.succeed(f"grep -q '(segment' {rt}/rt.kicad_pcb")
 
+        # The project as a workspace: its files, a shell in it, KiCad's own API, the board as an image, and a step
+        # after every call that changed a file, which can be gone back to.
+        out = session("kicad-t", [
+            rt_project,
+            call("file_list", {"path": "rt"}),
+            call("file_search", {"pattern": "\\(segment", "glob": "*.kicad_pcb", "limit": 2}),
+            call("file_write", {"path": "rt/notes.md", "content": "first\n"}),
+            call("file_edit", {"path": "rt/notes.md", "old": "first", "new": "second"}),
+            call("file_read", {"path": "rt/notes.md"}),
+            call("file_read", {"path": "../../../etc/passwd"}),
+            call("file_read", {"path": ".git/config"}),
+            call("shell_run", {"command": "git status --short && kicad-cli version && python3 -c 'import numpy, shapely' && test -d \"$KRT\" && echo shell-ok"}),
+            call("kicad_ipc", {"command": "GetVersion"}),
+            call("kicad_ipc", {"command": "GetItems", "message": {"types": ["KOT_PCB_TRACE"]}}),
+            call("pcb_render_png", {"dpi": 100}),
+            call("vcs_list_steps", {}),
+            call("vcs_restore_step", {"step": "refs/kicad-mcp/steps~1", "paths": ["rt/notes.md"]}),
+            call("file_read", {"path": "rt/notes.md"}),
+        ])
+        texts = ["\n".join(c.get("text", "") for c in r["content"]) for r in out["results"]]
+        for i, (result, text) in enumerate(zip(out["results"], texts)):
+            print(f"kicad-t workspace: {text[:300]!r}")
+            assert bool(result.get("isError")) == (i in (6, 7)), text
+        assert "rt/rt.kicad_pcb" in texts[1] and "(segment" in texts[2], texts[1:3]
+        assert "second" in texts[5] and "shell-ok" in texts[8] and "exit code 0" in texts[8], (texts[5], texts[8])
+        assert '"major": 10' in texts[9] and "kiapi.board.types.Track" in texts[10], texts[9:11]
+        assert any(c.get("type") == "image" for c in out["results"][11]["content"]), out["results"][11]
+        assert "file_edit: rt/notes.md" in texts[12] and "file_write: rt/notes.md" in texts[12], texts[12]
+        assert "first" in texts[14], texts[14]
+        # Steps are a ref of their own: the project's index never had notes.md.
+        steps_git = f"runuser -u mcp-kicad-t -- git -C {repo}"
+        mcp.succeed(f"{steps_git} rev-parse refs/kicad-mcp/steps", f"! {steps_git} ls-files --error-unmatch rt/notes.md")
+
         out = session("kicad-t", [
             ["tools/call", {"name": "kicad_set_project", "arguments": {"project_dir": repo, "pcb_file": f"{repo}/nope.kicad_pcb"}}],
             ["tools/call", {"name": "pcb_add_track", "arguments": {"x1_mm": 0, "y1_mm": 0, "x2_mm": 1, "y2_mm": 0}}],

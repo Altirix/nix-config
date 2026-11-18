@@ -174,6 +174,12 @@ python.pkgs.buildPythonApplication (finalAttrs: {
     # route_krt_apply to make a result the board, route_krt_docs for its documentation and routing skills.
     # FreeRouting's DSN, SES and autorouter tools aren't registered.
     ./kicad-mcp-pro-krt.patch
+    # The project as a workspace, so agents get at it as they would on a PC: file_list, file_read, file_search,
+    # file_write and file_edit in its repo (never its .git), shell_run (with shell_status and shell_cancel for
+    # what runs on), kicad_ipc (KiCad's own API requests as JSON, any of them), pcb_render_png (the board, or a
+    # step or KRT result, as an image), and a step after every call that changed a file: a commit on
+    # refs/kicad-mcp/steps through an index of its own (vcs_list_steps, vcs_diff_steps, vcs_restore_step).
+    ./kicad-mcp-pro-workspace.patch
   ];
 
   pythonImportsCheck = [ "kicad_mcp" ];

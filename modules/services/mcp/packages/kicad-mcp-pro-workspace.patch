@@ -1,0 +1,1029 @@
+--- a/src/kicad_mcp/capabilities.py
++++ b/src/kicad_mcp/capabilities.py
+@@ -369,6 +369,12 @@ def _is_read_tool(name: str, category: str) -> bool:
+         "project_quality_gate_report",
+         "sch_cosmetic_score",
+         "sch_visual_qa",
++        # The workspace's reads (tools/workspace.py).
++        "file_list",
++        "file_read",
++        "file_search",
++        "shell_status",
++        "pcb_render_png",
+     }:
+         return True
+     return name.startswith(
+--- a/src/kicad_mcp/server.py
++++ b/src/kicad_mcp/server.py
+@@ -103,7 +103,7 @@ from .operating_modes import (
+ from .project.http_binding import PROJECT_SELECTION_TOOLS, HttpProjectBinding
+ from .tools import footprint as _footprint
+ from .tools import jobset as _jobset
+-from .tools import router
++from .tools import router, steps
+ from .tools import symbol as _symbol
+ from .tools import upgrade as _upgrade
+ from .tools.fixers import validate_callable_imports
+@@ -1434,6 +1434,8 @@ class KiCadFastMCP(FastMCP):
+                 )
+                 raise
+             finally:
++                # A step of the project's files after every call that may have changed them (tools/steps.py).
++                await anyio.to_thread.run_sync(steps.record, name, arguments)
+                 finish_tool_execution()
+                 elapsed_ms = (time.perf_counter() - started) * 1000.0
+                 _record_tool_metric(name, status, elapsed_ms)
+@@ -2171,6 +2173,7 @@ def _register_conditional_tools(server: KiCadFastMCP, enabled: set[str]) -> None
+         version_control,
+         visual_baseline,
+         visual_qa,
++        workspace,
+     )
+ 
+     if "pcb_read" in enabled or "pcb_write" in enabled:
+@@ -2199,7 +2202,9 @@ def _register_conditional_tools(server: KiCadFastMCP, enabled: set[str]) -> None
+         ("signal_integrity", signal_integrity),
+         ("simulation", simulation),
+         ("version_control", version_control),
++        ("version_control", steps),
+         ("manufacturing", manufacturing),
++        ("workspace", workspace),
+     )
+     for category, module in simple_tool_map:
+         if category in enabled:
+--- /dev/null
++++ b/src/kicad_mcp/tools/jobs.py
+@@ -0,0 +1,106 @@
++"""Commands run in the background for a tool (route_krt_start, shell_run): output to a log, a time limit, cancel."""
++
++from __future__ import annotations
++
++import contextlib
++import os
++import signal
++import subprocess
++import threading
++import time
++from dataclasses import dataclass, field
++from pathlib import Path
++
++
++@dataclass
++class Job:
++    """One command, and how it ended."""
++
++    label: str
++    started: float
++    log_path: Path
++    process: subprocess.Popen[bytes]
++    returncode: int | None = None
++    finished: float | None = None
++    timed_out: bool = False
++    lock: threading.Lock = field(default_factory=threading.Lock)
++
++    @property
++    def done(self) -> bool:
++        with self.lock:
++            return self.finished is not None
++
++    def ending(self) -> str:
++        """How it ended, for a report: its exit code, or why it was stopped."""
++        with self.lock:
++            if self.timed_out:
++                return "stopped at its time limit"
++            if self.returncode == -signal.SIGKILL:
++                return "stopped (cancelled)"
++            return f"exit code {self.returncode}"
++
++    def took(self) -> str:
++        with self.lock:
++            end = self.finished if self.finished is not None else time.monotonic()
++        return minutes(end - self.started)
++
++
++def minutes(seconds: float) -> str:
++    return f"{int(seconds // 60)} min {int(seconds % 60)} s"
++
++
++def child_env(**extra: str) -> dict[str, str]:
++    """The server's environment without its own settings (KICAD_MCP_*, the KiCad API socket)."""
++    env = {key: value for key, value in os.environ.items() if not key.startswith(("KICAD_MCP_", "KICAD_API"))}
++    env["PYTHONDONTWRITEBYTECODE"] = "1"
++    return env | extra
++
++
++def start(argv: list[str], *, label: str, cwd: Path, log_path: Path, env: dict[str, str], max_minutes: float) -> Job:
++    """Start argv in a session of its own (so a cancel stops everything it starts), its output into log_path."""
++    log_path.parent.mkdir(parents=True, exist_ok=True)
++    with log_path.open("wb") as log:
++        process = subprocess.Popen(
++            argv,
++            cwd=cwd,
++            stdin=subprocess.DEVNULL,
++            stdout=log,
++            stderr=subprocess.STDOUT,
++            env=env,
++            start_new_session=True,
++        )
++    job = Job(label=label, started=time.monotonic(), log_path=log_path, process=process)
++    threading.Thread(target=_watch, args=(job, max(1.0, max_minutes) * 60), name="kicad-mcp-job", daemon=True).start()
++    return job
++
++
++def wait(job: Job, seconds: float) -> None:
++    """Wait up to seconds (at most a minute) for it to end."""
++    deadline = time.monotonic() + max(0.0, min(seconds, 60))
++    while time.monotonic() < deadline and not job.done:
++        time.sleep(0.2)
++
++
++def kill(job: Job) -> None:
++    with contextlib.suppress(ProcessLookupError):
++        os.killpg(job.process.pid, signal.SIGKILL)
++
++
++def output(job: Job) -> str:
++    try:
++        return job.log_path.read_text(encoding="utf-8", errors="replace")
++    except OSError:
++        return ""
++
++
++def _watch(job: Job, timeout: float) -> None:
++    try:
++        job.process.wait(timeout=timeout)
++    except subprocess.TimeoutExpired:
++        with job.lock:
++            job.timed_out = True
++        kill(job)
++        job.process.wait()
++    with job.lock:
++        job.returncode = job.process.returncode
++        job.finished = time.monotonic()
+--- a/src/kicad_mcp/tools/router.py
++++ b/src/kicad_mcp/tools/router.py
+@@ -627,6 +627,27 @@ TOOL_CATEGORIES: dict[str, ToolCategory] = {
+             "vcs_branch",
+             "vcs_pull",
+             "vcs_push",
++            "vcs_list_steps",
++            "vcs_diff_steps",
++            "vcs_restore_step",
++        ],
++    },
++    "workspace": {
++        "description": (
++            "The project as a workspace: read, search and write its files, run commands in it (kicad-cli, "
++            "KiCadRoutingTools, git, Python), send KiCad's own API requests, and see the board as an image."
++        ),
++        "tools": [
++            "file_list",
++            "file_read",
++            "file_search",
++            "file_write",
++            "file_edit",
++            "shell_run",
++            "shell_status",
++            "shell_cancel",
++            "kicad_ipc",
++            "pcb_render_png",
+         ],
+     },
+ }
+@@ -661,6 +682,12 @@ _REVIEW_TOOLS: tuple[str, ...] = (
+     "lib_verify_component_contract",
+     "sch_visual_qa",
+     "lib_get_bom_with_pricing",
++    "file_list",
++    "file_read",
++    "file_search",
++    "pcb_render_png",
++    "vcs_list_steps",
++    "vcs_diff_steps",
+ )
+ 
+ _BUILD_TOOLS: tuple[str, ...] = (
+@@ -774,6 +801,7 @@ PROFILE_CATEGORIES: dict[str, tuple[str, ...]] = {
+         "routing",
+         "validation",
+         "version_control",
++        "workspace",
+     ),
+     "critic": (
+         "project",
+@@ -819,7 +847,7 @@ PROFILE_CATEGORIES: dict[str, tuple[str, ...]] = {
+     "analysis": ("project", "pcb_read", "signal_integrity", "power_integrity", "emc", "validation"),
+     "agent_full": tuple(TOOL_CATEGORIES.keys()),
+     # Backward-compatible aliases kept for existing clients.
+-    "pcb": ("project", "pcb_read", "pcb_write", "routing", "export", "validation"),
++    "pcb": ("project", "pcb_read", "pcb_write", "routing", "export", "validation", "workspace"),
+     "schematic": ("project", "schematic", "library", "export", "validation"),
+ }
+ 
+--- a/src/kicad_mcp/tools/routing_krt.py
++++ b/src/kicad_mcp/tools/routing_krt.py
+@@ -4,17 +4,11 @@
+ 
+ from __future__ import annotations
+ 
+-import contextlib
+ import json
+ import os
+ import re
+ import shutil
+-import signal
+-import subprocess
+-import threading
+-import time
+ from collections.abc import Callable
+-from dataclasses import dataclass, field
+ from pathlib import Path
+ from typing import cast
+ 
+@@ -22,6 +16,7 @@ from mcp.server.mcpserver import MCPServer as FastMCP
+ 
+ from ..config import get_config
+ from ..connection import get_board
++from . import jobs
+ from .metadata import headless_compatible
+ from .pcb import (
+     _get_pcb_file_for_sync,
+@@ -35,21 +30,8 @@ _SCRIPT_NAME = re.compile(r"[A-Za-z0-9_]+\.py")
+ _PAGE = 20_000
+ 
+ 
+-@dataclass
+-class _Job:
+-    """The one KRT command running in the background (route_krt_start), and how it ended."""
+-
+-    command: list[str]
+-    started: float
+-    log_path: Path
+-    process: subprocess.Popen[bytes]
+-    returncode: int | None = None
+-    finished: float | None = None
+-    timed_out: bool = False
+-    lock: threading.Lock = field(default_factory=threading.Lock)
+-
+-
+-_JOB: _Job | None = None
++# The one KRT job (route_krt_start) and how it ended.
++_JOB: jobs.Job | None = None
+ 
+ 
+ def _krt_dir() -> Path:
+@@ -68,10 +50,6 @@ def _work_dir() -> Path:
+     return path
+ 
+ 
+-def _minutes(seconds: float) -> str:
+-    return f"{int(seconds // 60)} min {int(seconds % 60)} s"
+-
+-
+ def _script(name: str) -> Path:
+     if _SCRIPT_NAME.fullmatch(name):
+         for folder in _SCRIPT_DIRS:
+@@ -155,32 +133,21 @@ def _autoroute_lines(text: str) -> list[str]:
+     return [*steps.values(), *summary] if steps or summary else []
+ 
+ 
+-def _report(job: _Job) -> str:
+-    with job.lock:
+-        returncode, finished, timed_out = job.returncode, job.finished, job.timed_out
+-    try:
+-        text = job.log_path.read_text(encoding="utf-8", errors="replace")
+-    except OSError:
+-        text = ""
++def _report(job: jobs.Job) -> str:
++    done = job.done
++    text = jobs.output(job)
+     lines = _autoroute_lines(text)
+     if not lines:
+         tail = [line for line in text.splitlines() if line.strip()]
+-        lines = [_clip(line) for line in tail[-(40 if finished is not None else 15):]] or ["(no output yet)"]
++        lines = [_clip(line) for line in tail[-(40 if done else 15):]] or ["(no output yet)"]
+     body = "\n".join(lines)
+     if len(body) > 8000:
+         body = "...\n" + body[-8000:]
+-    command = " ".join(job.command)
+-    if finished is None:
+-        head = f"Running for {_minutes(time.monotonic() - job.started)}: {command}"
++    if not done:
++        head = f"Running for {job.took()}: {job.label}"
+         foot = "Check again with route_krt_status in 5-10 minutes; route_krt_cancel stops it."
+     else:
+-        took = _minutes(finished - job.started)
+-        end = (
+-            "stopped at its time limit" if timed_out
+-            else "stopped (route_krt_cancel)" if returncode == -signal.SIGKILL
+-            else f"exit code {returncode}"
+-        )
+-        head = f"Finished after {took}, {end}: {command}"
++        head = f"Finished after {job.took()}, {job.ending()}: {job.label}"
+         foot = (
+             f"Full log: .kicad-mcp/krt/{job.log_path.name}. Boards here: {', '.join(_boards())}. "
+             "route_krt_apply(file) puts one on the board."
+@@ -193,25 +160,6 @@ def _boards() -> list[str]:
+     return sorted(str(path.relative_to(work)) for path in work.glob("*.kicad_pcb"))
+ 
+ 
+-def _kill(job: _Job) -> None:
+-    """The script and everything it started (autoroute.py runs each step as a process of its own)."""
+-    with contextlib.suppress(ProcessLookupError):
+-        os.killpg(job.process.pid, signal.SIGKILL)
+-
+-
+-def _wait(job: _Job, timeout: float) -> None:
+-    try:
+-        job.process.wait(timeout=timeout)
+-    except subprocess.TimeoutExpired:
+-        with job.lock:
+-            job.timed_out = True
+-        _kill(job)
+-        job.process.wait()
+-    with job.lock:
+-        job.returncode = job.process.returncode
+-        job.finished = time.monotonic()
+-
+-
+ def register(mcp: FastMCP) -> None:
+     """Register the KiCadRoutingTools tools."""
+ 
+@@ -249,37 +197,24 @@ def register(mcp: FastMCP) -> None:
+         route_krt_status reports its progress (check every 5-10 minutes). max_minutes stops it. One at a time.
+         """
+         global _JOB
+-        if _JOB is not None and _JOB.finished is None:
++        if _JOB is not None and not _JOB.done:
+             return f"A KRT job is already running: route_krt_status.\n{_report(_JOB)}"
+         work = _work_dir()
+         path = _script(script)
+         note = ""
+         if copy_board:
+             note = _save_open_board() + f" Copied as {_copy_board(work).name}.\n"
+-        log_path = work / f"{Path(script).stem}.log"
+-        command = [os.environ.get("KICAD_MCP_KRT_PYTHON", "python3"), "-u", "-X", "utf8", str(path), *(args or [])]
+-        # Not the server's own settings, which KRT would echo into every log.
+-        env = {key: value for key, value in os.environ.items() if not key.startswith(("KICAD_MCP_", "KICAD_API"))}
+-        env["PYTHONDONTWRITEBYTECODE"] = "1"
+-        with log_path.open("wb") as log:
+-            process = subprocess.Popen(
+-                command,
+-                cwd=work,
+-                stdin=subprocess.DEVNULL,
+-                stdout=log,
+-                stderr=subprocess.STDOUT,
+-                env=env,
+-                start_new_session=True,
+-            )
+-        job = _Job(command=[script, *(args or [])], started=time.monotonic(), log_path=log_path, process=process)
+-        _JOB = job
+-        threading.Thread(
+-            target=_wait, args=(job, max(1.0, max_minutes) * 60), name="kicad-mcp-krt", daemon=True
+-        ).start()
+-        deadline = time.monotonic() + max(0.0, min(wait_seconds, 60))
+-        while time.monotonic() < deadline and job.finished is None:
+-            time.sleep(0.5)
+-        return note + _report(job)
++        _JOB = jobs.start(
++            [os.environ.get("KICAD_MCP_KRT_PYTHON", "python3"), "-u", "-X", "utf8", str(path), *(args or [])],
++            label=" ".join([script, *(args or [])]),
++            cwd=work,
++            log_path=work / f"{Path(script).stem}.log",
++            # Not the server's own settings, which KRT would echo into every log.
++            env=jobs.child_env(),
++            max_minutes=max_minutes,
++        )
++        jobs.wait(_JOB, wait_seconds)
++        return note + _report(_JOB)
+ 
+     @mcp.tool()
+     @headless_compatible
+@@ -294,10 +229,10 @@ def register(mcp: FastMCP) -> None:
+     def route_krt_cancel() -> str:
+         """Stop the KRT job (route_krt_start) and everything it started. The board is unchanged."""
+         job = _JOB
+-        if job is None or job.finished is not None:
++        if job is None or job.done:
+             return "No KRT job is running."
+-        _kill(job)
+-        return f"Stopped {' '.join(job.command)} after {_minutes(time.monotonic() - job.started)}."
++        jobs.kill(job)
++        return f"Stopped {job.label} after {job.took()}."
+ 
+     @mcp.tool()
+     @headless_compatible
+@@ -307,7 +242,7 @@ def register(mcp: FastMCP) -> None:
+         It replaces the whole board, which KiCad then reloads: edits made since the job copied the board are
+         lost. Refill the zones (pcb_refill_zones) and run run_drc after.
+         """
+-        if _JOB is not None and _JOB.finished is None:
++        if _JOB is not None and not _JOB.done:
+             return "A KRT job is running: wait for it, or route_krt_cancel."
+         work = _work_dir().resolve()
+         source = (work / file).resolve()
+--- /dev/null
++++ b/src/kicad_mcp/tools/steps.py
+@@ -0,0 +1,184 @@
++"""A step after every tool call that changes the project: its files as they are then, a commit on refs/kicad-mcp/steps.
++
++Steps go through an index of their own, so the project's index, branches and commits are never touched, and they
++are never pushed (pushes are branches only). The first step's parent is the commit checked out then; after that
++each step's parent is the step before, also across branch switches. Nothing changed, no step. What git ignores
++(the excludes file, .gitignore) is left out, as in a commit. The open board is saved first, so its live edits are
++in the step.
++"""
++
++# pyright: reportUnusedFunction=false
++
++from __future__ import annotations
++
++import os
++import subprocess
++import threading
++from pathlib import Path
++
++import structlog
++from mcp.server.mcpserver import MCPServer as FastMCP
++
++from ..capabilities import AccessTier
++from ..capabilities import get as capability
++from ..config import get_config
++from .metadata import headless_compatible
++
++logger = structlog.get_logger(__name__)
++
++REF = "refs/kicad-mcp/steps"
++_IDENTITY = {
++    "GIT_AUTHOR_NAME": "KiCad MCP steps",
++    "GIT_AUTHOR_EMAIL": "steps@kicad-mcp",
++    "GIT_COMMITTER_NAME": "KiCad MCP steps",
++    "GIT_COMMITTER_EMAIL": "steps@kicad-mcp",
++}
++_LOCK = threading.Lock()
++# Tools that change the open board: it's saved before their step.
++_BOARD_PREFIXES = ("pcb_", "route_", "kicad_ipc", "board_", "zone_")
++# Argument names that say what a call was about, for the step's message.
++_SUBJECT_KEYS = ("path", "file", "command", "script", "reference", "name", "net", "message", "step")
++
++
++def _git(*args: str, env: dict[str, str] | None = None, check: bool = True) -> str:
++    root = get_config().workspace
++    result = subprocess.run(
++        ["git", "-C", str(root), *args],
++        capture_output=True,
++        text=True,
++        env=env,
++        timeout=120,
++    )
++    if check and result.returncode != 0:
++        raise RuntimeError(f"git {args[0]}: {result.stderr.strip() or result.stdout.strip()}")
++    return result.stdout.strip()
++
++
++def _env() -> dict[str, str]:
++    git_dir = Path(_git("rev-parse", "--absolute-git-dir"))
++    return dict(os.environ, GIT_INDEX_FILE=str(git_dir / "kicad-mcp-steps.index"), **_IDENTITY)
++
++
++def _subject(tool: str, arguments: dict[str, object]) -> str:
++    for key in _SUBJECT_KEYS:
++        value = arguments.get(key)
++        if isinstance(value, str) and value:
++            value = " ".join(value.split())
++            return f"{tool}: {value[:120]}"
++    return tool
++
++
++def changes_files(tool: str) -> bool:
++    """Whether a call may change the project: everything but the read tools."""
++    record = capability(tool)
++    return record is None or record.tier is not AccessTier.READ
++
++
++def _save_board(tool: str, arguments: dict[str, object]) -> None:
++    if not tool.startswith(_BOARD_PREFIXES) or tool == "pcb_save":
++        return
++    command = str(arguments.get("command") or "")
++    if tool == "kicad_ipc" and command.rsplit(".", 1)[-1].startswith("Get"):  # KiCad's API reads change nothing
++        return
++    from .pcb import _native_live_transaction_active
++    from .routing_krt import _save_open_board
++
++    if not _native_live_transaction_active():  # a staged transaction is saved when it's committed
++        _save_open_board()
++
++
++def record(tool: str, arguments: dict[str, object]) -> str | None:
++    """Make a step after a tool call, if the project's files changed; its commit, else None."""
++    if not changes_files(tool):
++        return None
++    with _LOCK:
++        try:
++            _save_board(tool, arguments)
++            env = _env()
++            latest = _git("rev-parse", "--verify", "--quiet", REF, check=False)
++            parent = latest or _git("rev-parse", "--verify", "--quiet", "HEAD", check=False)
++            if not Path(env["GIT_INDEX_FILE"]).exists() and parent:
++                _git("read-tree", parent, env=env)
++            _git("add", "--all", env=env)
++            tree = _git("write-tree", env=env)
++            if parent and tree == _git("rev-parse", f"{parent}^{{tree}}"):
++                return None
++            commit = _git(
++                "commit-tree", tree, *(["-p", parent] if parent else []), "-m", _subject(tool, arguments), env=env
++            )
++            _git("update-ref", REF, commit, latest)  # only from the step it was made on ("": none yet)
++            return commit
++        except Exception as exc:  # noqa: BLE001 - a step is never worth failing the call it records
++            logger.warning("step_failed", tool=tool, error=str(exc)[:300])
++            return None
++
++
++def register(mcp: FastMCP) -> None:
++    """Register the step tools."""
++
++    @mcp.tool()
++    @headless_compatible
++    def vcs_list_steps(limit: int = 30) -> str:
++        """The latest steps, newest first: a step is made after every tool call that changed the project's files.
++
++        Each line: the step, when, the call that made it, and the files it changed. vcs_diff_steps shows what one
++        changed, pcb_render_png(step=...) shows the board then, vcs_restore_step goes back to one.
++        """
++        if not _git("rev-parse", "--verify", "--quiet", REF, check=False):
++            return "No steps yet: one is made after the first tool call that changes a file."
++        out = _git(
++            "log", "--first-parent", f"-n{max(1, min(limit, 200))}", "--name-only",
++            "--format=%x00%h%x09%ad%x09%ae%x09%s", "--date=format:%Y-%m-%d %H:%M:%S", REF,
++        )
++        lines = []
++        for entry in out.split("\x00")[1:]:
++            head, _, names = entry.partition("\n")
++            short, when, email, subject = (head.split("\t") + ["", "", "", ""])[:4]
++            if email != _IDENTITY["GIT_AUTHOR_EMAIL"]:
++                lines.append(f"{short} {when} (commit: {subject}): where the steps start")
++                break
++            files = [name for name in names.split("\n") if name]
++            shown = ", ".join(files[:6]) + (f" and {len(files) - 6} more" if len(files) > 6 else "")
++            lines.append(f"{short} {when} {subject}: {shown}")
++        return "\n".join(lines)
++
++    @mcp.tool()
++    @headless_compatible
++    def vcs_diff_steps(step: str, to: str = "", path: str = "", patch: bool = False, max_chars: int = 20000) -> str:
++        """What a step changed (from the one before it), or everything between step and to (a step, commit or
++        branch). path keeps it to those files. patch=true shows the lines, else the files and how much."""
++        old, new = (f"{step}^", step) if not to else (step, to)
++        args = ["diff", "--find-renames", old, new, *(["--", path] if path else [])]
++        out = _git(*args) if patch else _git(*args[:1], "--stat=160", *args[1:])
++        if not out:
++            return "No changes."
++        if len(out) > max_chars:
++            out = out[:max_chars] + f"\n... [{len(out) - max_chars} more characters: narrow it with path]"
++        return out
++
++    @mcp.tool()
++    @headless_compatible
++    def vcs_restore_step(step: str, paths: list[str] | None = None) -> str:
++        """Put the project's files back as they were at a step (vcs_list_steps): all of them, or only paths.
++
++        Restoring all of them also removes files made since. KiCad reloads the board. The restore is a step
++        itself, so it can be undone the same way. Commits and branches are unchanged: commit to keep it.
++        """
++        if not _git("rev-parse", "--verify", "--quiet", f"{step}^{{commit}}", check=False):
++            return f"No step {step!r}: vcs_list_steps."
++        latest = _git("rev-parse", REF)
++        if paths:
++            _git("restore", f"--source={step}", "--worktree", "--", *paths)
++        else:
++            added = _git("diff", "--name-only", "--diff-filter=A", "-z", step, latest).split("\x00")
++            root = get_config().workspace
++            for name in filter(None, added):
++                (root / name).unlink(missing_ok=True)
++            _git("restore", f"--source={step}", "--worktree", "--", ":/")
++        from .pcb import _reload_board_after_file_sync
++
++        try:
++            reload = _reload_board_after_file_sync()
++        except Exception as exc:  # noqa: BLE001 - the files are back; KiCad opens them when it's next asked
++            reload = f"KiCad couldn't be asked to reload the board ({str(exc)[:200]})."
++        return f"Restored {', '.join(paths) if paths else 'every file'} as at {step}. {reload}"
+--- /dev/null
++++ b/src/kicad_mcp/tools/workspace.py
+@@ -0,0 +1,415 @@
++"""The project as a workspace: its files, a shell in it, KiCad's API as it is, and the board as an image.
++
++Everything stays in the project's repo (the workspace root): paths outside it, and its .git, are refused; git goes
++through the vcs_* tools or the shell. Every call that changes something is a step (steps.py).
++"""
++
++# pyright: reportUnusedFunction=false
++
++from __future__ import annotations
++
++import importlib
++import itertools
++import json
++import os
++import pkgutil
++import shutil
++import subprocess
++from pathlib import Path
++from typing import Any, cast
++
++from mcp.server.mcpserver import MCPServer as FastMCP
++from mcp.types import CallToolResult
++
++from ..config import get_config
++from ..mcp_media import image_tool_result
++from . import jobs
++from .metadata import headless_compatible
++
++_READ_LINES = 400
++_READ_CHARS = 60_000
++_LINE_CHARS = 2_000
++_OUTPUT_HEAD = 2_000
++_OUTPUT_TAIL = 10_000
++_MAX_RUNNING = 4
++_SHELL: dict[str, jobs.Job] = {}
++_SHELL_IDS = itertools.count(1)
++
++
++def _root() -> Path:
++    return get_config().workspace.resolve()
++
++
++def _path(path: str, *, write: bool = False) -> Path:
++    """A path in the project (relative to its root, or absolute inside it); never its .git."""
++    root = _root()
++    target = (root / path).resolve()
++    if not target.is_relative_to(root):
++        raise ValueError(f"{path!r} is outside the project ({root}).")
++    if ".git" in target.relative_to(root).parts:
++        raise ValueError("The project's .git is off limits: use the vcs_* tools, or git in shell_run.")
++    if write and target.is_dir():
++        raise ValueError(f"{path!r} is a folder.")
++    return target
++
++
++def _shown(target: Path) -> str:
++    return str(target.relative_to(_root())) or "."
++
++
++def _clip_output(text: str) -> str:
++    if len(text) <= _OUTPUT_HEAD + _OUTPUT_TAIL:
++        return text
++    cut = len(text) - _OUTPUT_HEAD - _OUTPUT_TAIL
++    return f"{text[:_OUTPUT_HEAD]}\n... [{cut} characters left out] ...\n{text[-_OUTPUT_TAIL:]}"
++
++
++def _after_write(target: Path) -> str:
++    """KiCad reloads the open board when its file was written."""
++    from .pcb import _get_pcb_file_for_sync, _reload_board_after_file_sync
++
++    try:
++        if target == _get_pcb_file_for_sync().resolve():
++            return " " + _reload_board_after_file_sync()
++    except Exception as exc:  # noqa: BLE001 - written either way; KiCad opens the new file when it's next asked
++        return f" KiCad couldn't be asked to reload the board ({str(exc)[:200]})."
++    return ""
++
++
++def _write(target: Path, text: str) -> None:
++    target.parent.mkdir(parents=True, exist_ok=True)
++    temp = target.with_name(f".{target.name}.kicad-mcp-tmp")
++    temp.write_text(text, encoding="utf-8")
++    if target.exists():
++        shutil.copymode(target, temp)
++    else:
++        temp.chmod(0o666 & ~_umask())
++    temp.replace(target)
++
++
++def _umask() -> int:
++    mask = os.umask(0)
++    os.umask(mask)
++    return mask
++
++
++def _shell_report(job_id: str, job: jobs.Job) -> str:
++    out = _clip_output(jobs.output(job)).rstrip() or "(no output)"
++    if not job.done:
++        return (
++            f"Job {job_id} running for {job.took()}: {job.label}\n{out[-_OUTPUT_TAIL // 5 :]}\n"
++            f"shell_status(job={job_id!r}) for more, shell_cancel to stop it."
++        )
++    return f"Job {job_id} finished after {job.took()}, {job.ending()}: {job.label}\n{out}"
++
++
++def _proto_modules() -> None:
++    """Import every message KiCad's API defines, so a request can be named and its answer read."""
++    import kipy.proto
++
++    for module in pkgutil.walk_packages(kipy.proto.__path__, "kipy.proto."):
++        if module.name.endswith("_pb2"):
++            importlib.import_module(module.name)
++
++
++def _message_class(name: str) -> type[Any]:
++    from google.protobuf import message_factory, symbol_database
++
++    _proto_modules()
++    pool = symbol_database.Default().pool
++    candidates = [name] if "." in name else [
++        f"kiapi.{area}.commands.{name}" for area in ("common", "board", "schematic")
++    ]
++    for full in candidates:
++        try:
++            return message_factory.GetMessageClass(pool.FindMessageTypeByName(full))
++        except KeyError:
++            continue
++    raise ValueError(f"KiCad's API has no request {name!r}: kicad_ipc() lists them.")
++
++
++def _commands() -> list[str]:
++    import kipy.proto
++
++    _proto_modules()
++    names = []
++    for module in pkgutil.walk_packages(kipy.proto.__path__, "kipy.proto."):
++        if module.name.endswith("commands_pb2") or ".commands." in module.name:
++            descriptor = getattr(importlib.import_module(module.name), "DESCRIPTOR", None)
++            if descriptor is not None:
++                names += [
++                    f"{descriptor.package}.{n}" for n in descriptor.message_types_by_name if not n.endswith("Response")
++                ]
++    return sorted(set(names))
++
++
++def _fill_document(message: Any, document: Any) -> None:
++    """Point every unset DocumentSpecifier in the request (at the top, or in its header) at the open board."""
++    for field in message.DESCRIPTOR.fields:
++        repeated = field.is_repeated if hasattr(field, "is_repeated") else field.label == field.LABEL_REPEATED
++        if field.message_type is None or repeated:
++            continue
++        if field.message_type.full_name == "kiapi.common.types.DocumentSpecifier":
++            if not message.HasField(field.name):
++                getattr(message, field.name).CopyFrom(document)
++        elif field.name == "header":
++            _fill_document(getattr(message, field.name), document)
++
++
++def _send_raw(command: Any) -> dict[str, Any]:
++    """KiCadClient.send, but the answer is read as whatever type KiCad says it is."""
++    import pynng
++    from google.protobuf import json_format, message_factory, symbol_database
++    from kipy.errors import ApiError
++    from kipy.proto.common import ApiRequest, ApiResponse, ApiStatusCode
++
++    from ..connection import get_board
++
++    board = get_board()  # opens the selected board in the headless KiCad
++    kicad = board._kicad  # noqa: SLF001 - the one connection kipy holds: a KiCadClient, or a KiCad around one
++    client = getattr(kicad, "_client", kicad)
++    if not client.connected:
++        client._connect()  # noqa: SLF001
++    envelope = ApiRequest()
++    envelope.message.Pack(command)
++    envelope.header.kicad_token = client._kicad_token  # noqa: SLF001
++    envelope.header.client_name = client._client_name  # noqa: SLF001
++    try:
++        client._conn.send(envelope.SerializeToString())  # noqa: SLF001
++        data = client._conn.recv_msg().bytes  # noqa: SLF001
++    except pynng.exceptions.NNGException as exc:
++        client._connected = False  # noqa: SLF001
++        raise ConnectionError(f"KiCad's API didn't answer: {exc}") from None
++    reply = ApiResponse()
++    reply.ParseFromString(data)
++    if reply.status.status != ApiStatusCode.AS_OK:
++        raise ApiError(f"KiCad returned error: {reply.status.error_message}", raw_message=reply.status.error_message,
++                       code=reply.status.status)
++    type_name = reply.message.type_url.rsplit("/", 1)[-1]
++    if not type_name:
++        return {"type": "", "message": {}}
++    pool = symbol_database.Default().pool
++    answer = message_factory.GetMessageClass(pool.FindMessageTypeByName(type_name))()
++    reply.message.Unpack(answer)
++    return {"type": type_name, "message": json_format.MessageToDict(answer, preserving_proto_field_name=True)}
++
++
++def register(mcp: FastMCP) -> None:
++    """Register the workspace tools."""
++
++    @mcp.tool()
++    @headless_compatible
++    def file_list(path: str = ".", pattern: str = "*", recursive: bool = False, limit: int = 500) -> str:
++        """Files and folders in the project (folders end in /), with sizes. pattern is a glob (*.kicad_sch);
++        recursive goes into subfolders. .git is left out."""
++        base = _path(path)
++        if not base.is_dir():
++            raise ValueError(f"{path!r} isn't a folder.")
++        found = base.rglob(pattern) if recursive else base.glob(pattern)
++        entries = []
++        for item in sorted(found):
++            if ".git" in item.relative_to(_root()).parts:
++                continue
++            entries.append(f"{_shown(item)}/" if item.is_dir() else f"{_shown(item)} ({item.stat().st_size} B)")
++            if len(entries) >= limit:
++                entries.append("... more: raise limit, or narrow pattern")
++                break
++        return "\n".join(entries) or "Nothing there."
++
++    @mcp.tool()
++    @headless_compatible
++    def file_read(path: str, offset: int = 1, limit: int = _READ_LINES) -> str:
++        """A text file from the project, its lines numbered, from line offset, limit lines at a time (a board or
++        schematic is S-expressions: file_search finds what to read)."""
++        target = _path(path)
++        data = target.read_bytes()
++        if b"\0" in data[:8192]:
++            return f"{_shown(target)} is binary ({len(data)} B)."
++        lines = data.decode("utf-8", errors="replace").splitlines()
++        start = max(1, offset)
++        out, size = [], 0
++        for number in range(start, min(len(lines), start + max(1, limit) - 1) + 1):
++            line = lines[number - 1]
++            line = line if len(line) <= _LINE_CHARS else line[:_LINE_CHARS] + " ..."
++            size += len(line)
++            if size > _READ_CHARS:
++                break
++            out.append(f"{number:>6}\t{line}")
++        last = start + len(out) - 1
++        more = f"\n[lines {start}-{last} of {len(lines)}: offset={last + 1} for more]" if last < len(lines) else ""
++        return "\n".join(out) + more
++
++    @mcp.tool()
++    @headless_compatible
++    def file_search(
++        pattern: str, path: str = ".", glob: str = "", ignore_case: bool = False, limit: int = 200
++    ) -> str:
++        """Lines matching a regular expression (extended) in the project's files, as file:line:text. glob keeps
++        it to some files (*.kicad_pcb). Files git ignores are left out."""
++        base = _path(path)
++        where = _shown(base)
++        spec = where if not glob else f":(glob){'' if where == '.' else where + '/'}**/{glob}"
++        result = subprocess.run(
++            ["git", "-C", str(_root()), "grep", "-n", "-I", "-E", "--untracked", *(["-i"] if ignore_case else []),
++             "-e", pattern, "--", spec],
++            capture_output=True, text=True, timeout=120,
++        )
++        if result.returncode == 1:
++            return "No matches."
++        if result.returncode != 0:
++            raise ValueError(result.stderr.strip())
++        lines = [line[:_LINE_CHARS] for line in result.stdout.splitlines()]
++        more = f"\n... {len(lines) - limit} more: narrow it" if len(lines) > limit else ""
++        return "\n".join(lines[:limit]) + more
++
++    @mcp.tool()
++    @headless_compatible
++    def file_write(path: str, content: str) -> str:
++        """Write a file in the project, whole (made if it's new, folders too). KiCad reloads the board when it's
++        the open board's file. For a change inside a file, file_edit."""
++        target = _path(path, write=True)
++        _write(target, content)
++        return f"Wrote {_shown(target)} ({len(content.encode())} B).{_after_write(target)}"
++
++    @mcp.tool()
++    @headless_compatible
++    def file_edit(path: str, old: str, new: str, replace_all: bool = False) -> str:
++        """Replace old with new in a project file. old must be there exactly once, unless replace_all."""
++        target = _path(path, write=True)
++        text = target.read_text(encoding="utf-8")
++        count = text.count(old)
++        if count == 0 or not old:
++            raise ValueError(f"old isn't in {_shown(target)}: copy it exactly, with its whitespace (file_read).")
++        if count > 1 and not replace_all:
++            raise ValueError(f"old is in {_shown(target)} {count} times: give more around it, or replace_all.")
++        _write(target, text.replace(old, new))
++        return f"Replaced {count} in {_shown(target)}.{_after_write(target)}"
++
++    @mcp.tool()
++    @headless_compatible
++    def shell_run(command: str, cwd: str = ".", wait_seconds: float = 60, max_minutes: float = 60) -> str:
++        """Run a bash command in the project, as its server: kicad-cli, git (its remote goes through the push
++        gate), python3 with numpy, scipy, shapely and Pillow, KiCadRoutingTools in $KRT (python3
++        $KRT/py_router/route.py ...). Only the project and the server's own state ($HOME) are writable, and no other
++        project is there.
++
++        Returns its output when it ends within wait_seconds (at most 60); otherwise it runs on as a job,
++        shell_status(job) reports it and shell_cancel stops it. max_minutes stops it. Output is cut to its first
++        2,000 and last 10,000 characters; the whole of it is in .kicad-mcp/shell/<job>.log.
++        """
++        running = [job_id for job_id, job in _SHELL.items() if not job.done]
++        if len(running) >= _MAX_RUNNING:
++            raise ValueError(f"{len(running)} jobs are running ({', '.join(running)}): wait, or shell_cancel one.")
++        directory = _path(cwd)
++        job_id = str(next(_SHELL_IDS))
++        krt = os.environ.get("KICAD_MCP_KRT_DIR", "")
++        # KRT's Python first: the server's own launcher puts its Python (no numpy) ahead of the unit's PATH.
++        python = os.environ.get("KICAD_MCP_KRT_PYTHON", "")
++        path = os.pathsep.join(filter(None, [str(Path(python).parent) if python else "", os.environ.get("PATH", "")]))
++        _SHELL[job_id] = job = jobs.start(
++            [shutil.which("bash") or "/bin/sh", "-c", command],
++            label=command if len(command) <= 200 else command[:200] + " ...",
++            cwd=directory,
++            log_path=_root() / ".kicad-mcp" / "shell" / f"{job_id}.log",
++            env=jobs.child_env(KRT=krt, PATH=path),
++            max_minutes=max_minutes,
++        )
++        jobs.wait(job, wait_seconds)
++        return _shell_report(job_id, job)
++
++    @mcp.tool()
++    @headless_compatible
++    def shell_status(job: str = "") -> str:
++        """A shell_run job's output so far, or how it ended. No job lists them all."""
++        if not job:
++            return "\n".join(
++                f"{job_id}: {j.ending() if j.done else 'running'}, {j.took()}: {j.label}"
++                for job_id, j in _SHELL.items()
++            ) or "No jobs yet."
++        if job not in _SHELL:
++            raise ValueError(f"No job {job!r}: shell_status() lists them.")
++        return _shell_report(job, _SHELL[job])
++
++    @mcp.tool()
++    @headless_compatible
++    def shell_cancel(job: str) -> str:
++        """Stop a shell_run job and everything it started."""
++        if job not in _SHELL:
++            raise ValueError(f"No job {job!r}: shell_status() lists them.")
++        if _SHELL[job].done:
++            return f"Job {job} already ended: {_SHELL[job].ending()}."
++        jobs.kill(_SHELL[job])
++        return f"Stopped job {job} after {_SHELL[job].took()}."
++
++    @mcp.tool()
++    @headless_compatible
++    def kicad_ipc(command: str = "", message: dict[str, Any] | None = None, fill_document: bool = True,
++                  max_chars: int = 30000) -> str:
++        """Send one request to KiCad's own API (protobuf, as JSON) on the open board, and return its answer.
++
++        command: a request's name, short (GetItems, GetBoardStackup, CreateItems, BeginCommit) or full
++        (kiapi.board.commands.GetItems); no command lists them all. message: its fields as JSON, as KiCad's API
++        defines them (field names as in its .proto files). fill_document points any document field left unset
++        at the open board. Edits made this way are live, like the pcb_* tools': wrap several in BeginCommit and
++        EndCommit for one undo step, and the board is saved into the call's step.
++        """
++        if not command:
++            return "KiCad's API requests:\n" + "\n".join(_commands())
++        from google.protobuf import json_format
++
++        from ..connection import get_board
++        from .pcb import _run_queued_ipc_mutation
++
++        request = _message_class(command)()
++        json_format.ParseDict(message or {}, request)
++        if fill_document:
++            _fill_document(request, get_board().document)
++        answer = _run_queued_ipc_mutation("kicad_ipc", lambda: _send_raw(request))
++        text = json.dumps(answer, indent=1)
++        if len(text) > max_chars:
++            text = text[:max_chars] + f"\n... [{len(text) - max_chars} more characters: ask for less, or raise max_chars]"
++        return text
++
++    @mcp.tool()
++    @headless_compatible
++    def pcb_render_png(
++        layers: str = "F.Cu,B.Cu,F.SilkS,B.SilkS,F.Mask,Edge.Cuts",
++        side: str = "top",
++        file: str = "",
++        step: str = "",
++        dpi: int = 200,
++    ) -> CallToolResult:
++        """The board as an image: the layers given (comma separated, KiCad's names), from the top, or the bottom
++        (mirrored). file renders another board in the project (a KRT result in .kicad-mcp/krt/); step renders the
++        board as it was at a step (vcs_list_steps) or commit. The open board is saved first, so live edits show.
++        """
++        from .export_support import _run_cli
++        from .pcb import _get_pcb_file_for_sync
++        from .routing_krt import _save_open_board
++        from .schematic import _render_svg_to_png
++
++        out_dir = _root() / ".kicad-mcp" / "render"
++        out_dir.mkdir(parents=True, exist_ok=True)
++        board = _path(file) if file else _get_pcb_file_for_sync().resolve()
++        if step:
++            relative = str(board.relative_to(_root()))
++            shown = subprocess.run(["git", "-C", str(_root()), "show", f"{step}:{relative}"],
++                                   capture_output=True, text=True, timeout=60)
++            if shown.returncode != 0:
++                raise ValueError(f"{relative} isn't in {step}: {shown.stderr.strip()}")
++            board = out_dir / f"{step[:12]}-{board.name}"
++            board.write_text(shown.stdout, encoding="utf-8")
++        elif not file:
++            _save_open_board()
++        name = f"{board.stem}-{side}"
++        svg = out_dir / f"{name}.svg"
++        args = ["pcb", "export", "svg", "--mode-single", "--page-size-mode", "2", "--exclude-drawing-sheet",
++                "--layers", layers, "--output", str(svg), *(["--mirror"] if side == "bottom" else []), str(board)]
++        code, _stdout, stderr = _run_cli(*args)
++        if code != 0 or not svg.exists():
++            raise RuntimeError(f"kicad-cli couldn't plot {board.name}: {stderr.strip()[:500]}")
++        png = out_dir / f"{name}.png"
++        meta = cast(dict[str, Any], _render_svg_to_png(svg, png, dpi=dpi, crop_to_content=True))
++        meta |= {"board": _shown(board) if board.is_relative_to(_root()) else board.name, "layers": layers,
++                 "side": side, "step": step}
++        return image_tool_result(png, meta)

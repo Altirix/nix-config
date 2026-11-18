@@ -349,6 +349,19 @@ the two the same; the other scripts take the limits as options (`packages/kicad-
 rules (`<project>.kicad_dru`, committed with it) and report the lengths as they are, DRC checks them. Every edit
 goes straight to the file, there's no undo on the server: commit before anything big, `git revert` is the undo.
 
+Agents also get the project as they would on a PC (`packages/kicad-mcp-pro-workspace.patch`), so they aren't
+limited to what the tools above return: `file_list`, `file_read`, `file_search` (git grep), `file_write` and
+`file_edit` anywhere in its repo but its `.git`; `shell_run`, a bash in the repo as its server, with kicad-cli, git
+(pushes still go through the gate), Python with numpy, scipy, shapely and Pillow, and KiCadRoutingTools in `$KRT`
+(what runs past `wait_seconds` goes on as a job: `shell_status`, `shell_cancel`); `kicad_ipc`, any request of
+KiCad's own API as JSON on the open board (no command lists them); and `pcb_render_png`, the board as an image, also
+as it was at a step or a KRT result. After every call that may have changed something the server makes a step: the
+open board is saved and the repo's files, as git would commit them, go into a commit on `refs/kicad-mcp/steps`
+through an index of its own, so the project's index and branches are untouched and steps are never pushed.
+`vcs_list_steps`, `vcs_diff_steps` and `vcs_restore_step` (itself a step) go through them. The shell is a shell on the
+VM as that project's user: it reaches what the server does, its repo and the internet, not the deploy key or another
+project, and `readonly` mode leaves only the reads.
+
 That API server only exists in KiCad's development branch (what becomes KiCad 11), so every KiCad on the server is
 that one (`packages/kicad-master.nix`, pinned, compiled by the build host, an hour or so), with KiCad MCP Pro patched
 to open the selected board (`packages/kicad-mcp-pro-headless.patch`) and kicad-python built from git against it

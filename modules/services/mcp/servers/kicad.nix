@@ -212,7 +212,8 @@ in
       publishAt = "/kicad/${p}/mcp";
       command = lib.getExe server;
       inherit (project) port;
-      path = [ kicad pkgs.git ];
+      # What shell_run finds: kicad-cli, git, bash (and KiCadRoutingTools' Python as python3, KICAD_MCP_KRT_PYTHON).
+      path = [ kicad pkgs.git pkgs.bash ];
       environment = {
         KICAD_MCP_PROJECT_DIR = repo p;
         KICAD_MCP_WORKSPACE_ROOT = repo p;
