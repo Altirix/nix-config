@@ -15,5 +15,7 @@ in
     args = lib.mkDefault [ "--http" "--host" "0.0.0.0" "--port" (toString cfg.port) ];
     transport = lib.mkDefault "http";
     port = lib.mkDefault 8109;
+    # Its /mcp is a redirect to /mcp/ that drops the front door's prefix (http://mcp.peacocks.me/mcp/).
+    endpoint = lib.mkDefault "/mcp/";
   };
 }

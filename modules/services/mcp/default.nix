@@ -64,6 +64,12 @@ let
         type = types.bool;
         default = false;
       };
+      # The path the server itself answers MCP on, which the front door connects to. markitdown's is /mcp/: it
+      # redirects /mcp there, without the front door's prefix.
+      endpoint = mkOption {
+        type = types.str;
+        default = "/mcp";
+      };
       # Where it's published, /<name>/mcp unless set (e.g. /kicad/<project>/mcp for a server per project).
       publishAt = mkOption {
         type = types.nullOr types.str;
@@ -162,7 +168,7 @@ in
 
     homelab.publish.locations = lib.mapAttrs' (name: s: lib.nameValuePair (if s.publishAt != null then s.publishAt else "/${name}/mcp") {
       inherit (s) port;
-      path = "/mcp";
+      path = s.endpoint;
       mcp = true;
     }) (lib.filterAttrs (_: s: s.public) enabled);
   };
