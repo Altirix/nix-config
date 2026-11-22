@@ -87,8 +87,8 @@ It takes the Windows host's identity, `homelab.wsl.windowsUser` names the accoun
   only works on Windows. The Windows drives mount as `admin`'s at 0755, ssh refuses a config others can write.
 - git: `C:\Users\<user>\.gitconfig` is included (name, email, aliases), then checkouts are LF
   (`core.autocrlf=input`), ssh remotes go through the agent and https ones through Git for Windows' credential
-  manager. Commit and push from WSL: a checkout made by Git for Windows is usually CRLF, which ends up in the
-  scripts Nix builds.
+  manager. Keep the checkout you deploy from in WSL (`~/nix-config`): a flake on `/mnt/c` is slow to copy into the
+  store, and the drives' 0755 makes git there see every file as changed.
 
 The agent has to be running with the keys in it, from an admin PowerShell on Windows:
 
