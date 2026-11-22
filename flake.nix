@@ -59,6 +59,9 @@
               networking.hostName = name;
               # ZFS won't import pools written under another hostId, pin it in the host before renaming one.
               networking.hostId = lib.mkDefault (builtins.substring 0 8 (builtins.hashString "sha256" name));
+              # The commit this generation was built from (`nixos-version --configuration-revision`), a dirty tree
+              # gets `<rev>-dirty`.
+              system.configurationRevision = self.rev or self.dirtyRev or null;
               sops.defaultSopsFile = lib.mkIf (builtins.pathExists (dir + "/secrets.yaml")) (dir + "/secrets.yaml");
             }
           ];
