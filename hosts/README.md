@@ -75,6 +75,12 @@ incus config device remove <name> install
 
 `modules/wsl.nix` is a NixOS-WSL distro: Windows owns the kernel, disks and network, so there is no
 hardware-configuration.nix, storage.nix or labs address, and it ships no logs. The default user is `admin`.
+It's where deploys run from, with `nixos-rebuild`, `nixos-anywhere`, `sops` and `age`.
+
+`~/.ssh` is a link to `C:\Users\<homelab.wsl.windowsUser>\.ssh`, so WSL and Windows share keys, `config` and
+`known_hosts`. ssh only takes them if nobody else can read them, so the Windows drives mount as `admin`'s with
+files at 0700 (`wsl.wslConf.automount.options`). `IdentityFile` and `Include` paths in that config need to be
+`~/.ssh/...` rather than `C:\...` to work from both, and a `ProxyCommand` that runs a `.exe` only works on Windows.
 
 Import the stock NixOS-WSL image ([releases](https://github.com/nix-community/NixOS-WSL/releases)) and switch it
 to this flake from inside the distro. Keep `system.stateVersion` at the image's own, check it first:
@@ -85,12 +91,13 @@ nix-shell -p git --run 'git clone https://github.com/Altirix/nix-config ~/nix-co
 sudo nixos-rebuild boot --flake ~/nix-config#wsl
 ```
 
-The stock image's user is `nixos`, changing it only takes after WSL restarts the distro as root once, from Windows:
+The stock image's user is `nixos`, changing it only takes after WSL starts the distro as root once, and the drive
+mount options only after WSL shuts down. From Windows:
 
 ```powershell
-wsl -t NixOS
+wsl --shutdown
 wsl -d NixOS --user root exit
-wsl -t NixOS
+wsl --shutdown
 ```
 
 After that, `wsl -d NixOS` opens as `admin`, update it like any host with `sudo nixos-rebuild switch --flake ~/nix-config#wsl`.
