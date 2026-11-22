@@ -6,7 +6,7 @@ Flake for the homelab hosts.
   Each is inert until enabled through `homelab.*` options and has no site values baked in.
   Real config files live next to them in `config/`, not inside the `.nix` files.
 - `modules/default.nix` is what every host gets: the generic blocks plus the baseline config.
-- `modules/{compute,storage,virtual,edge,printer}.nix` compose the blocks for a type of host, import
+- `modules/{compute,storage,virtual,edge,printer,wsl}.nix` compose the blocks for a type of host, import
   the extra blocks it needs and hold the values shared by every host of that type.
 - `hosts/` say what is specific to one machine and import one of those type modules.
 

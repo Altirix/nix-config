@@ -1,7 +1,7 @@
 # Hosts
 
 Every `hosts/<group>/<name>/default.nix` is a host. The group directory (`compute/`, `edge/`,
-`virtual/`, `sbc/`) is only for layout, and a host with an empty `default.nix` is a placeholder and not built.
+`virtual/`, `sbc/`, `wsl/`) is only for layout, and a host with an empty `default.nix` is a placeholder and not built.
 
 ```
 _template/                 a VM, copy this for a new host
@@ -25,6 +25,7 @@ virtual/mcp/               MCP servers for agents holding tokens or data, KiCad 
 virtual/mcp-web/           MCP servers that read the open web: fetch, markitdown, playwright (see modules/services/mcp/README.md)
 virtual/paperless/         Paperless-ngx, documents for people and LLMs (docs.peacocks.me, behind Kanidm sign-in)
 virtual/partdb/            Part-DB, electronic parts inventory (parts.peacocks.me, behind Kanidm sign-in)
+wsl/wsl/                   NixOS-WSL distro on Windows (modules/wsl.nix), see Install a WSL distro below
 virtual/rea/               REA per project and session, dynamic analysis, no egress, reset from a snapshot (see modules/services/mcp/README.md)
 ```
 
@@ -69,3 +70,27 @@ Then detach the ISO, so it boots its own disk:
 ```sh
 incus config device remove <name> install
 ```
+
+## Install a WSL distro
+
+`modules/wsl.nix` is a NixOS-WSL distro: Windows owns the kernel, disks and network, so there is no
+hardware-configuration.nix, storage.nix or labs address, and it ships no logs. The default user is `admin`.
+
+Import the stock NixOS-WSL image ([releases](https://github.com/nix-community/NixOS-WSL/releases)) and switch it
+to this flake from inside the distro. Keep `system.stateVersion` at the image's own, check it first:
+
+```sh
+grep stateVersion /etc/nixos/configuration.nix
+nix-shell -p git --run 'git clone https://github.com/Altirix/nix-config ~/nix-config'
+sudo nixos-rebuild boot --flake ~/nix-config#wsl
+```
+
+The stock image's user is `nixos`, changing it only takes after WSL restarts the distro as root once, from Windows:
+
+```powershell
+wsl -t NixOS
+wsl -d NixOS --user root exit
+wsl -t NixOS
+```
+
+After that, `wsl -d NixOS` opens as `admin`, update it like any host with `sudo nixos-rebuild switch --flake ~/nix-config#wsl`.
