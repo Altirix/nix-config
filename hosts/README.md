@@ -77,10 +77,26 @@ incus config device remove <name> install
 hardware-configuration.nix, storage.nix or labs address, and it ships no logs. The default user is `admin`.
 It's where deploys run from, with `nixos-rebuild`, `nixos-anywhere`, `sops` and `age`.
 
-`~/.ssh` is a link to `C:\Users\<homelab.wsl.windowsUser>\.ssh`, so WSL and Windows share keys, `config` and
-`known_hosts`. ssh only takes them if nobody else can read them, so the Windows drives mount as `admin`'s with
-files at 0700 (`wsl.wslConf.automount.options`). `IdentityFile` and `Include` paths in that config need to be
-`~/.ssh/...` rather than `C:\...` to work from both, and a `ProxyCommand` that runs a `.exe` only works on Windows.
+It takes the Windows host's identity, `homelab.wsl.windowsUser` names the account:
+
+- hostname: none of its own, WSL uses the Windows computer name. The flake output is still the directory name, so
+  rebuild with `#wsl`, not a bare `--flake .`.
+- ssh: keys stay in Windows' OpenSSH agent, WSL's ssh asks it (`wsl.ssh-agent`, wsl2-ssh-agent). `~/.ssh` is a link
+  to `C:\Users\<user>\.ssh`, so `config` and `known_hosts` are shared and each key's `.pub` picks it in the agent.
+  `IdentityFile` and `Include` paths need to be `~/.ssh/...`, not `C:\...`, and a `ProxyCommand` running a `.exe`
+  only works on Windows. The Windows drives mount as `admin`'s at 0755, ssh refuses a config others can write.
+- git: `C:\Users\<user>\.gitconfig` is included (name, email, aliases), then checkouts are LF
+  (`core.autocrlf=input`), ssh remotes go through the agent and https ones through Git for Windows' credential
+  manager. Commit and push from WSL: a checkout made by Git for Windows is usually CRLF, which ends up in the
+  scripts Nix builds.
+
+The agent has to be running with the keys in it, from an admin PowerShell on Windows:
+
+```powershell
+Set-Service ssh-agent -StartupType Automatic
+Start-Service ssh-agent
+ssh-add
+```
 
 Import the stock NixOS-WSL image ([releases](https://github.com/nix-community/NixOS-WSL/releases)) and switch it
 to this flake from inside the distro. Keep `system.stateVersion` at the image's own, check it first:

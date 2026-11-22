@@ -9,7 +9,7 @@ virtual.nix              incus VMs
 edge.nix                 public-facing hosts: wireguard, egress NAT, port forwards, static sites, ssh
 sbc.nix                  SBCs: shared Wi-Fi secrets, DHCP, SSH, mDNS and storage defaults
 printer.nix              printer SBCs: sbc.nix + klipper, moonraker, mainsail
-wsl.nix                  NixOS-WSL distros, the deploy box: admin as WSL's default user, Windows' ~/.ssh, deploy tools
+wsl.nix                  NixOS-WSL distros, the deploy box: Windows' hostname, ssh agent, ~/.ssh and .gitconfig, deploy tools
 desktop.nix, desktop/    not wired up yet
 system/                  ssh (admin keys in keys/admin/*.pub), secrets, boot (grub across mirrored ESPs)
 hardware/                rock5c.nix + rock5c/ (U-Boot + RK3582 unlock patches from Armbian, extlinux, panthor shader mask, AIC8800 wifi)
