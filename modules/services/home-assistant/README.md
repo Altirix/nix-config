@@ -7,18 +7,20 @@ through: no companion apps, long-lived access tokens or webhooks (`/api/...`), o
 
 ## Router (MikroTik)
 
-Only the edge gets in, before `labs: only home and tunnel in`. From home use the site too:
-
-```routeros
-/ip firewall filter
-add chain=forward action=accept connection-state=new in-interface=wg-vpn src-address=10.0.0.1 dst-address=10.100.2.13 protocol=tcp dst-port=8123 comment="labs: edge to hass" place-before=[find comment="labs: only home and tunnel in"]
-```
+Only the edge gets in, to port 8123: `labs: edge to hass` on the router (Altirix/Mikrotik). From home use the site
+too.
 
 ## Set up
 
-1. Point an A record for `ha.peacocks.me` at the VPS.
-2. Install the VM ([hosts/README.md](../../../hosts/README.md#add-a-vm)), add the router rule, deploy the edge,
-   then auth (it learns the site's sign-in callback from the edge's config).
+1. Point an A record for `ha.peacocks.me` at the VPS. Install the VM
+   ([hosts/README.md](../../../hosts/README.md#add-a-vm)), add the router rule (Altirix/Mikrotik).
+2. Give its sign-in client a secret, then deploy `auth` (it makes the client, `ionos-de-hass`) and `ionos-de`:
+
+   ```sh
+   openssl rand -base64 32 | tr -- '+/' '-_'
+   sops secrets/sso.yaml   # ionos-de-hass: <it>
+   ```
+
 3. Open the site, create the owner account (the first to get there takes it).
 
 ## Octopus Energy tariff comparison
