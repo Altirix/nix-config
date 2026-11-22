@@ -24,6 +24,12 @@ in
       type = lib.types.port;
       default = 8000;
     };
+    # Web server processes. Django runs its sync views one at a time per process, so with one a slow request
+    # (an upload, a big list) holds up every other, the API's MCP clients included.
+    webWorkers = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 2;
+    };
     # The largest upload.
     maxBodySize = lib.mkOption {
       type = lib.types.str;
@@ -61,6 +67,14 @@ in
         # them ("Cannot consume /tmp/paperless/...: File not found"). The data directory every service sees.
         PAPERLESS_SCRATCH_DIR = "${config.services.paperless.dataDir}/scratch";
       };
+    };
+
+    systemd.services.paperless-web.environment.GRANIAN_WORKERS = toString cfg.webWorkers;
+    # OCR takes every core it's given: it waits for the web server and the database instead of the other way round.
+    systemd.services.paperless-task-queue.serviceConfig = {
+      Nice = 10;
+      CPUWeight = 20;
+      IOWeight = 20;
     };
 
     systemd.tmpfiles.settings."10-paperless-scratch"."${config.services.paperless.dataDir}/scratch".d = {
