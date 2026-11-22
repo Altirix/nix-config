@@ -53,8 +53,9 @@ in
       "L /home/${user}/.ssh - - - - ${profile}/.ssh"
     ];
 
-    # Windows' git config (name, email, aliases), then what has to differ in Linux: LF checkouts so scripts Nix builds
-    # stay LF, Linux ssh (through the agent) and Git for Windows' credential manager in place of Windows-only helpers.
+    # Windows' git config (name, email, aliases), then what has to differ in Linux: no CRLF checkouts for repos without
+    # an eol in .gitattributes, Linux ssh (through the agent) and Git for Windows' credential manager in place of
+    # Windows-only helpers.
     programs.git = {
       enable = true;
       config = [
