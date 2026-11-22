@@ -63,5 +63,13 @@
       from = [ "partdb" ];
       sso.title = "Part-DB";
     };
+
+    # modules/services/home-assistant
+    hass = {
+      domains = [ "ha.peacocks.me" ];
+      https = true;
+      from = [ "hass" ];
+      sso.title = "Home Assistant";
+    };
   };
 }

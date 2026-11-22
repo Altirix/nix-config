@@ -11,6 +11,7 @@
     ./services/logs/collector.nix
     ./services/paperless
     ./services/partdb
+    ./services/home-assistant
     ./services/sso/server.nix
   ];
 
