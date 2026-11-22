@@ -23,7 +23,7 @@ virtual/hass/              Home Assistant, Octopus tariff comparison (ha.peacock
 virtual/inventree/         InvenTree, parts inventory next to Part-DB to compare (inventree.peacocks.me, behind Kanidm sign-in)
 virtual/logs/              VictoriaLogs, every host's journal (see modules/services/logs/README.md)
 virtual/mcp/               MCP servers for agents holding tokens or data, KiCad projects too (labs, via the edge, see modules/services/mcp/README.md)
-virtual/mcp-web/           MCP servers that read the open web: fetch, markitdown, playwright (see modules/services/mcp/README.md)
+virtual/mcp-web/           MCP servers that read the open web: fetch, markitdown, searxng, playwright-chromium and -firefox (see modules/services/mcp/README.md)
 virtual/paperless/         Paperless-ngx, documents for people and LLMs (docs.peacocks.me, behind Kanidm sign-in)
 virtual/partdb/            Part-DB, electronic parts inventory (parts.peacocks.me, behind Kanidm sign-in)
 wsl/wsl/                   NixOS-WSL distro on Windows (modules/wsl.nix), see Install a WSL distro below

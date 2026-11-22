@@ -6,6 +6,7 @@
     "time": { "type": "http", "url": "https://mcp.peacocks.me/time/mcp" },
     "memory": { "type": "http", "url": "https://mcp.peacocks.me/memory/mcp" },
     "markitdown": { "type": "http", "url": "https://mcp.peacocks.me/markitdown/mcp/" },
+    "searxng": { "type": "http", "url": "https://mcp.peacocks.me/searxng/mcp" },
     "fdfdb": { "type": "http", "url": "https://mcp.peacocks.me/fdfdb/mcp" },
     "paperless": { "type": "http", "url": "https://mcp.peacocks.me/paperless/mcp" },
     "kicad-palmremote": { "type": "http", "url": "https://mcp.peacocks.me/kicad/palmremote/mcp" },

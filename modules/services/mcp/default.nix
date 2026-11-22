@@ -53,7 +53,7 @@ let
         default = [ ];
       };
       # Published at /<name>/mcp (homelab.publish) for a front door to serve (mcp.peacocks.me), low-risk servers only:
-      # never playwright (runs code). The router also has to let the edge in on its port.
+      # never a playwright (runs code). The router also has to let the edge in on its port.
       public = mkOption {
         type = types.bool;
         default = false;

@@ -14,7 +14,7 @@ A VM is the boundary: servers on one share its egress, its root and whatever its
 | VM | Address | Servers | Why there |
 |----|---------|---------|-----------|
 | `hosts/virtual/mcp` | `10.100.1.11` | nixos, context7, time, memory, fdfdb, paperless, KiCad projects | hold tokens or data (paperless' token, memory's graph, the projects), only talk to known APIs |
-| `hosts/virtual/mcp-web` | `10.100.1.13` | fetch, markitdown, playwright | read any page an agent names, playwright runs its code: nothing there to steal |
+| `hosts/virtual/mcp-web` | `10.100.1.13` | fetch, markitdown, searxng, playwright-chromium, playwright-firefox | read any page an agent names, the playwrights run its code: nothing there to steal |
 | `hosts/virtual/rea` | `10.100.1.12` | rea | runs the binaries it analyses, no egress, reset from a snapshot (rea) |
 
 A new server goes on `mcp-web` if it reads arbitrary URLs or runs untrusted content, on `mcp` otherwise, on a VM of
@@ -50,10 +50,10 @@ VXLAN goes VM to VM past the router.
 Who gets in, and what they open, is on the router (Altirix/Mikrotik): `labs: edge to mcp` (the public
 servers' ports, `public = true`, From outside), `labs: edge to mcp-web`, `labs: edge to rea`, `labs: tunnel to agents, nothing else`
 (no other tunnel peer reaches either VM), `labs: rea opens nothing` (not the router, labs, home or out the
-tunnel) and `labs: nothing private` (mcp and mcp-web reach the internet, for context7, nixos, fetch and playwright,
+tunnel) and `labs: nothing private` (mcp and mcp-web reach the internet, for context7, nixos, fetch, searxng and the playwrights,
 but never home, mgmt, labs or the edge's tunnel address). ssh from home still reaches them for deploys (`labs: home ssh, rdp`).
 
-Agents on the LAN that should reach the servers directly (every port, playwright included),
+Agents on the LAN that should reach the servers directly (every port, the playwrights and their views included),
 one per machine, just above `labs: only home and tunnel in`:
 
 ```routeros
@@ -79,11 +79,11 @@ ever masquerades into labs, the edge arrives as `10.100.0.1` instead of `10.0.0.
 
 ## From outside
 
-The servers marked `public` (nixos, context7, time, memory, fdfdb, paperless, the KiCad projects on `mcp`; fetch and
-markitdown on `mcp-web`) are published (`homelab.publish`), and the edge's `mcp` site
+The servers marked `public` (nixos, context7, time, memory, fdfdb, paperless, the KiCad projects on `mcp`; fetch,
+markitdown and searxng on `mcp-web`) are published (`homelab.publish`), and the edge's `mcp` site
 (`hosts/edge/ionos-de/services.nix`, `from = [ "mcp" "mcp-web" "rea" ]`)
 serves them at `https://mcp.peacocks.me/<server>/mcp`, proxied over the tunnel (streamable
-HTTP only, SSE is deprecated). playwright runs code, it gets no route. Every
+HTTP only, SSE is deprecated). The playwrights run code, they and their views get no route. Every
 request needs `Authorization: Bearer <token>`, one token per client in `hosts/edge/ionos-de/secrets.yaml` so each
 can be revoked, and the access log (the journal's `nginx_access`, on to the logs VM) names the client. OAuth
 sign-in through Kanidm (`modules/services/sso`) is ready to replace the tokens later (`oauth` in place of `tokens` on
@@ -201,6 +201,58 @@ Four views, all in VictoriaLogs (`modules/services/logs`):
   ```
 
 Claude's connectors (claude.ai, the apps) only show up in the access log and agentgateway's, they export nothing.
+
+## Web: searxng (8113), playwright-chromium (8108), playwright-firefox (8112)
+
+On `mcp-web`, an agent goes from cheapest to heaviest:
+
+1. **searxng** searches. Its own SearXNG on loopback (`homelab.mcp.searxng.port`, 8888) asks Google, Bing, DuckDuckGo,
+   Brave and the rest from this VM and merges them, so an engine that rate-limits doesn't fail the search. Pick engines
+   with `engines` or a bang in the query (`!go`, `!bi`, `!ddg`, `!br`). Its `web_url_read` reads a page, private
+   addresses refused. Public, so cloud sessions search through it too.
+2. **fetch** reads plain pages.
+3. **playwright-chromium**, then **playwright-firefox**, for pages that need JavaScript or turn fetch away. A site that
+   challenges one browser often lets the other through.
+4. A challenge neither passes (a captcha, Turnstile) is for a person, below.
+
+Each browser server runs one headed browser (`servers/playwright.nix`), `--isolated`: every agent connected gets a
+context of its own, so many share it without seeing each other's tabs or cookies. Headed on a display of its own
+(Xvnc, `mcp-playwright-<browser>-display`, `homelab.mcp.playwright.<browser>.display`), with real fonts and
+`config/playwright-<browser>.json` and `config/playwright-init.js` taking off what marks a driven browser
+(`navigator.webdriver`, Chromium's automation switches). That makes them harder to tell from a person, not
+impossible: vendors that look for the driver's protocol still can.
+
+### Solving a challenge
+
+Each display is a web page, noVNC (`mcp-playwright-<browser>-view`, `homelab.mcp.playwright.<browser>.viewPort`):
+
+| Browser | Server | View |
+|---------|--------|------|
+| Chromium | `http://10.100.1.13:8108/mcp` | `http://10.100.1.13:8114/vnc.html?autoconnect=1&resize=scale` |
+| Firefox | `http://10.100.1.13:8112/mcp` | `http://10.100.1.13:8115/vnc.html?autoconnect=1&resize=scale` |
+
+The agent stops at the challenge and hands over the view's link. Its window is on top (no window manager, the newest
+window covers the rest); solve it there and tell the agent to carry on, the clearance stays in its context. The view
+drives the browser with no password, the same as the server's own port: the router keeps both to agents (Router,
+`labs: agents to mcp-web`), never the edge.
+
+Add to Claude Code on a LAN machine, the user scope so cloud sessions (which can't reach them) don't get them:
+
+```sh
+claude mcp add --scope user --transport http playwright-chromium http://10.100.1.13:8108/mcp
+claude mcp add --scope user --transport http playwright-firefox http://10.100.1.13:8112/mcp
+```
+
+And the order above for the agent, in `~/.claude/CLAUDE.md`:
+
+```md
+## Web access
+1. Search with searxng; add a bang (!go, !br, !ddg) to target one engine.
+2. Open results with fetch.
+3. If the page is empty, needs JavaScript or is blocked, use playwright-chromium.
+4. If it's challenged, try playwright-firefox.
+5. If both are challenged, stop, give me the view link for that browser (port 8114 Chromium, 8115 Firefox) and wait.
+```
 
 ## rea (8101)
 

@@ -13,16 +13,18 @@
 
   system.stateVersion = "26.05";
 
-  # Browsers.
+  # Two headed browsers, each on its own display, and SearXNG.
   homelab.vm = {
     cpus = 4;
-    memory = "4GiB";
+    memory = "6GiB";
   };
 
-  # Never make playwright public: it runs code.
+  # Never make a playwright public: it runs code.
   homelab.mcp.servers = {
     fetch = { enable = true; public = true; };
     markitdown = { enable = true; public = true; };
-    playwright.enable = true;
+    searxng = { enable = true; public = true; };
+    playwright-chromium.enable = true;
+    playwright-firefox.enable = true;
   };
 }

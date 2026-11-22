@@ -19,7 +19,9 @@ let
     fetch = "fetch";
     time = "get_current_time";
     memory = "read_graph";
-    playwright = "browser_navigate";
+    playwright-chromium = "browser_navigate";
+    playwright-firefox = "browser_navigate";
+    searxng = "searxng_web_search";
     markitdown = "convert_to_markdown";
     fdfdb = "search_part_number";
     kicad-t = "kicad_create_new_project";
@@ -99,6 +101,8 @@ in
       port = nodes.mcp.homelab.mcp.servers.${name}.port;
       tool = tools.${name};
     })))})
+    views = json.loads(${builtins.toJSON (builtins.toJSON (lib.mapAttrs' (browser: v: lib.nameValuePair "playwright-${browser}" v.viewPort)
+      (lib.filterAttrs (browser: _: lib.elem "playwright-${browser}" enabled) nodes.mcp.homelab.mcp.playwright)))})
 
     # Tool calls that stay on the test network: (tool, arguments, text the result must contain).
     calls = {
@@ -114,7 +118,10 @@ in
             ("search_part_number", {"part_number": "MT29F512G08EEHAF"}, "2CA40832A100"),
             ("search_flash_id", {"flash_id": "2C A4 08 32 A1 00"}, "MT29F512G08EEHAF"),
         ],
-        "playwright": [("browser_navigate", {"url": "http://client/"}, "mcp-test")],
+        "playwright-chromium": [("browser_navigate", {"url": "http://client/"}, "mcp-test")],
+        "playwright-firefox": [("browser_navigate", {"url": "http://client/"}, "mcp-test")],
+        # Its own SearXNG on loopback answers, with every engine it can ask.
+        "searxng": [("searxng_instance_info", {}, '"available": true')],
     }
 
     def session(name, requests, retry=False):
@@ -147,6 +154,13 @@ in
                 check(name)
             finally:
                 print(mcp.succeed(f"journalctl -u mcp-{name} -o cat | tail -n 40"))
+
+    # Each browser's display as a web page, for a person to solve what an agent can't.
+    for name, port in views.items():
+        with subtest(f"{name} view"):
+            mcp.wait_for_unit(f"mcp-{name}-view.service", timeout=900)
+            mcp.wait_for_open_port(port, timeout=900)
+            client.succeed(f"${pkgs.curl}/bin/curl -sf http://mcp:{port}/vnc.html | grep -q noVNC")
 
     with subtest("kicad git: the agent fetches, branches, pulls and pushes"):
         # Someone working in the source (as kicad-sync-t, which owns it) and an agent in the project, whose git goes
