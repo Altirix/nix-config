@@ -21,7 +21,9 @@ A new server goes on `mcp-web` if it reads arbitrary URLs or runs untrusted cont
 its own if it runs what it's given. Both pass through the router's `labs: nothing private`. On its own VM a server
 reaches nothing either (`config/egress.nft`): not another server (past the edge's token check, a KiCad project's
 server would get another's), a browser's display or view, or anything else listening there, bar a backend of its own
-it names in `localPorts` (searxng's SearXNG). Servers only connect to other hosts.
+it names in `localPorts` (searxng's SearXNG). Servers only connect to other hosts, and to their own processes over
+loopback on the ports the kernel hands out (32768-60999, pinned; Playwright reaches the browser it launched that way),
+where nothing listens for good.
 
 Presets in `servers/` only need enabling in the host, anything else is added directly:
 

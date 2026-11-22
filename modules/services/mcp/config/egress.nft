@@ -10,8 +10,11 @@ set backends { typeof meta skuid . th dport; @backends@ }
 chain output {
   type filter hook output priority filter; policy accept;
   # Servers only reach other hosts. None opens another on this host past the edge's token check (a server per project
-  # would get another's), a browser's display or view, or anything else listening here, bar its own backend (`backends`).
+  # would get another's), a browser's display or view, or anything else listening on a fixed port here, bar its own
+  # backend (`backends`). Ports the kernel hands out (@ephemeral@) stay open: a server's own processes talk over them,
+  # Playwright to the browser it launched (behind a random path, so no other server's).
   ct state new meta skuid . th dport @backends fib daddr type local accept
+  ct state new meta skuid { @users@ } fib daddr type local th dport @ephemeral@ accept
   ct state new meta skuid { @users@ } fib daddr type local reject
   oifname "lo" accept
   ct state != new accept

@@ -79,6 +79,10 @@ let
     (builtins.readDir ./servers));
 
   proxy = [ (lib.getExe pkgs.mcp-proxy) "--host" "0.0.0.0" "--port" ];
+
+  # The ports the kernel hands out, pinned (net.ipv4.ip_local_port_range): servers may reach their own processes on
+  # these over loopback (config/egress.nft), so nothing listening here for good may be among them.
+  ephemeral = { from = 32768; to = 60999; };
 in
 {
   imports = [ ../web/publish.nix ] ++ map (name: ./servers/${name}) presets;
@@ -95,6 +99,11 @@ in
       {
         assertion = lib.allUnique (ports (lib.attrValues enabled));
         message = "mcp: every enabled server needs its own port";
+      }
+      {
+        assertion = lib.all (p: p < ephemeral.from || p > ephemeral.to)
+          (ports (lib.attrValues enabled) ++ lib.concatMap (s: s.localPorts) (lib.attrValues enabled));
+        message = "mcp: servers' ports and localPorts stay out of ${toString ephemeral.from}-${toString ephemeral.to}, the ones the kernel hands out";
       }
     ];
 
@@ -133,16 +142,19 @@ in
     # Where each server connects to (config/egress.nft).
     networking.nftables.tables.mcp-egress = {
       family = "inet";
-      content = builtins.replaceStrings [ "@servers@" "@users@" "@backends@" ]
+      content = builtins.replaceStrings [ "@servers@" "@users@" "@backends@" "@ephemeral@" ]
         [
           (lib.concatMapStrings (name: builtins.replaceStrings [ "@name@" ] [ name ] (builtins.readFile ./config/egress-server.nft))
             (lib.attrNames enabled))
           (lib.concatMapStringsSep ", " (name: ''"mcp-${name}"'') (lib.attrNames enabled))
           (let local = lib.concatLists (lib.mapAttrsToList (name: s: map (port: ''"mcp-${name}" . ${toString port}'') s.localPorts) enabled);
           in lib.optionalString (local != [ ]) "elements = { ${lib.concatStringsSep ", " local} }")
+          "${toString ephemeral.from}-${toString ephemeral.to}"
         ]
         (builtins.readFile ./config/egress.nft);
     };
+    boot.kernel.sysctl."net.ipv4.ip_local_port_range" = "${toString ephemeral.from} ${toString ephemeral.to}";
+
     # The build's ruleset check has none of these users.
     networking.nftables.preCheckRuleset = ''
       sed 's/"mcp-[a-z0-9-]*"/root/g' -i ruleset.conf
