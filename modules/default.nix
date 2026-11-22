@@ -1,7 +1,7 @@
 { inputs, lib, pkgs, ... }:
 
 # Every host gets this: the generic building blocks and the baseline config.
-# Host-type modules (compute.nix, storage.nix, virtual.nix, edge.nix, sbc.nix) add their own blocks on top,
+# Host-type modules (compute.nix, storage.nix, virtual.nix, edge.nix, sbc.nix, wsl.nix) add their own blocks on top,
 # a host imports one of them. printer.nix is an SBC role that imports sbc.nix.
 {
   imports = [
