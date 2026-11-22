@@ -13,7 +13,7 @@ A VM is the boundary: servers on one share its egress, its root and whatever its
 
 | VM | Address | Servers | Why there |
 |----|---------|---------|-----------|
-| `hosts/virtual/mcp` | `10.100.1.11` | nixos, context7, time, memory, fdfdb, paperless, KiCad projects | hold tokens or data (paperless' token, memory's graph, the projects), only talk to known APIs |
+| `hosts/virtual/mcp` | `10.100.1.11` | nixos, context7, time, memory, fdfdb, paperless, jlcpcb, digikey, KiCad projects | hold tokens or data (paperless' and DigiKey's keys, memory's graph, the projects), only talk to known APIs |
 | `hosts/virtual/mcp-web` | `10.100.1.13` | fetch, markitdown, searxng, playwright-chromium, playwright-firefox | read any page an agent names, the playwrights run its code: nothing there to steal |
 | `hosts/virtual/rea` | `10.100.1.12` | rea | runs the binaries it analyses, no egress, reset from a snapshot (rea) |
 
@@ -79,7 +79,7 @@ ever masquerades into labs, the edge arrives as `10.100.0.1` instead of `10.0.0.
 
 ## From outside
 
-The servers marked `public` (nixos, context7, time, memory, fdfdb, paperless, the KiCad projects on `mcp`; fetch,
+The servers marked `public` (nixos, context7, time, memory, fdfdb, paperless, jlcpcb, digikey, the KiCad projects on `mcp`; fetch,
 markitdown and searxng on `mcp-web`) are published (`homelab.publish`), and the edge's `mcp` site
 (`hosts/edge/ionos-de/services.nix`, `from = [ "mcp" "mcp-web" "rea" ]`)
 serves them at `https://mcp.peacocks.me/<server>/mcp`, proxied over the tunnel (streamable
@@ -202,6 +202,37 @@ Four views, all in VictoriaLogs (`modules/services/logs`):
 
 Claude's connectors (claude.ai, the apps) only show up in the access log and agentgateway's, they export nothing.
 
+## Parts: jlcpcb (8116), digikey (8117)
+
+Distributors' sites are the hardest to browse (Akamai, Cloudflare), their data isn't: parts come from catalogs and
+APIs, never pages. Both are on `mcp` and public, cloud sessions included.
+
+**jlcpcb** (`servers/jlcpcb.nix`, [jlcpcb-mcp](https://github.com/Eyalm321/jlcpcb-mcp)): parametric search
+(resistance, capacitance, voltage, package, Basic only, minimum stock) over a local SQLite catalog of every JLC part,
+built from [yaqwsx/jlcparts](https://github.com/yaqwsx/jlcparts), with live LCSC retail stock, price breaks and
+datasheet per query from LCSC's API. No account. JLC assembly stock (what counts for PCBA) is the catalog's, rebuilt
+daily around 04:20 by `mcp-jlcpcb-catalog` in `/var/lib/mcp-jlcpcb/build`, then renamed over
+`/var/lib/mcp-jlcpcb/catalog` and the server restarted; until the first build finishes (a few minutes after the first
+boot) the server has no catalog. Its JLCPCB Open API, PCB and 3D-printing tools, order placing among them, are only
+listed with API credentials, which it isn't given (`packages/jlcpcb-mcp-official-tools.patch`). Its
+`jlcpcb_refresh_database` tool rebuilds in place and leaves the server without a catalog for minutes: the timer does
+that already.
+
+```sh
+systemctl start mcp-jlcpcb-catalog   # rebuild now
+cat /var/lib/mcp-jlcpcb/catalog/version.txt
+```
+
+**digikey** (`servers/digikey.nix`, [digikey-mcp](https://github.com/darkdragonsastro/digikey-mcp)): DigiKey's
+Product Information v4 API, search, details, quantity pricing, substitutes and media, priced on the UK site in GBP
+(`homelab.mcp.digikey.site`, `currency`). Its client credentials (2-legged) reach no orders or account. Make an app on
+[developer.digikey.com](https://developer.digikey.com) (Production, Product Information v4) and put its Client ID and
+Secret in the host's secrets, the host doesn't build without them:
+
+```sh
+sops hosts/virtual/mcp/secrets.yaml   # digikey-client-id: <id>, digikey-client-secret: <secret>
+```
+
 ## Web: searxng (8113), playwright-chromium (8108), playwright-firefox (8112)
 
 On `mcp-web`, an agent goes from cheapest to heaviest:
@@ -247,11 +278,12 @@ And the order above for the agent, in `~/.claude/CLAUDE.md`:
 
 ```md
 ## Web access
-1. Search with searxng; add a bang (!go, !br, !ddg) to target one engine.
-2. Open results with fetch.
-3. If the page is empty, needs JavaScript or is blocked, use playwright-chromium.
-4. If it's challenged, try playwright-firefox.
-5. If both are challenged, stop, give me the view link for that browser (port 8114 Chromium, 8115 Firefox) and wait.
+1. For parts, use jlcpcb (JLC/LCSC) and digikey before any website.
+2. Search with searxng; add a bang (!go, !br, !ddg) to target one engine.
+3. Open results with fetch.
+4. If the page is empty, needs JavaScript or is blocked, use playwright-chromium.
+5. If it's challenged, try playwright-firefox.
+6. If both are challenged, stop, give me the view link for that browser (port 8114 Chromium, 8115 Firefox) and wait.
 ```
 
 ## rea (8101)

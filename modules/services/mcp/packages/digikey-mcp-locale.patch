@@ -1,0 +1,15 @@
+--- a/dist/client.js
++++ b/dist/client.js
+@@ -1,8 +1,9 @@
+ const API_BASE = "https://api.digikey.com";
++// Which DigiKey site's prices, stock and currency (DIGIKEY_LOCALE_SITE=UK, DIGIKEY_LOCALE_CURRENCY=GBP), US by default.
+ const LOCALE_HEADERS = {
+-    "X-DIGIKEY-Locale-Site": "US",
+-    "X-DIGIKEY-Locale-Language": "en",
+-    "X-DIGIKEY-Locale-Currency": "USD",
++    "X-DIGIKEY-Locale-Site": process.env.DIGIKEY_LOCALE_SITE || "US",
++    "X-DIGIKEY-Locale-Language": process.env.DIGIKEY_LOCALE_LANGUAGE || "en",
++    "X-DIGIKEY-Locale-Currency": process.env.DIGIKEY_LOCALE_CURRENCY || "USD",
+ };
+ export class DigiKeyApiError extends Error {
+     status;

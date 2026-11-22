@@ -17,6 +17,9 @@
     memory = { enable = true; public = true; };
     fdfdb = { enable = true; public = true; };
     paperless = { enable = true; public = true; };
+    # Parts: JLCPCB/LCSC (no key) and DigiKey (its client credentials in secrets.yaml).
+    jlcpcb = { enable = true; public = true; };
+    digikey = { enable = true; public = true; };
   };
 
   # A KiCad MCP server per project (modules/services/mcp/servers/kicad.nix), at mcp.peacocks.me/kicad/<project>/mcp.

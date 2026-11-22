@@ -5,9 +5,9 @@ self:
 # tools listed over streamable HTTP from `client`. Who reaches which port is the router's call, not tested here.
 # The VMs have no internet, so tools are only called where they stay on the test network.
 let
-  # paperless needs the host's sops key for its token, which the test VM doesn't have. The host's KiCad projects
-  # follow GitHub, the test has one of its own (kicad-t) following a local repo.
-  skip = name: name == "paperless" || lib.hasPrefix "kicad-" name;
+  # paperless and digikey need the host's sops key for their tokens, which the test VM doesn't have. The host's KiCad
+  # projects follow GitHub, the test has one of its own (kicad-t) following a local repo.
+  skip = name: name == "paperless" || name == "digikey" || lib.hasPrefix "kicad-" name;
   servers = host: lib.filterAttrs (name: s: s.enable && !skip name)
     self.nixosConfigurations.${host}.config.homelab.mcp.servers;
   enabled = lib.attrNames (servers "mcp" // servers "mcp-web") ++ [ "kicad-t" ];
@@ -22,6 +22,8 @@ let
     playwright-chromium = "browser_navigate";
     playwright-firefox = "browser_navigate";
     searxng = "searxng_web_search";
+    # Its catalog can't be downloaded here, the server still starts and lists its tools.
+    jlcpcb = "jlcpcb_search_components";
     markitdown = "convert_to_markdown";
     fdfdb = "search_part_number";
     kicad-t = "kicad_create_new_project";
