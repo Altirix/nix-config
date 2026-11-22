@@ -164,7 +164,9 @@ in
         with subtest(f"{name} view"):
             mcp.wait_for_unit(f"mcp-{name}-view.service", timeout=900)
             mcp.wait_for_open_port(port, timeout=900)
-            client.succeed(f"${pkgs.curl}/bin/curl -sf http://mcp:{port}/vnc.html | grep -q noVNC")
+            # Saved first: grep -q stops reading at the match, and curl's failed write (23) fails the pipe.
+            client.succeed(f"${pkgs.curl}/bin/curl -sf -o /tmp/view.html http://mcp:{port}/vnc.html")
+            client.succeed("grep -q noVNC /tmp/view.html")
 
     with subtest("kicad git: the agent fetches, branches, pulls and pushes"):
         # Someone working in the source (as kicad-sync-t, which owns it) and an agent in the project, whose git goes
