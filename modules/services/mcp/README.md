@@ -18,8 +18,10 @@ A VM is the boundary: servers on one share its egress, its root and whatever its
 | `hosts/virtual/rea` | `10.100.1.12` | rea | runs the binaries it analyses, no egress, reset from a snapshot (rea) |
 
 A new server goes on `mcp-web` if it reads arbitrary URLs or runs untrusted content, on `mcp` otherwise, on a VM of
-its own if it runs what it's given. Both pass through the router's `labs: nothing private`. No server opens another on its own VM either
-(`config/egress.nft`): past the edge's token check, a KiCad project's server would get another's.
+its own if it runs what it's given. Both pass through the router's `labs: nothing private`. On its own VM a server
+reaches nothing either (`config/egress.nft`): not another server (past the edge's token check, a KiCad project's
+server would get another's), a browser's display or view, or anything else listening there, bar a backend of its own
+it names in `localPorts` (searxng's SearXNG). Servers only connect to other hosts.
 
 Presets in `servers/` only need enabling in the host, anything else is added directly:
 
@@ -214,9 +216,8 @@ datasheet per query from LCSC's API. No account. JLC assembly stock (what counts
 daily around 04:20 by `mcp-jlcpcb-catalog` in `/var/lib/mcp-jlcpcb/build`, then renamed over
 `/var/lib/mcp-jlcpcb/catalog` and the server restarted; until the first build finishes (a few minutes after the first
 boot) the server has no catalog. Its JLCPCB Open API, PCB and 3D-printing tools, order placing among them, are only
-listed with API credentials, which it isn't given (`packages/jlcpcb-mcp-official-tools.patch`). Its
-`jlcpcb_refresh_database` tool rebuilds in place and leaves the server without a catalog for minutes: the timer does
-that already.
+listed with API credentials, which it isn't given, and its `jlcpcb_refresh_database` never: it deletes the catalog in
+use to rebuild it, for minutes (`packages/jlcpcb-mcp-tools.patch`).
 
 ```sh
 systemctl start mcp-jlcpcb-catalog   # rebuild now
@@ -227,7 +228,8 @@ cat /var/lib/mcp-jlcpcb/catalog/version.txt
 Product Information v4 API, search, details, quantity pricing, substitutes and media, priced on the UK site in GBP
 (`homelab.mcp.digikey.site`, `currency`). Its client credentials (2-legged) reach no orders or account. Make an app on
 [developer.digikey.com](https://developer.digikey.com) (Production, Product Information v4) and put its Client ID and
-Secret in the host's secrets, the host doesn't build without them:
+Secret in the host's secrets, then turn it on in `hosts/virtual/mcp/default.nix` (`digikey.enable = true`). The host
+doesn't build with it on and them missing.
 
 ```sh
 sops hosts/virtual/mcp/secrets.yaml   # digikey-client-id: <id>, digikey-client-secret: <secret>
@@ -249,8 +251,8 @@ On `mcp-web`, an agent goes from cheapest to heaviest:
 Each browser server runs one headed browser (`servers/playwright.nix`), `--isolated`: every agent connected gets a
 context of its own, so many share it without seeing each other's tabs or cookies. Headed on a display of its own
 (Xvnc, `mcp-playwright-<browser>-display`, `homelab.mcp.playwright.<browser>.display`), with real fonts and
-`config/playwright-<browser>.json` and `config/playwright-init.js` taking off what marks a driven browser
-(`navigator.webdriver`, Chromium's automation switches). That makes them harder to tell from a person, not
+`config/playwright-<browser>.json` taking off what marks a driven browser (Chromium's automation switches), and
+`config/playwright-firefox-init.js` Firefox's `navigator.webdriver`, which no pref turns off under Playwright. That makes them harder to tell from a person, not
 impossible: vendors that look for the driver's protocol still can.
 
 ### Solving a challenge
@@ -265,7 +267,9 @@ Each display is a web page, noVNC (`mcp-playwright-<browser>-view`, `homelab.mcp
 The agent stops at the challenge and hands over the view's link. Its window is on top (no window manager, the newest
 window covers the rest); solve it there and tell the agent to carry on, the clearance stays in its context. The view
 drives the browser with no password, the same as the server's own port: the router keeps both to agents (Router,
-`labs: agents to mcp-web`), never the edge.
+`labs: agents to mcp-web`), never the edge. The display and view run as their own user, not the browser's: code an
+agent runs in a browser reaches neither its view, VNC or X's abstract socket, nor the other browser's
+(`config/egress.nft`, Xvnc's `-nolisten local`).
 
 Add to Claude Code on a LAN machine, the user scope so cloud sessions (which can't reach them) don't get them:
 

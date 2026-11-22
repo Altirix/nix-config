@@ -52,6 +52,12 @@ let
         type = types.listOf types.package;
         default = [ ];
       };
+      # Ports on this VM the server may connect to, a backend of its own (searxng's SearXNG). Otherwise a server only
+      # reaches other hosts (config/egress.nft): never another server, a browser's display or anything else here.
+      localPorts = mkOption {
+        type = types.listOf types.port;
+        default = [ ];
+      };
       # Published at /<name>/mcp (homelab.publish) for a front door to serve (mcp.peacocks.me), low-risk servers only:
       # never a playwright (runs code). The router also has to let the edge in on its port.
       public = mkOption {
@@ -127,12 +133,13 @@ in
     # Where each server connects to (config/egress.nft).
     networking.nftables.tables.mcp-egress = {
       family = "inet";
-      content = builtins.replaceStrings [ "@servers@" "@users@" "@ports@" ]
+      content = builtins.replaceStrings [ "@servers@" "@users@" "@backends@" ]
         [
           (lib.concatMapStrings (name: builtins.replaceStrings [ "@name@" ] [ name ] (builtins.readFile ./config/egress-server.nft))
             (lib.attrNames enabled))
           (lib.concatMapStringsSep ", " (name: ''"mcp-${name}"'') (lib.attrNames enabled))
-          (lib.concatMapStringsSep ", " toString (lib.unique (ports (lib.attrValues enabled))))
+          (let local = lib.concatLists (lib.mapAttrsToList (name: s: map (port: ''"mcp-${name}" . ${toString port}'') s.localPorts) enabled);
+          in lib.optionalString (local != [ ]) "elements = { ${lib.concatStringsSep ", " local} }")
         ]
         (builtins.readFile ./config/egress.nft);
     };

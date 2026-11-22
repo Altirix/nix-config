@@ -19,8 +19,9 @@ buildNpmPackage (finalAttrs: {
     hash = "sha256-QO2yUEi4Cqk0LRUC5665vnGhrzrYpzHe+5fq4Ghdulc=";
   };
 
-  # Its official API, PCB and 3D-printing tools (orders among them) are only listed with JLCPCB API credentials.
-  patches = [ ./jlcpcb-mcp-official-tools.patch ];
+  # Its official API, PCB and 3D-printing tools (orders among them) are only listed with JLCPCB API credentials, and
+  # jlcpcb_refresh_database, which deletes the catalog in use, never (servers/jlcpcb.nix rebuilds it).
+  patches = [ ./jlcpcb-mcp-tools.patch ];
 
   postPatch = ''
     cp ${lockfile} package-lock.json

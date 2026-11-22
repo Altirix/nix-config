@@ -26,6 +26,9 @@ in
     # is kept, so a reboot doesn't download it again.
     mcp-jlcpcb-catalog = {
       description = "JLCPCB parts catalog for MCP server jlcpcb";
+      # Run at boot too, before the server: without the network it fails and the server has no catalog.
+      wants = [ "network-online.target" ];
+      after = [ "network-online.target" ];
       environment.JLCPCB_DATABASE_PATH = "${state}/build/components.sqlite";
       serviceConfig = import ../hardening.nix // {
         Type = "oneshot";

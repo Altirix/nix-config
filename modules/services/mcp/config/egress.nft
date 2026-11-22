@@ -4,10 +4,15 @@
 set seen4 { typeof meta skuid . ip daddr . th dport; flags timeout; timeout 1h; size 65536; }
 set seen6 { typeof meta skuid . ip6 daddr . th dport; flags timeout; timeout 1h; size 65536; }
 
+# Ports on this host a server may connect to (homelab.mcp.servers.<name>.localPorts), its own backend.
+set backends { typeof meta skuid . th dport; @backends@ }
+
 chain output {
   type filter hook output priority filter; policy accept;
-  # No server opens another on this host past the edge's token check (a server per project gets another's).
-  ct state new meta skuid { @users@ } fib daddr type local tcp dport { @ports@ } reject
+  # Servers only reach other hosts. None opens another on this host past the edge's token check (a server per project
+  # would get another's), a browser's display or view, or anything else listening here, bar its own backend (`backends`).
+  ct state new meta skuid . th dport @backends fib daddr type local accept
+  ct state new meta skuid { @users@ } fib daddr type local reject
   oifname "lo" accept
   ct state != new accept
   meta skuid . ip daddr . th dport @seen4 accept

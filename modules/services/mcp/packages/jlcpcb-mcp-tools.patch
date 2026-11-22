@@ -1,20 +1,23 @@
 --- a/dist/index.js
 +++ b/dist/index.js
-@@ -21,14 +21,19 @@
+@@ -21,14 +21,21 @@
  // address that can't be reliably whitelisted. Prefer IPv4 so requests use a
  // stable, allowlistable source address. (IPv6 still works as a fallback.)
  node_dns_1.default.setDefaultResultOrder("ipv4first");
 +// Without official API credentials the official, PCB and 3D-printing tools only answer "not configured": leave
-+// them out rather than list 22 tools an agent can't use.
++// them out rather than list 22 tools an agent can't use. jlcpcb_refresh_database deletes the catalog before
++// rebuilding it in this process, leaving every client without one for minutes: the catalog is rebuilt beside the
++// server and swapped in instead.
 +const official_client_js_1 = require("./official-client.js");
  exports.allTools = [
      ...search_js_1.searchTools,
      ...details_js_1.detailTools,
      ...catalog_js_1.catalogTools,
-     ...maintenance_js_1.maintenanceTools,
+-    ...maintenance_js_1.maintenanceTools,
 -    ...official_js_1.officialTools,
 -    ...pcb_js_1.pcbTools,
 -    ...tdp_js_1.tdpTools,
++    ...maintenance_js_1.maintenanceTools.filter((tool) => tool.name !== "jlcpcb_refresh_database"),
 +    ...((0, official_client_js_1.hasOfficialCredentials)() ? [
 +        ...official_js_1.officialTools,
 +        ...pcb_js_1.pcbTools,

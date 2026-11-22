@@ -1,10 +1,7 @@
 {
   "browser": {
     "launchOptions": {
-      "headless": false,
-      "firefoxUserPrefs": {
-        "dom.webdriver.enabled": false
-      }
+      "headless": false
     },
     "contextOptions": {
       "viewport": {

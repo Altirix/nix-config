@@ -7,19 +7,23 @@
 # cookies.
 #
 # Each browser runs headed on a display of its own (Xvnc, mcp-playwright-<browser>-display): headless browsers are the
-# easiest to tell from a person's. config/playwright-<browser>.json drops what marks it as driven, and
-# config/playwright-init.js hides navigator.webdriver. A captcha or Turnstile an agent can't pass is for a person: the
-# display is served as a web page (noVNC, `viewPort`), http://<mcp-web>:<viewPort>/vnc.html?autoconnect=1&resize=scale,
-# the agent hands its link over, they solve it in the agent's own window and it carries on with the clearance.
+# easiest to tell from a person's. config/playwright-<browser>.json drops what marks it as driven, and Firefox, which
+# reports navigator.webdriver whatever its prefs say, gets config/playwright-firefox-init.js. A captcha or Turnstile an
+# agent can't pass is for a person: the display is served as a web page (noVNC, `viewPort`),
+# http://<mcp-web>:<viewPort>/vnc.html?autoconnect=1&resize=scale, the agent hands its link over, they solve it in the
+# agent's own window and it carries on with the clearance.
 #
 # file:// is blocked and uploads stay in roots the client declares, but browser_run_code runs any Node in the server
 # (its vm is no sandbox) and can't be turned off, and the view page drives the browser without a password. So the
 # unit is the boundary: what the server's user reads (the store, world-readable /etc) can go wherever the VM reaches.
-# Neither the server nor its view is ever published.
+# Neither the server nor its view is ever published. The display and its view run as a user of their own
+# (mcp-playwright-<browser>-display), out of the browser's reach: X only on a socket in the browser's private /tmp
+# (no TCP, no abstract socket another browser could open), and the egress rules (config/egress.nft) keep the servers
+# off the VNC and view ports.
 let
   browsers = {
     chromium = { port = 8108; display = 1; viewPort = 8114; };
-    firefox = { port = 8112; display = 2; viewPort = 8115; };
+    firefox = { port = 8112; display = 2; viewPort = 8115; initScript = ../config/playwright-firefox-init.js; };
   };
 
   # nixpkgs' Playwright browsers come with no fonts: pages render as boxes, and an empty font list is a bot tell.
@@ -27,18 +31,21 @@ let
     fontDirectories = with pkgs; [ dejavu_fonts liberation_ttf noto-fonts-color-emoji ];
   };
 
+  enabled = lib.filterAttrs (browser: _: config.homelab.mcp.servers."playwright-${browser}".enable) browsers;
+  opts = browser: config.homelab.mcp.playwright.${browser};
+
   preset = browser: defaults:
     let
       name = "playwright-${browser}";
       cfg = config.homelab.mcp.servers.${name};
-      opts = config.homelab.mcp.playwright.${browser};
+      inherit (opts browser) display viewPort;
       state = "/var/lib/mcp-${name}";
-      rfbPort = toString (5900 + opts.display);
+      displayUser = "mcp-${name}-display";
+      rfbPort = toString (5900 + display);
+      # The display's and the view's.
       sandbox = import ../hardening.nix // {
-        User = "mcp-${name}";
-        Group = "mcp-${name}";
-        # The browser's /tmp, where X's socket is.
-        PrivateTmp = true;
+        User = displayUser;
+        Group = displayUser;
         Restart = "always";
         RestartSec = 5;
       };
@@ -60,21 +67,21 @@ let
       config = {
         homelab.mcp.servers.${name} = {
           command = lib.mkDefault (lib.getExe pkgs.playwright-mcp);
-          args = lib.mkDefault [
+          args = lib.mkDefault ([
             "--browser" browser
             "--config" "${../config + "/playwright-${browser}.json"}"
-            "--init-script" "${../config/playwright-init.js}"
+          ] ++ lib.optionals (defaults ? initScript) [ "--init-script" "${defaults.initScript}" ] ++ [
             "--isolated"
             "--host" "0.0.0.0"
             "--port" (toString cfg.port)
             # Only Host: localhost is allowed otherwise, which rejects http://mcp-web:<port>.
             "--allowed-hosts" "*"
             "--output-dir" "${state}/output"
-          ];
+          ]);
           transport = lib.mkDefault "http";
           port = lib.mkDefault defaults.port;
           environment = {
-            DISPLAY = ":${toString opts.display}";
+            DISPLAY = ":${toString display}";
             FONTCONFIG_FILE = "${fonts}";
           };
         };
@@ -83,17 +90,19 @@ let
           "mcp-${name}" = {
             requires = [ "mcp-${name}-display.service" ];
             after = [ "mcp-${name}-display.service" ];
+            # One /tmp with the display, where X's socket is.
+            unitConfig.JoinsNamespaceOf = "mcp-${name}-display.service";
           };
 
           "mcp-${name}-display" = {
             description = "Display of MCP server ${name}";
-            # Its /tmp is the browser's, for X's socket.
             unitConfig.JoinsNamespaceOf = "mcp-${name}.service";
             serviceConfig = sandbox // {
               ExecStart = utils.escapeSystemdExecArgs [
-                "${pkgs.tigervnc}/bin/Xvnc" ":${toString opts.display}"
+                "${pkgs.tigervnc}/bin/Xvnc" ":${toString display}"
                 "-geometry" "1920x1080" "-depth" "24"
-                "-nolisten" "tcp"
+                # X on its socket in /tmp alone, the abstract one is open to every user on the VM.
+                "-nolisten" "tcp" "-nolisten" "local"
                 "-rfbport" rfbPort "-localhost"
                 "-SecurityTypes" "None" "-AlwaysShared"
               ];
@@ -109,19 +118,41 @@ let
               ExecStart = utils.escapeSystemdExecArgs [
                 (lib.getExe' pkgs.python3Packages.websockify "websockify")
                 "--web" "${pkgs.novnc}/share/webapps/novnc"
-                "0.0.0.0:${toString opts.viewPort}" "127.0.0.1:${rfbPort}"
+                "0.0.0.0:${toString viewPort}" "127.0.0.1:${rfbPort}"
               ];
             };
           };
         };
 
-        networking.firewall.allowedTCPPorts = lib.mkIf cfg.enable [ opts.viewPort ];
+        users.users.${displayUser} = lib.mkIf cfg.enable {
+          isSystemUser = true;
+          group = displayUser;
+        };
+        users.groups.${displayUser} = lib.mkIf cfg.enable { };
+
+        networking.firewall.allowedTCPPorts = lib.mkIf cfg.enable [ viewPort ];
 
         # Every navigation leaves a snapshot and console log here, screenshots too.
         systemd.tmpfiles.rules = lib.mkIf cfg.enable [ "e ${state}/output - - - 7d" ];
       };
     };
+
+  viewPorts = lib.mapAttrsToList (browser: _: (opts browser).viewPort) enabled;
+  displays = lib.mapAttrsToList (browser: _: (opts browser).display) enabled;
+  serverPorts = lib.mapAttrsToList (_: s: s.port) (lib.filterAttrs (_: s: s.enable) config.homelab.mcp.servers);
 in
 {
   imports = lib.mapAttrsToList preset browsers;
+
+  config = lib.mkIf (enabled != { }) {
+    assertions = [
+      {
+        assertion = lib.allUnique displays && lib.allUnique viewPorts && lib.all (p: !lib.elem p serverPorts) viewPorts;
+        message = "mcp: every playwright needs its own display and view port, apart from the servers' ports";
+      }
+    ];
+
+    # The single playwright server's, before it was one per browser: its snapshots would never expire otherwise.
+    systemd.tmpfiles.rules = [ "R /var/lib/mcp-playwright" ];
+  };
 }

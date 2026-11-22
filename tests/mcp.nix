@@ -96,15 +96,17 @@ in
     };
   };
 
-  testScript = { nodes, ... }: ''
+  testScript = { nodes, ... }: let
+    playwrights = lib.filterAttrs (browser: _: lib.elem "playwright-${browser}" enabled) nodes.mcp.homelab.mcp.playwright;
+  in ''
     import json, shlex
 
     servers = json.loads(${builtins.toJSON (builtins.toJSON (lib.genAttrs enabled (name: {
       port = nodes.mcp.homelab.mcp.servers.${name}.port;
       tool = tools.${name};
     })))})
-    views = json.loads(${builtins.toJSON (builtins.toJSON (lib.mapAttrs' (browser: v: lib.nameValuePair "playwright-${browser}" v.viewPort)
-      (lib.filterAttrs (browser: _: lib.elem "playwright-${browser}" enabled) nodes.mcp.homelab.mcp.playwright)))})
+    views = json.loads(${builtins.toJSON (builtins.toJSON (lib.mapAttrs' (browser: v: lib.nameValuePair "playwright-${browser}" v.viewPort) playwrights))})
+    displays = json.loads(${builtins.toJSON (builtins.toJSON (lib.mapAttrsToList (_: v: v.display) playwrights))})
 
     # Tool calls that stay on the test network: (tool, arguments, text the result must contain).
     calls = {
@@ -392,6 +394,16 @@ in
         mcp.fail(f"runuser -u mcp-time -- {curl} http://mcp:{servers['kicad-t']['port']}/mcp")
         # Anyone else on the VM still does (it's the router that keeps others out).
         mcp.succeed(f"{curl} {target}")
+
+    with subtest("servers reach nothing else here, bar their own backend"):
+        searx = "http://127.0.0.1:${toString nodes.mcp.homelab.mcp.searxng.port}/"
+        mcp.succeed(f"runuser -u mcp-searxng -- {curl} {searx}")
+        mcp.fail(f"runuser -u mcp-time -- {curl} {searx}")
+        # A browser opens neither its own display's view nor the other's, nor their VNC.
+        for port in [*views.values(), *(5900 + d for d in displays)]:
+            mcp.fail(f"runuser -u mcp-playwright-chromium -- {curl} http://127.0.0.1:{port}/")
+        # X only on the display's socket in its browser's /tmp: no abstract socket for the other browser to open.
+        mcp.fail("grep -q '@/tmp/.X11-unix/' /proc/net/unix")
 
     if "memory" in servers:
         with subtest("memory graph in the state dir"):

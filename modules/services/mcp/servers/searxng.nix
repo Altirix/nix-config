@@ -9,7 +9,7 @@ let
   inherit (config.homelab.mcp.searxng) port;
 in
 {
-  # SearXNG's own port, loopback only. Not an MCP server's, so the egress rules let the MCP server reach it.
+  # SearXNG's own port, loopback only, the one local port the MCP server may reach (localPorts).
   options.homelab.mcp.searxng.port = lib.mkOption {
     type = lib.types.port;
     default = 8888;
@@ -19,6 +19,7 @@ in
     homelab.mcp.servers.searxng = {
       command = lib.mkDefault (lib.getExe (pkgs.callPackage ../packages/mcp-searxng.nix { }));
       port = lib.mkDefault 8113;
+      localPorts = [ port ];
       environment = {
         SEARXNG_URL = "http://127.0.0.1:${toString port}";
         # Enough for an agent to choose from without filling its context.
