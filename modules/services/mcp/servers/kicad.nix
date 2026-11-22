@@ -44,6 +44,20 @@ let
   # Each project's own user for its source, owning only its deploy key.
   syncUser = p: "kicad-sync-${p}";
   projects = lib.attrNames cfg.projects;
+  # A project with no url (a scratchpad) has a source of its own on the VM, in its sync user's state directory.
+  localSource = p: "/var/lib/${syncUser p}/source.git";
+  sources = lib.mapAttrs (p: src: src // { url = if src.url == null then localSource p else src.url; }) cfg.projects;
+  # Makes a local source, once: a bare repo with one empty commit on `branch` for the clone to start from.
+  initLocalSource = pkgs.writeShellScript "kicad-init-local-source" ''
+    set -eu
+    source=$1 branch=$2
+    [ -e "$source/HEAD" ] && exit 0
+    ${git} init --quiet --bare --initial-branch "$branch" "$source"
+    tree=$(${git} -C "$source" mktree </dev/null)
+    commit=$(GIT_AUTHOR_NAME=kicad GIT_AUTHOR_EMAIL=kicad@localhost GIT_COMMITTER_NAME=kicad \
+      GIT_COMMITTER_EMAIL=kicad@localhost ${git} -C "$source" commit-tree "$tree" -m "Scratch project")
+    ${git} -C "$source" update-ref "refs/heads/$branch" "$commit"
+  '';
   # The sockets for a project's git, one per direction, `upload-pack` (fetch) and `receive-pack` (push): the path git's
   # ext transport asks for (%S, git-upload-pack or git-receive-pack).
   gitSocket = p: service: "/run/kicad-git-${p}/git-${service}";
@@ -125,7 +139,11 @@ in
       type = types.attrsOf (types.submodule {
         options = {
           port = mkOption { type = types.port; };
-          url = mkOption { type = types.str; };
+          # null: a source of its own on the VM, not pushed anywhere (a scratchpad).
+          url = mkOption {
+            type = types.nullOr types.str;
+            default = null;
+          };
           # The branch the clone starts on; agents switch and push branches themselves after that.
           branch = mkOption {
             type = types.str;
@@ -246,7 +264,7 @@ in
         # Its git (vcs_fetch, vcs_pull, vcs_push) reaches the source through the project's sockets, never with the key.
         GIT_CONFIG_GLOBAL = "${serverGitConfig p project}";
       } // libraryEnv;
-    }) cfg.projects;
+    }) sources;
 
     systemd.services = lib.listToAttrs (map (p: lib.nameValuePair "mcp-kicad-${p}" {
       after = [ "kicad-repo-${p}.service" "kicad-api-${p}.service" ];
@@ -307,12 +325,14 @@ in
           [ git "clone" "--quiet" "--branch" src.branch "--config" "core.sharedRepository=group" src.url (repo p) ];
         # The server waited for it: start it, also after a clone that took a few tries (as root, "+").
         ExecStartPost = "+${config.systemd.package}/bin/systemctl start --no-block mcp-kicad-${p}.service";
+      } // lib.optionalAttrs (cfg.projects.${p}.url == null) {
+        ExecStartPre = utils.escapeSystemdExecArgs [ initLocalSource src.url src.branch ];
       };
-    })) cfg.projects
+    })) sources
     # Behind each socket, per connection, as the sync user: fetches straight from the source (over ssh with the key,
     # or its path for a local one), pushes through the gate, which is first brought in line with the source. Whatever
     # the server asks for, it gets that one repo.
-    // lib.listToAttrs (lib.concatMap (p: let src = cfg.projects.${p}; in [
+    // lib.listToAttrs (lib.concatMap (p: let src = sources.${p}; in [
       (lib.nameValuePair "kicad-git-${p}-upload-pack@" (lib.recursiveUpdate (sourceUnit p src) {
         description = "git fetch for KiCad project ${p}";
         serviceConfig = {
@@ -366,6 +386,6 @@ in
     }) [ "upload-pack" "receive-pack" ]) projects);
 
     sops.secrets = lib.mapAttrs' (p: _: lib.nameValuePair (keySecret p) { owner = syncUser p; })
-      (lib.filterAttrs (_: src: ssh src.url) cfg.projects);
+      (lib.filterAttrs (_: src: ssh src.url) sources);
   };
 }

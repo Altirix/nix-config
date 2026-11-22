@@ -13,6 +13,8 @@
     "digikey": { "type": "http", "url": "https://mcp.peacocks.me/digikey/mcp" },
     "kicad-palmremote": { "type": "http", "url": "https://mcp.peacocks.me/kicad/palmremote/mcp" },
     "kicad-polaris11": { "type": "http", "url": "https://mcp.peacocks.me/kicad/polaris11/mcp" },
-    "kicad-navi14": { "type": "http", "url": "https://mcp.peacocks.me/kicad/navi14/mcp" }
+    "kicad-navi14": { "type": "http", "url": "https://mcp.peacocks.me/kicad/navi14/mcp" },
+    "kicad-scratch": { "type": "http", "url": "https://mcp.peacocks.me/kicad/scratch/mcp" },
+    "rea-scratch": { "type": "http", "url": "https://mcp.peacocks.me/rea/scratch/mcp" }
   }
 }

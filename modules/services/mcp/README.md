@@ -311,6 +311,9 @@ A repo's `.mcp.json` points at its project:
 { "mcpServers": { "rea": { "type": "http", "url": "https://mcp.peacocks.me/rea/<project>/mcp" } } }
 ```
 
+`scratch` (9102) is any agent's, for a one-off sample that needs no project of its own: everything in it is shared
+with every agent using it, so nothing there should be private. This repo's `.mcp.json` has it as `rea-scratch`.
+
 Adding a project is a line in `hosts/virtual/rea` and a deploy, the edge needs nothing. Each session takes
 about 1.5 times Ghidra's heap (`homelab.mcp.rea.ghidraHeap`, 1G here) once it has a target open, and all of them
 together, every project's, at most `homelab.mcp.rea.memoryMax` (75% of the VM, `rea.slice`): past that the kernel ends a session, not the VM.
@@ -518,6 +521,15 @@ sops hosts/virtual/mcp/secrets.yaml   # kicad-deploy-key-palmremote: | <the priv
 
 The clone is made once. To point a project at another source, change its url and move its repo aside (it clones
 again on the next start).
+
+A project with no `url` has a source of its own on the VM, `/var/lib/kicad-sync-<project>/source.git`, started with
+one empty commit and pushed nowhere. `scratch` (9203) is one, any agent's for trying things without a repo of their
+own (`protect = [ ]`, so main takes pushes too). Everything in it is shared with every agent, and only on the VM:
+move what's worth keeping into a project of its own.
+
+```nix
+homelab.mcp.kicad.projects.scratch = { port = 9203; protect = [ ]; };
+```
 
 ## fdfdb (8110)
 

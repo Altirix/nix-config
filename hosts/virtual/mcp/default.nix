@@ -27,11 +27,11 @@
   # One per line of work: agents on different projects never share a server or files. Each starts on its repo's main
   # (something committed first); agents fetch, pull and push themselves, through sockets that hold the project's
   # deploy key away from them (README.md, KiCad).
-  # Three KiCad servers, each with its own headless KiCad (a few hundred MB with a board open) and kicad-cli for checks
+  # Four KiCad servers, each with its own headless KiCad (a few hundred MB with a board open) and kicad-cli for checks
   # and exports, beside the rest (Incus' default is 1/1GiB).
   homelab.vm = {
     cpus = 4;
-    memory = "6GiB";
+    memory = "8GiB";
   };
 
   # Routing too: differential pairs and length tuning for the boards' display lanes, and KiCadRoutingTools.
@@ -40,6 +40,8 @@
     palmremote = { port = 9200; url = "git@github.com:Altirix/A1990-A2141-PalmRemote.git"; };
     polaris11 = { port = 9201; url = "git@github.com:Altirix/Polaris11.git"; };
     navi14 = { port = 9202; url = "git@github.com:Altirix/Navi14.git"; };
+    # Shared by any agent for trying things: a source of its own on the VM, main pushable.
+    scratch = { port = 9203; protect = [ ]; };
   };
 
   system.stateVersion = "26.05";
