@@ -8,6 +8,15 @@ let
   cfg = config.homelab.mcp.servers.jlcpcb;
   package = pkgs.callPackage ../packages/jlcpcb-mcp.nix { };
   state = "/var/lib/mcp-jlcpcb";
+  # After a new catalog is swapped in (the build leaves `swapped`), the server restarts onto it, queued (--no-block):
+  # the server is ordered after the catalog unit, so a restart waited for here would wait on this very unit, and
+  # neither would ever finish.
+  restartServer = pkgs.writeShellScript "mcp-jlcpcb-restart" ''
+    if [ -e ${state}/swapped ]; then
+      rm ${state}/swapped
+      ${config.systemd.package}/bin/systemctl try-restart --no-block mcp-jlcpcb.service
+    fi
+  '';
 in
 {
   homelab.mcp.servers.jlcpcb = {
@@ -22,8 +31,8 @@ in
       after = [ "mcp-jlcpcb-catalog.service" ];
     };
 
-    # Built in build/ and renamed over the server's, then the server restarted onto it. A catalog under 20 hours old
-    # is kept, so a reboot doesn't download it again.
+    # Built in build/ and renamed over the server's, then the server restarted onto it (restartServer). A catalog
+    # under 20 hours old is kept, so a reboot doesn't download it again, and the server isn't restarted for nothing.
     mcp-jlcpcb-catalog = {
       description = "JLCPCB parts catalog for MCP server jlcpcb";
       # Run at boot too, before the server: without the network it fails and the server has no catalog.
@@ -35,7 +44,7 @@ in
         User = "mcp-jlcpcb";
         Group = "mcp-jlcpcb";
         StateDirectory = "mcp-jlcpcb";
-        ExecStartPost = "+${config.systemd.package}/bin/systemctl try-restart mcp-jlcpcb.service";
+        ExecStartPost = "+${restartServer}";
       };
       script = ''
         catalog=${state}/catalog
@@ -48,6 +57,7 @@ in
         mv ${state}/build/version.txt $catalog/version.txt
         mv ${state}/build/components.sqlite $catalog/components.sqlite
         rm -rf ${state}/build
+        touch ${state}/swapped
       '';
       path = [ pkgs.findutils ];
     };
