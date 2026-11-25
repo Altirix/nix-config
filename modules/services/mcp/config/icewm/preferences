@@ -1,0 +1,24 @@
+# IceWM on a playwright's display (servers/playwright.nix): title bars and a taskbar button per window, so whoever
+# opens the view finds the agent's window among the others and brings it to the front. Nothing else: no menus, no
+# programs to start, no logout, whoever has the view drives only what's already there.
+TaskBarShowStartMenu=0
+TaskBarShowWindowListMenu=1
+TaskBarShowWorkspaces=0
+TaskBarShowShowDesktopButton=0
+TaskBarShowTray=0
+TaskBarShowCPUStatus=0
+TaskBarShowMEMStatus=0
+TaskBarShowNetStatus=0
+TaskBarShowMailboxStatus=0
+TaskBarShowClock=0
+TaskBarAtTop=1
+ShowProgramsMenu=0
+ShowSettingsMenu=0
+ShowFocusModeMenu=0
+ShowThemesMenu=0
+ShowLogoutMenu=0
+ShowHelp=0
+DesktopMenuButton=0
+DesktopWinMenuButton=0
+DesktopWinListButton=1
+DesktopBackgroundColor="rgb:20/20/20"

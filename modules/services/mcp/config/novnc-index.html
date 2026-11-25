@@ -1,0 +1,9 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Browser</title>
+<!-- A playwright's view (servers/playwright.nix): straight into noVNC, connected and scaled. Its WebSocket is beside
+     this page, at / on the LAN and /chromium/ (or /firefox/) through browser.peacocks.me. -->
+<script>
+  var base = location.pathname.replace(/[^/]*$/, '').replace(/^\//, '');
+  location.replace('vnc.html?autoconnect=1&resize=scale&path=' + encodeURIComponent(base + 'websockify'));
+</script>

@@ -10,8 +10,8 @@
 # easiest to tell from a person's. config/playwright-<browser>.json drops what marks it as driven, and Firefox, which
 # reports navigator.webdriver whatever its prefs say, gets config/playwright-firefox-init.js. A captcha or Turnstile an
 # agent can't pass is for a person: the display is served as a web page (noVNC, `viewPort`),
-# http://<mcp-web>:<viewPort>/vnc.html?autoconnect=1&resize=scale, the agent hands its link over, they solve it in the
-# agent's own window and it carries on with the clearance.
+# http://<mcp-web>:<viewPort>/, the agent hands its link over, they find the agent's window by its page title on the
+# taskbar (IceWM, mcp-playwright-<browser>-wm), solve it there and it carries on with the clearance.
 #
 # file:// is blocked and uploads stay in roots the client declares, but browser_run_code runs any Node in the server
 # (its vm is no sandbox) and can't be turned off, and the view page drives the browser without a password. So the
@@ -29,6 +29,15 @@ let
   # nixpkgs' Playwright browsers come with no fonts: pages render as boxes, and an empty font list is a bot tell.
   fonts = pkgs.makeFontsConf {
     fontDirectories = with pkgs; [ dejavu_fonts liberation_ttf noto-fonts-color-emoji ];
+  };
+
+  # noVNC with an index.html that opens it connected (config/novnc-index.html), instead of a directory listing.
+  viewRoot = pkgs.symlinkJoin {
+    name = "playwright-view";
+    paths = [
+      "${pkgs.novnc}/share/webapps/novnc"
+      (pkgs.runCommand "novnc-index" { } "mkdir $out && cp ${../config/novnc-index.html} $out/index.html")
+    ];
   };
 
   enabled = lib.filterAttrs (browser: _: config.homelab.mcp.servers."playwright-${browser}".enable) browsers;
@@ -97,6 +106,24 @@ let
             unitConfig.JoinsNamespaceOf = "mcp-${name}-display.service";
           };
 
+          # Title bars and a taskbar button per window (config/icewm), so whoever opens the view finds the agent's
+          # window among every agent's and brings it to the front. Nothing to start from it.
+          "mcp-${name}-wm" = {
+            description = "Window manager on MCP server ${name}'s display";
+            wantedBy = [ "multi-user.target" ];
+            requires = [ "mcp-${name}-display.service" ];
+            after = [ "mcp-${name}-display.service" ];
+            unitConfig.JoinsNamespaceOf = "mcp-${name}-display.service";
+            environment = {
+              DISPLAY = ":${toString display}";
+              ICEWM_PRIVCFG = "${../config/icewm}";
+              FONTCONFIG_FILE = "${fonts}";
+            };
+            serviceConfig = sandbox // {
+              ExecStart = "${pkgs.icewm}/bin/icewm";
+            };
+          };
+
           "mcp-${name}-display" = {
             description = "Display of MCP server ${name}";
             unitConfig.JoinsNamespaceOf = "mcp-${name}.service";
@@ -120,7 +147,7 @@ let
             serviceConfig = sandbox // {
               ExecStart = utils.escapeSystemdExecArgs [
                 (lib.getExe' pkgs.python3Packages.websockify "websockify")
-                "--web" "${pkgs.novnc}/share/webapps/novnc"
+                "--web" "${viewRoot}"
                 "0.0.0.0:${toString viewPort}" "127.0.0.1:${rfbPort}"
               ];
             };

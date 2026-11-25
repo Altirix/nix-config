@@ -266,19 +266,18 @@ Each display is a web page, noVNC (`mcp-playwright-<browser>-view`, `homelab.mcp
 
 | Browser | Server | View |
 |---------|--------|------|
-| Chromium | `http://10.100.1.13:8108/mcp` | `http://10.100.1.13:8114/vnc.html?autoconnect=1&resize=scale` |
-| Firefox | `http://10.100.1.13:8112/mcp` | `http://10.100.1.13:8115/vnc.html?autoconnect=1&resize=scale` |
+| Chromium | `http://10.100.1.13:8108/mcp` | `http://10.100.1.13:8114/` |
+| Firefox | `http://10.100.1.13:8112/mcp` | `http://10.100.1.13:8115/` |
 
-From outside, the views are `https://browser.peacocks.me/<browser>/`, signed in through Kanidm (the edge's `browser`
-site, `sso`), since the view drives the browser with no password of its own:
+From outside, they're `https://browser.peacocks.me/chromium/` and `/firefox/`, signed in through Kanidm (the edge's
+`browser` site, `sso`), since the view drives the browser with no password of its own; `https://browser.peacocks.me/`
+links to both. A view's index opens noVNC connected (`config/novnc-index.html`), its WebSocket beside it.
 
-```
-https://browser.peacocks.me/chromium/vnc.html?autoconnect=1&resize=scale&path=chromium/websockify
-https://browser.peacocks.me/firefox/vnc.html?autoconnect=1&resize=scale&path=firefox/websockify
-```
-
-The agent stops at the challenge and hands over the view's link. Its window is on top (no window manager, the newest
-window covers the rest); solve it there and tell the agent to carry on, the clearance stays in its context. The router
+The agent stops at the challenge and hands over the view's link and its page's title. Every agent's window is on the
+same display: IceWM (`mcp-playwright-<browser>-wm`, `config/icewm`) gives each a title bar and a taskbar button with
+its page title, click the agent's to bring it to the front. Solve it there and tell the agent to carry on, the
+clearance stays in its context. IceWM has nothing to start (no menus, programs or keys) and runs as the display's
+user, out of the browser's reach. The router
 lets agents on the LAN (`labs: agents to mcp-web`) and the edge (`labs: edge to mcp-web`) at the servers and views,
 nothing else. The display and view run as their own user, not the browser's: code an agent runs in a browser reaches
 neither its view, VNC or X's abstract socket, nor the other browser's (`config/egress.nft`, Xvnc's `-nolisten local`).
@@ -303,7 +302,8 @@ And the order above for the agent, in `~/.claude/CLAUDE.md`:
 3. Open results with fetch.
 4. If the page is empty, needs JavaScript or is blocked, use playwright-chromium.
 5. If it's challenged, try playwright-firefox.
-6. If both are challenged, stop, give me the view link for that browser (port 8114 Chromium, 8115 Firefox) and wait.
+6. If both are challenged, stop, give me the view link for that browser (https://browser.peacocks.me/chromium/ or
+   /firefox/) and the page's title, and wait.
 ```
 
 ## rea (8101)
