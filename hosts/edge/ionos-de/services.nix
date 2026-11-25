@@ -46,6 +46,8 @@ in
       domains = [ "browser.peacocks.me" ];
       https = true;
       sso.title = "Browsers";
+      # A page linking to both views (browser/index.html), the views themselves only open signed in.
+      root = "${./browser}";
       locations = {
         "/chromium/" = view "chromium";
         "/firefox/" = view "firefox";

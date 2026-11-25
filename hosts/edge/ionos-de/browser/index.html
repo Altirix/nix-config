@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Browsers</title>
+<style>
+  :root { color-scheme: light dark; --bg: #f6f6f4; --fg: #1d1d1b; --muted: #6b6b66; --card: #ffffff; --line: #e2e2dd; --accent: #2f5fd0; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #161615; --fg: #ececea; --muted: #9a9a94; --card: #20201e; --line: #33332f; --accent: #86a8ff; } }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, sans-serif; }
+  main { max-width: 40rem; margin: 0 auto; padding: 3rem 1rem; }
+  h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
+  p { color: var(--muted); margin: 0 0 1.5rem; }
+  a.view { display: block; padding: 1rem 1.25rem; margin-bottom: .75rem; background: var(--card); border: 1px solid var(--line); border-radius: .5rem; color: var(--fg); text-decoration: none; }
+  a.view:hover { border-color: var(--accent); }
+  a.view strong { color: var(--accent); }
+  a.view span { display: block; color: var(--muted); font-size: .875rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Browsers</h1>
+  <p>The agents' browsers on mcp-web. Open the one an agent sent you to and solve its challenge in the window on top, then tell it to carry on.</p>
+  <a class="view" href="/chromium/vnc.html?autoconnect=1&amp;resize=scale&amp;path=chromium/websockify"><strong>Chromium</strong><span>playwright-chromium</span></a>
+  <a class="view" href="/firefox/vnc.html?autoconnect=1&amp;resize=scale&amp;path=firefox/websockify"><strong>Firefox</strong><span>playwright-firefox</span></a>
+</main>
+</body>
+</html>
