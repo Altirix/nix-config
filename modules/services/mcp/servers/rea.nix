@@ -257,6 +257,8 @@ in
           # flat: <branch>__<agent>.json.
           "d /var/lib/rea/${p}/shared 2750 ${u} nginx -"
           "d /var/lib/rea/${p}/shared/evidence 2750 ${u} nginx -"
+          # What headless Ghidra exports (ReaExportDecompiled.java), served like evidence.
+          "d /var/lib/rea/${p}/shared/ghidra 2750 ${u} nginx -"
           "d /var/lib/rea/${p}/scratch 0750 ${u} ${u} -"
           "d /var/lib/rea/${p}/home 0750 ${u} ${u} -"
         ]) projects;
@@ -298,6 +300,12 @@ in
 
     (lib.mkIf cfg.dynamic {
       environment.etc."rea/chromium".source = chromium;
+      # Ghidra itself, for what REA's tools can't (Thumb, which REA decodes as ARM): capture_process_scenario runs
+      # /etc/rea/ghidra/support/analyzeHeadless with JAVA_HOME=/etc/rea/jdk and the scripts in
+      # /etc/rea/ghidra-scripts (config/ghidra), README.md, rea.
+      environment.etc."rea/ghidra".source = "${rea.ghidra}/lib/ghidra";
+      environment.etc."rea/jdk".source = rea.jdk.home;
+      environment.etc."rea/ghidra-scripts".source = ../config/ghidra;
     })
   ]);
 }

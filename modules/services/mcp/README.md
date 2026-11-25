@@ -389,6 +389,42 @@ curl -fsSO https://mcp.peacocks.me/rea/<project>/shared/evidence/main__agent-1.j
 curl -fsS -T main__agent-1.json https://mcp.peacocks.me/rea/<project>/samples/main__agent-1.json
 ```
 
+### Thumb firmware: Ghidra headless
+
+REA's raw loader and its seeds (`REA_GHIDRA_SEED_FILE`) decode everything as ARM: its own notes list Thumb-only and
+Cortex-M as unsupported, so Thumb code (most ARM firmware since Cortex-M and -R) comes out as bad instructions. With
+`dynamic`, an agent runs Ghidra itself through `capture_process_scenario`, the rea VM's copy at fixed paths:
+
+| Path | What |
+|---|---|
+| `/etc/rea/ghidra/support/analyzeHeadless` | Ghidra (REA's own, 12.x) |
+| `/etc/rea/jdk` | its `JAVA_HOME` |
+| `/etc/rea/ghidra-scripts/ReaThumbSeeds.java` | before analysis: `address [name]` lines (low bit set or not) become Thumb functions (`TMode=1`, disassembled, created); `--all` makes the whole image Thumb |
+| `/etc/rea/ghidra-scripts/ReaExportDecompiled.java` | after analysis: every function's C into one file |
+
+Upload the image and a seeds file, then, with `capture_process_scenario`:
+
+```json
+{
+  "executable": "/etc/rea/ghidra/support/analyzeHeadless",
+  "arguments": [
+    "/var/lib/rea/sm2262/scratch/<agent>", "isp", "-import", "/var/lib/rea/sm2262/samples/isp.bin",
+    "-loader", "BinaryLoader", "-loader-baseAddr", "0x0", "-processor", "ARM:LE:32:v7",
+    "-scriptPath", "/etc/rea/ghidra-scripts",
+    "-preScript", "ReaThumbSeeds.java", "/var/lib/rea/sm2262/samples/isp-seeds.txt",
+    "-postScript", "ReaExportDecompiled.java", "/var/lib/rea/sm2262/shared/ghidra/isp.c",
+    "-deleteProject"
+  ],
+  "environment": { "JAVA_HOME": "/etc/rea/jdk" },
+  "timeout_ms": 1800000,
+  "idle_timeout_ms": 600000
+}
+```
+
+The C is then `https://mcp.peacocks.me/rea/<project>/shared/ghidra/isp.c`. `ARM:LE:32:v7` takes both ARM and
+Thumb (Cortex-R, A); `ARM:LE:32:Cortex` is Thumb-only (Cortex-M). The run shares the session's memory cap
+(`memoryMax`) with REA's own Ghidra, and nothing from it reaches REA's session: it's a separate import.
+
 ### Dynamic analysis
 
 `homelab.mcp.rea.dynamic = true` builds REA in full: `capture_process_scenario` runs the command it's given
