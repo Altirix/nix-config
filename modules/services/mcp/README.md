@@ -245,7 +245,7 @@ sops hosts/virtual/mcp/secrets.yaml   # digikey-client-id: <id>, digikey-client-
 On `mcp-web`, an agent goes from cheapest to heaviest:
 
 1. **searxng** searches. Its own SearXNG on loopback (`homelab.mcp.searxng.port`, 8888) asks Google, Bing, Brave, Qwant, Mojeek
-   Brave and the rest from this VM and merges them, so an engine that rate-limits doesn't fail the search. Pick engines
+   and the rest from this VM and merges them, so an engine that rate-limits doesn't fail the search. Pick engines
    with `engines` or a bang in the query (`!go`, `!bi`, `!br`, `!qw`): Bing, Mojeek, Qwant, Google and Brave are on,
    DuckDuckGo and Startpage off, they answer it with CAPTCHAs (`servers/searxng.nix`). Its `web_url_read` reads a page, private
    addresses refused. Public, so cloud sessions search through it too.
