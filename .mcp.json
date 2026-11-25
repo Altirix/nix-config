@@ -5,7 +5,6 @@
     "fetch": { "type": "http", "url": "https://mcp.peacocks.me/fetch/mcp" },
     "time": { "type": "http", "url": "https://mcp.peacocks.me/time/mcp" },
     "memory": { "type": "http", "url": "https://mcp.peacocks.me/memory/mcp" },
-    "markitdown": { "type": "http", "url": "https://mcp.peacocks.me/markitdown/mcp/" },
     "searxng": { "type": "http", "url": "https://mcp.peacocks.me/searxng/mcp" },
     "playwright-chromium": { "type": "http", "url": "https://mcp.peacocks.me/playwright-chromium/mcp" },
     "playwright-firefox": { "type": "http", "url": "https://mcp.peacocks.me/playwright-firefox/mcp" },

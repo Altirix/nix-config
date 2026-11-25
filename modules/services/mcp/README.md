@@ -14,7 +14,7 @@ A VM is the boundary: servers on one share its egress, its root and whatever its
 | VM | Address | Servers | Why there |
 |----|---------|---------|-----------|
 | `hosts/virtual/mcp` | `10.100.1.11` | nixos, context7, time, memory, fdfdb, paperless, jlcpcb, digikey, KiCad projects | hold tokens or data (paperless' and DigiKey's keys, memory's graph, the projects), only talk to known APIs |
-| `hosts/virtual/mcp-web` | `10.100.1.13` | fetch, markitdown, searxng, playwright-chromium, playwright-firefox | read any page an agent names, the playwrights run its code: nothing there to steal |
+| `hosts/virtual/mcp-web` | `10.100.1.13` | fetch, searxng, playwright-chromium, playwright-firefox | read any page an agent names, the playwrights run its code: nothing there to steal |
 | `hosts/virtual/rea` | `10.100.1.12` | rea | runs the binaries it analyses, no egress, reset from a snapshot (rea) |
 
 A new server goes on `mcp-web` if it reads arbitrary URLs or runs untrusted content, on `mcp` otherwise, on a VM of
@@ -84,7 +84,7 @@ ever masquerades into labs, the edge arrives as `10.100.0.1` instead of `10.0.0.
 ## From outside
 
 The servers marked `public` (nixos, context7, time, memory, fdfdb, paperless, jlcpcb, digikey, the KiCad projects on `mcp`; fetch,
-markitdown, searxng and the playwrights on `mcp-web`) are published (`homelab.publish`), and the edge's `mcp` site
+searxng and the playwrights on `mcp-web`) are published (`homelab.publish`), and the edge's `mcp` site
 (`hosts/edge/ionos-de/services.nix`, `from = [ "mcp" "mcp-web" "rea" ]`)
 serves them at `https://mcp.peacocks.me/<server>/mcp`, proxied over the tunnel (streamable
 HTTP only, SSE is deprecated). A server's `edgeDeny` tools are refused there and left out of its tool list
@@ -254,12 +254,11 @@ On `mcp-web`, an agent goes from cheapest to heaviest:
    challenges one browser often lets the other through.
 4. A challenge neither passes (a captcha, Turnstile) is for a person, below.
 
-Datasheets: Chromium shows a PDF in its viewer and `browser_take_screenshot` returns the screen to the agent as an
-image, so drawings (pinouts, package dimensions, land patterns) are read off a screenshot. The viewer takes
-`#page=N&zoom=200` on the URL, page N at 200%, rather than scrolling to it. What a browser downloads or saves lands
-in `/var/lib/mcp-playwright-<browser>/output/`, kept 7 days: Firefox downloads a PDF it opens, and markitdown, alone
-of the servers, reads it (`file:///var/lib/mcp-playwright-firefox/output/<file>.pdf`) for the text, for datasheets a
-site only hands a browser (LCSC answers fetch and markitdown 403).
+Datasheets: Chromium shows a PDF in its viewer, text and drawings alike, and gets past sites that refuse plain fetches
+(LCSC answers fetch 403). `browser_take_screenshot` returns the screen to the agent as an image, so pinouts, package
+dimensions and land patterns are read off a screenshot. The viewer takes `#page=N&zoom=200` on the URL, page N at
+200%, rather than scrolling to it. Firefox downloads a PDF instead of showing it. What a browser downloads or saves
+lands in `/var/lib/mcp-playwright-<browser>/output/`, its own (0750), kept 7 days.
 
 Each browser server runs one headed browser (`servers/playwright.nix`), `--isolated`: every agent connected gets a
 context of its own, so many share it without seeing each other's tabs or cookies. Headed on a display of its own
@@ -308,9 +307,8 @@ And the order above for the agent, in `~/.claude/CLAUDE.md`:
 1. For parts, use jlcpcb (JLC/LCSC) and digikey before any website.
 2. Search with searxng; add a bang (!go, !bi, !br, !qw) to target one engine.
 3. Open results with fetch. Read a datasheet in playwright-chromium's PDF viewer, which also gets past sites that
-   refuse fetch and markitdown (LCSC answers 403): go to <pdf url>#page=N&zoom=200 for page N at 200%, and take a
-   screenshot to see a pinout, package drawing or land pattern. For its text, markitdown the URL, or the PDF
-   playwright-firefox downloads (file:///var/lib/mcp-playwright-firefox/output/<file>).
+   refuse fetch (LCSC answers 403): go to <pdf url>#page=N&zoom=200 for page N at 200%, and take a screenshot to
+   see a pinout, package drawing or land pattern.
 4. If the page is empty, needs JavaScript or is blocked, use playwright-chromium.
 5. If it's challenged, try playwright-firefox.
 6. If both are challenged, stop, give me the view link for that browser (https://browser.peacocks.me/chromium/ or

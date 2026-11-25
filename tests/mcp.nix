@@ -24,7 +24,6 @@ let
     searxng = "searxng_web_search";
     # Its catalog can't be downloaded here, the server still starts and lists its tools.
     jlcpcb = "jlcpcb_search_components";
-    markitdown = "convert_to_markdown";
     fdfdb = "search_part_number";
     kicad-t = "kicad_create_new_project";
   };
@@ -117,7 +116,6 @@ in
             ("read_graph", {}, "written by the VM test"),
         ],
         "fetch": [("fetch", {"url": "http://client/"}, "Hello from client")],
-        "markitdown": [("convert_to_markdown", {"uri": "http://client/"}, "Hello from client")],
         "fdfdb": [
             ("search_part_number", {"part_number": "MT29F512G08EEHAF"}, "2CA40832A100"),
             ("search_flash_id", {"flash_id": "2C A4 08 32 A1 00"}, "MT29F512G08EEHAF"),

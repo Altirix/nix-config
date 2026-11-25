@@ -21,7 +21,7 @@ class Session:
             conn = http.client.HTTPConnection(url.hostname, url.port, timeout=900)
             conn.request("POST", url.path, json.dumps(message), self.headers)
             res = conn.getresponse()
-            # markitdown redirects /mcp to /mcp/.
+            # A server may redirect /mcp to /mcp/ (Starlette's mounts do).
             if res.status in (307, 308):
                 url = self.url = urllib.parse.urlsplit(urllib.parse.urljoin(url.geturl(), res.getheader("Location")))
                 res.read()

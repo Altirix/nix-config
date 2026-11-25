@@ -225,7 +225,7 @@ let
       statsAddr = "127.0.0.1:15020";
       logging.format = "json";
     };
-    # MCP messages are buffered whole to read them, results run to megabytes (REA's decompiles, markitdown).
+    # MCP messages are buffered whole to read them, results run to megabytes (REA's decompiles, browser screenshots).
     frontendPolicies.http.maxBufferSize = 64 * 1024 * 1024;
     # nginx names the client (token-check.conf) or user in X-Web-User, nothing else sets it.
     frontendPolicies.accessLog = {
