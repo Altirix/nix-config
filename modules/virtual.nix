@@ -16,8 +16,9 @@
   ];
 
   # Its size, carried by its pin profile (modules/compute.nix): set here, not with `incus config set` on the
-  # instance, which would override the profile. null keeps Incus' default (1 vCPU, 1 GiB). CPUs change live, memory
-  # at the next restart.
+  # instance, which would override the profile. null keeps Incus' default (1 vCPU, 1 GiB, the pool's disk size). CPUs
+  # change live, memory and disk at the next restart. A disk only grows: the root partition and filesystem follow it at
+  # boot (growPartition, autoResize).
   options.homelab.vm = {
     cpus = lib.mkOption {
       type = lib.types.nullOr lib.types.ints.positive;
@@ -27,6 +28,11 @@
       type = lib.types.nullOr lib.types.str;
       default = null;
       example = "4GiB";
+    };
+    disk = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "32GiB";
     };
   };
 
@@ -52,5 +58,10 @@
 
     # `incus console` attaches to the serial port.
     boot.kernelParams = [ "console=tty1" "console=ttyS0" ];
+
+    # A bigger disk (homelab.vm.disk) is used at the next boot: the root partition, last on the disk, grows to fill it,
+    # then its filesystem.
+    boot.growPartition = true;
+    fileSystems."/".autoResize = true;
   };
 }

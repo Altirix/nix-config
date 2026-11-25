@@ -32,6 +32,8 @@
   homelab.vm = {
     cpus = 4;
     memory = "8GiB";
+    # KiCad's libraries and 3D models, a generation or two of them, and the JLC parts catalog.
+    disk = "32GiB";
   };
 
   # Routing too: differential pairs and length tuning for the boards' display lanes, and KiCadRoutingTools.

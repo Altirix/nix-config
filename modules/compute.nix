@@ -224,7 +224,12 @@ in
           # Its size from its own config (homelab.vm), instances that aren't hosts here keep theirs.
           config = lib.optionalAttrs ((vm.cpus or null) != null) { "limits.cpu" = toString vm.cpus; }
             // lib.optionalAttrs ((vm.memory or null) != null) { "limits.memory" = vm.memory; };
-          devices.eth0 = labsNic // { "ipv4.address" = address; };
+          devices = {
+            eth0 = labsNic // { "ipv4.address" = address; };
+          } // lib.optionalAttrs ((vm.disk or null) != null) {
+            # The default profile's root, at this size.
+            root = { path = "/"; pool = "nvme"; type = "disk"; size = vm.disk; };
+          };
         }) labsAddresses;
 
         # Remote, so every member installs Windows VMs from the same unattend ISO.

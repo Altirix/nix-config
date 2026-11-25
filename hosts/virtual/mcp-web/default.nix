@@ -14,9 +14,11 @@
   system.stateVersion = "26.05";
 
   # Two headed browsers, each on its own display, and SearXNG.
+  # Chromium, Firefox and their fonts are a few GB a generation, the pool's default disk filled up.
   homelab.vm = {
     cpus = 4;
     memory = "6GiB";
+    disk = "32GiB";
   };
 
   # The playwrights are public with the tools reaching past the browser refused at the edge (their edgeDeny): Node in
