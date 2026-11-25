@@ -2,7 +2,8 @@
 
 # NVIDIA vGPU host driver (vgpu4nixos). The card stays with the host, incus VMs take a mediated slice with
 # `incus config device add <vm> gpu gpu gputype=mdev mdev=nvidia-<id>` (`incus info --resources` lists the ids).
-# The GRID KVM zip isn't publicly downloadable, add it to the store of the machine that builds:
+# The GRID KVM zip isn't publicly downloadable, add it to the store of the machine that builds (as root, once per
+# release: the system keeps it from then on, common.nix):
 #   nix-store --add-fixed sha256 NVIDIA-GRID-Linux-KVM-<host>-<guest>-<windows>.zip
 {
   imports = [

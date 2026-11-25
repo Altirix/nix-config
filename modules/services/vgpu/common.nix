@@ -9,6 +9,15 @@ let
   releases = import ./releases.nix;
   r = releases.${cfg.release} or null;
 
+  zipFilename = if r != null then "NVIDIA-GRID-Linux-KVM-${r.host}-${r.guest}-${r.windows}.zip" else null;
+  # The host zip the driver is built from, the same store path as the build's own: added by hand (host.nix), so the
+  # system keeps it (extraDependencies) or the weekly GC deletes it and the next build stops for it.
+  zip = pkgs.requireFile {
+    name = zipFilename;
+    hash = r.zipSha256;
+    url = "https://www.nvidia.com/object/vGPU-software-driver.html";
+  };
+
   # Headless, so no settings or persistenced.
   fromRelease = nvidiaPackages.mkVgpuDriver {
     version = r.host;
@@ -20,7 +29,7 @@ let
     generalVersion = r.guest;
     useSettings = false;
     usePersistenced = false;
-    zipFilename = "NVIDIA-GRID-Linux-KVM-${r.host}-${r.guest}-${r.windows}.zip";
+    inherit zipFilename;
     vgpuPatcher = null;
   };
   packaged = "${if guest then "grid" else "vgpu"}_${lib.replaceStrings [ "." ] [ "_" ] cfg.release}";
@@ -52,5 +61,7 @@ in
     hardware.nvidia.package = driver // { mod = driver.bin; };
 
     nixpkgs.config.allowUnfreePredicate = pkg: lib.hasPrefix "nvidia" (lib.getName pkg);
+
+    system.extraDependencies = lib.optional (!guest && r != null && r.zipSha256 != null) zip;
   };
 }
