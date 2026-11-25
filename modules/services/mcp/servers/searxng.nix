@@ -46,6 +46,11 @@ in
           formats = [ "html" "json" ];
           safe_search = 0;
         };
+        # Merged by name into SearXNG's own list. DuckDuckGo and Startpage answer it with CAPTCHAs, so they're off;
+        # Bing, Mojeek and Qwant, which mostly don't, are on beside Google and Brave. An engine that throttles or
+        # challenges anyway is suspended for a while by SearXNG itself, the rest still answer.
+        engines = map (name: { inherit name; disabled = false; }) [ "bing" "mojeek" "qwant" "google" "brave" ]
+          ++ map (name: { inherit name; disabled = true; }) [ "duckduckgo" "startpage" ];
       };
     };
 

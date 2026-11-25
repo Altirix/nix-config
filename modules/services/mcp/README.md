@@ -244,14 +244,20 @@ sops hosts/virtual/mcp/secrets.yaml   # digikey-client-id: <id>, digikey-client-
 
 On `mcp-web`, an agent goes from cheapest to heaviest:
 
-1. **searxng** searches. Its own SearXNG on loopback (`homelab.mcp.searxng.port`, 8888) asks Google, Bing, DuckDuckGo,
+1. **searxng** searches. Its own SearXNG on loopback (`homelab.mcp.searxng.port`, 8888) asks Google, Bing, Brave, Qwant, Mojeek
    Brave and the rest from this VM and merges them, so an engine that rate-limits doesn't fail the search. Pick engines
-   with `engines` or a bang in the query (`!go`, `!bi`, `!ddg`, `!br`). Its `web_url_read` reads a page, private
+   with `engines` or a bang in the query (`!go`, `!bi`, `!br`, `!qw`): Bing, Mojeek, Qwant, Google and Brave are on,
+   DuckDuckGo and Startpage off, they answer it with CAPTCHAs (`servers/searxng.nix`). Its `web_url_read` reads a page, private
    addresses refused. Public, so cloud sessions search through it too.
 2. **fetch** reads plain pages.
 3. **playwright-chromium**, then **playwright-firefox**, for pages that need JavaScript or turn fetch away. A site that
    challenges one browser often lets the other through.
 4. A challenge neither passes (a captcha, Turnstile) is for a person, below.
+
+What a browser downloads or saves (a PDF, a screenshot) lands in `/var/lib/mcp-playwright-<browser>/output/`, kept 7
+days. markitdown, alone of the servers, reads it: `file:///var/lib/mcp-playwright-firefox/output/<file>.pdf` to text,
+for datasheets a site only hands a browser (LCSC answers fetch and markitdown 403). Firefox downloads a PDF it opens,
+Chromium shows it in its viewer.
 
 Each browser server runs one headed browser (`servers/playwright.nix`), `--isolated`: every agent connected gets a
 context of its own, so many share it without seeing each other's tabs or cookies. Headed on a display of its own
@@ -298,8 +304,10 @@ And the order above for the agent, in `~/.claude/CLAUDE.md`:
 ```md
 ## Web access
 1. For parts, use jlcpcb (JLC/LCSC) and digikey before any website.
-2. Search with searxng; add a bang (!go, !br, !ddg) to target one engine.
-3. Open results with fetch.
+2. Search with searxng; add a bang (!go, !bi, !br, !qw) to target one engine.
+3. Open results with fetch. For a datasheet the site won't hand fetch or markitdown (LCSC answers 403), open it in
+   playwright-firefox, which downloads the PDF to its output/, then convert
+   file:///var/lib/mcp-playwright-firefox/output/<file> with markitdown.
 4. If the page is empty, needs JavaScript or is blocked, use playwright-chromium.
 5. If it's challenged, try playwright-firefox.
 6. If both are challenged, stop, give me the view link for that browser (https://browser.peacocks.me/chromium/ or

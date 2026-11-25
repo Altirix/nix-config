@@ -104,6 +104,14 @@ let
             after = [ "mcp-${name}-display.service" ];
             # One /tmp with the display, where X's socket is.
             unitConfig.JoinsNamespaceOf = "mcp-${name}-display.service";
+            # What it downloads (a datasheet a site only hands a browser) and saves lands in output/, which markitdown
+            # reads (below) and no other server.
+            serviceConfig.StateDirectoryMode = "0750";
+          };
+
+          # markitdown converts the browser's downloads, file:///var/lib/mcp-<name>/output/<file>.
+          mcp-markitdown = lib.mkIf config.homelab.mcp.servers.markitdown.enable {
+            serviceConfig.SupplementaryGroups = [ "mcp-${name}" ];
           };
 
           # Title bars and a taskbar button per window (config/icewm), so whoever opens the view finds the agent's
