@@ -69,11 +69,13 @@ in
       ];
     };
 
-    # What deploying and installing the other hosts takes, nixos-rebuild comes with NixOS.
+    # What deploying and installing the other hosts takes, nixos-rebuild comes with NixOS. openssl makes the secrets
+    # the READMEs generate (openssl rand).
     environment.systemPackages = with pkgs; [
       nixos-anywhere
       sops
       age
+      openssl
     ];
 
     # WSL boots its own kernel, there is no bootloader to install.
