@@ -18,7 +18,7 @@
     firmware = true;
     # mcp.peacocks.me/rea/<project>/mcp. Add one per line of work that shouldn't share state.
     # scratch: shared by any agent for one-off samples.
-    projects = { ig5236 = 9100; mptools = 9101; scratch = 9102; };
+    projects = { ig5236 = 9100; mptools = 9101; scratch = 9102; sm2262 = 9103; };
     # 24G VM, REA gets 75%: a dozen sessions with Ghidra open at 1G (~1.5G each with the JVM's overhead).
     ghidraHeap = "1G";
   };

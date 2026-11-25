@@ -19,12 +19,13 @@
     memory = "6GiB";
   };
 
-  # Never make a playwright public: it runs code.
+  # The playwrights are public with the tools reaching past the browser refused at the edge (their edgeDeny): Node in
+  # the server, files off the VM. Agents on the LAN (labs: agents to mcp-web) still have them.
   homelab.mcp.servers = {
     fetch = { enable = true; public = true; };
     markitdown = { enable = true; public = true; };
     searxng = { enable = true; public = true; };
-    playwright-chromium.enable = true;
-    playwright-firefox.enable = true;
+    playwright-chromium = { enable = true; public = true; };
+    playwright-firefox = { enable = true; public = true; };
   };
 }

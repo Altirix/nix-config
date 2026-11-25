@@ -7,6 +7,8 @@
     "memory": { "type": "http", "url": "https://mcp.peacocks.me/memory/mcp" },
     "markitdown": { "type": "http", "url": "https://mcp.peacocks.me/markitdown/mcp/" },
     "searxng": { "type": "http", "url": "https://mcp.peacocks.me/searxng/mcp" },
+    "playwright-chromium": { "type": "http", "url": "https://mcp.peacocks.me/playwright-chromium/mcp" },
+    "playwright-firefox": { "type": "http", "url": "https://mcp.peacocks.me/playwright-firefox/mcp" },
     "fdfdb": { "type": "http", "url": "https://mcp.peacocks.me/fdfdb/mcp" },
     "paperless": { "type": "http", "url": "https://mcp.peacocks.me/paperless/mcp" },
     "jlcpcb": { "type": "http", "url": "https://mcp.peacocks.me/jlcpcb/mcp" },

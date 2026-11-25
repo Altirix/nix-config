@@ -80,6 +80,9 @@ let
           ]);
           transport = lib.mkDefault "http";
           port = lib.mkDefault defaults.port;
+          # Published (mcp.peacocks.me), the edge refuses what reaches past the browser: Node in the server
+          # (browser_run_code), files off the VM (browser_file_upload) and downloads into it (browser_install).
+          edgeDeny = lib.mkDefault [ "browser_run_code" "browser_file_upload" "browser_install" ];
           environment = {
             DISPLAY = ":${toString display}";
             FONTCONFIG_FILE = "${fonts}";

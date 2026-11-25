@@ -84,10 +84,13 @@ ever masquerades into labs, the edge arrives as `10.100.0.1` instead of `10.0.0.
 ## From outside
 
 The servers marked `public` (nixos, context7, time, memory, fdfdb, paperless, jlcpcb, digikey, the KiCad projects on `mcp`; fetch,
-markitdown and searxng on `mcp-web`) are published (`homelab.publish`), and the edge's `mcp` site
+markitdown, searxng and the playwrights on `mcp-web`) are published (`homelab.publish`), and the edge's `mcp` site
 (`hosts/edge/ionos-de/services.nix`, `from = [ "mcp" "mcp-web" "rea" ]`)
 serves them at `https://mcp.peacocks.me/<server>/mcp`, proxied over the tunnel (streamable
-HTTP only, SSE is deprecated). The playwrights run code, they and their views get no route. Every
+HTTP only, SSE is deprecated). A server's `edgeDeny` tools are refused there and left out of its tool list
+(agentgateway): the playwrights' reach past the browser, Node in the server (`browser_run_code`), files off the VM
+(`browser_file_upload`) and downloads into it (`browser_install`). Their views are a site of their own behind
+Kanidm (Solving a challenge). Every
 request needs `Authorization: Bearer <token>`, one token per client in `hosts/edge/ionos-de/secrets.yaml` so each
 can be revoked, and the access log (the journal's `nginx_access`, on to the logs VM) names the client. OAuth
 sign-in through Kanidm (`modules/services/sso`) is ready to replace the tokens later (`oauth` in place of `tokens` on
@@ -266,19 +269,30 @@ Each display is a web page, noVNC (`mcp-playwright-<browser>-view`, `homelab.mcp
 | Chromium | `http://10.100.1.13:8108/mcp` | `http://10.100.1.13:8114/vnc.html?autoconnect=1&resize=scale` |
 | Firefox | `http://10.100.1.13:8112/mcp` | `http://10.100.1.13:8115/vnc.html?autoconnect=1&resize=scale` |
 
-The agent stops at the challenge and hands over the view's link. Its window is on top (no window manager, the newest
-window covers the rest); solve it there and tell the agent to carry on, the clearance stays in its context. The view
-drives the browser with no password, the same as the server's own port: the router keeps both to agents (Router,
-`labs: agents to mcp-web`), never the edge. The display and view run as their own user, not the browser's: code an
-agent runs in a browser reaches neither its view, VNC or X's abstract socket, nor the other browser's
-(`config/egress.nft`, Xvnc's `-nolisten local`).
+From outside, the views are `https://browser.peacocks.me/<browser>/`, signed in through Kanidm (the edge's `browser`
+site, `sso`), since the view drives the browser with no password of its own:
 
-Add to Claude Code on a LAN machine, the user scope so cloud sessions (which can't reach them) don't get them:
+```
+https://browser.peacocks.me/chromium/vnc.html?autoconnect=1&resize=scale&path=chromium/websockify
+https://browser.peacocks.me/firefox/vnc.html?autoconnect=1&resize=scale&path=firefox/websockify
+```
+
+The agent stops at the challenge and hands over the view's link. Its window is on top (no window manager, the newest
+window covers the rest); solve it there and tell the agent to carry on, the clearance stays in its context. The router
+lets agents on the LAN (`labs: agents to mcp-web`) and the edge (`labs: edge to mcp-web`) at the servers and views,
+nothing else. The display and view run as their own user, not the browser's: code an agent runs in a browser reaches
+neither its view, VNC or X's abstract socket, nor the other browser's (`config/egress.nft`, Xvnc's `-nolisten local`).
+
+Cloud sessions and claude.ai get them through `mcp.peacocks.me` (this repo's `.mcp.json`), without the `edgeDeny`
+tools. Claude Code on a LAN machine can reach them directly, with every tool, at the user scope:
 
 ```sh
 claude mcp add --scope user --transport http playwright-chromium http://10.100.1.13:8108/mcp
 claude mcp add --scope user --transport http playwright-firefox http://10.100.1.13:8112/mcp
 ```
+
+The views site needs its Kanidm client's secret (`ionos-de-browser` in `secrets/sso.yaml`, modules/services/sso/README.md)
+and an A record for `browser.peacocks.me` before the edge's first deploy with it; deploy `auth`, then `ionos-de`.
 
 And the order above for the agent, in `~/.claude/CLAUDE.md`:
 
@@ -313,7 +327,7 @@ A repo's `.mcp.json` points at its project:
 { "mcpServers": { "rea": { "type": "http", "url": "https://mcp.peacocks.me/rea/<project>/mcp" } } }
 ```
 
-`scratch` (9102) is any agent's, for a one-off sample that needs no project of its own: everything in it is shared
+`sm2262` (9103) is the SM2262 controller's. `scratch` (9102) is any agent's, for a one-off sample that needs no project of its own: everything in it is shared
 with every agent using it, so nothing there should be private. This repo's `.mcp.json` has it as `rea-scratch`.
 
 Adding a project is a line in `hosts/virtual/rea` and a deploy, the edge needs nothing. Each session takes

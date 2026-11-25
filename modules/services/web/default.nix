@@ -117,6 +117,12 @@ let
         type = types.listOf types.str;
         default = [ ];
       };
+      # MCP endpoints' tools agentgateway refuses and leaves out of the tool list, prefix -> tools, with what `from`
+      # hosts publish (`audit` sites).
+      mcpDeny = mkOption {
+        type = types.attrsOf (types.listOf types.str);
+        default = { };
+      };
 
       # nginx's client_max_body_size for the site, e.g. "1g" for `locations` that take uploads.
       maxBodySize = mkOption {
@@ -172,6 +178,8 @@ let
         else first (x: x.p.upstream.certificate) upstreams;
       maxBodySize = lib.findFirst (v: v != null) null ([ s.maxBodySize ] ++ map (x: x.p.maxBodySize) published);
       mcp = s.mcp ++ lib.concatMap (x: lib.attrNames (lib.filterAttrs (_: l: l.mcp) x.p.locations)) published;
+      mcpDeny = lib.foldl' (all: x: all // lib.mapAttrs (_: l: l.deny)
+        (lib.filterAttrs (_: l: l.mcp && l.deny != [ ]) x.p.locations)) { } published // s.mcpDeny;
     };
   sites = lib.mapAttrs (_: resolve) cfg.sites;
 
@@ -207,6 +215,7 @@ let
     target = lib.replaceStrings [ "/" ] [ "-" ] (lib.removePrefix "/" (lib.removeSuffix "/mcp" prefix));
     inherit prefix;
     url = s.locations.${prefix};
+    deny = s.mcpDeny.${prefix} or [ ];
   }) (lib.optionals s.audit s.mcp)) sites);
   gatewayPort = 15100;
   gatewayConfig = {
@@ -241,7 +250,7 @@ let
       bindAddress = "127.0.0.1";
       protocol = "HTTP";
     };
-    routes = map (r: {
+    routes = map (r: lib.recursiveUpdate {
       inherit (r) name;
       gateways = "mcp";
       matches = [{ path.pathPrefix = r.prefix; }];
@@ -253,7 +262,10 @@ let
         responseIdleTimeout = "1h";
       };
       backends = [{ mcp.targets = [{ name = r.target; mcp.host = r.url; }]; }];
-    }) gatewayRoutes;
+    } (lib.optionalAttrs (r.deny != [ ]) {
+      # Every tool but these: agentgateway refuses them and leaves them out of tools/list.
+      policies.mcpAuthorization.rules = [ "!(mcp.tool.name in ${builtins.toJSON r.deny})" ];
+    })) gatewayRoutes;
   };
   agentgateway = pkgs.callPackage ./packages/agentgateway.nix { };
   # Checked by agentgateway itself at build, a config it would refuse never deploys.
@@ -463,7 +475,7 @@ in
       # oauth and sso sites they name the client or user (the token's client, its sub, the session's username).
       commonHttpConfig = ''
         access_log ${accessLog};
-      '' + lib.optionalString logsUser ''
+      '' + builtins.readFile ./config/upgrade-map.conf + lib.optionalString logsUser ''
         log_format user '$remote_addr $web_user [$time_local] "$request" $status $body_bytes_sent $request_time';
       '' + lib.concatStrings (lib.mapAttrsToList (name: _:
         snippet "token-map.conf" { client = clientVar name; tokens = config.sops.templates."${name}-tokens".path; }) tokenSites);

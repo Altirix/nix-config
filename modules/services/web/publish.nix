@@ -22,6 +22,11 @@ in
             type = types.bool;
             default = false;
           };
+          # Its tools agentgateway refuses and leaves out of the tool list (audited sites).
+          deny = mkOption {
+            type = types.listOf types.str;
+            default = [ ];
+          };
         };
       });
       default = { };

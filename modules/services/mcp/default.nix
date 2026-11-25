@@ -58,8 +58,8 @@ let
         type = types.listOf types.port;
         default = [ ];
       };
-      # Published at /<name>/mcp (homelab.publish) for a front door to serve (mcp.peacocks.me), low-risk servers only:
-      # never a playwright (runs code). The router also has to let the edge in on its port.
+      # Published at /<name>/mcp (homelab.publish) for a front door to serve (mcp.peacocks.me), low-risk servers or
+      # ones whose risky tools `edgeDeny` takes away. The router also has to let the edge in on its port.
       public = mkOption {
         type = types.bool;
         default = false;
@@ -69,6 +69,12 @@ let
       endpoint = mkOption {
         type = types.str;
         default = "/mcp";
+      };
+      # Tools the front door refuses, and leaves out of the tool list, when it's published (agentgateway). Clients
+      # reaching the server directly (the LAN) still have them.
+      edgeDeny = mkOption {
+        type = types.listOf types.str;
+        default = [ ];
       };
       # Where it's published, /<name>/mcp unless set (e.g. /kicad/<project>/mcp for a server per project).
       publishAt = mkOption {
@@ -170,6 +176,7 @@ in
       inherit (s) port;
       path = s.endpoint;
       mcp = true;
+      deny = s.edgeDeny;
     }) (lib.filterAttrs (_: s: s.public) enabled);
   };
 }
