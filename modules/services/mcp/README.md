@@ -254,10 +254,12 @@ On `mcp-web`, an agent goes from cheapest to heaviest:
    challenges one browser often lets the other through.
 4. A challenge neither passes (a captcha, Turnstile) is for a person, below.
 
-What a browser downloads or saves (a PDF, a screenshot) lands in `/var/lib/mcp-playwright-<browser>/output/`, kept 7
-days. markitdown, alone of the servers, reads it: `file:///var/lib/mcp-playwright-firefox/output/<file>.pdf` to text,
-for datasheets a site only hands a browser (LCSC answers fetch and markitdown 403). Firefox downloads a PDF it opens,
-Chromium shows it in its viewer.
+Datasheets: Chromium shows a PDF in its viewer and `browser_take_screenshot` returns the screen to the agent as an
+image, so drawings (pinouts, package dimensions, land patterns) are read off a screenshot. The viewer takes
+`#page=N&zoom=200` on the URL, page N at 200%, rather than scrolling to it. What a browser downloads or saves lands
+in `/var/lib/mcp-playwright-<browser>/output/`, kept 7 days: Firefox downloads a PDF it opens, and markitdown, alone
+of the servers, reads it (`file:///var/lib/mcp-playwright-firefox/output/<file>.pdf`) for the text, for datasheets a
+site only hands a browser (LCSC answers fetch and markitdown 403).
 
 Each browser server runs one headed browser (`servers/playwright.nix`), `--isolated`: every agent connected gets a
 context of its own, so many share it without seeing each other's tabs or cookies. Headed on a display of its own
@@ -305,9 +307,10 @@ And the order above for the agent, in `~/.claude/CLAUDE.md`:
 ## Web access
 1. For parts, use jlcpcb (JLC/LCSC) and digikey before any website.
 2. Search with searxng; add a bang (!go, !bi, !br, !qw) to target one engine.
-3. Open results with fetch. For a datasheet the site won't hand fetch or markitdown (LCSC answers 403), open it in
-   playwright-firefox, which downloads the PDF to its output/, then convert
-   file:///var/lib/mcp-playwright-firefox/output/<file> with markitdown.
+3. Open results with fetch. Read a datasheet in playwright-chromium's PDF viewer, which also gets past sites that
+   refuse fetch and markitdown (LCSC answers 403): go to <pdf url>#page=N&zoom=200 for page N at 200%, and take a
+   screenshot to see a pinout, package drawing or land pattern. For its text, markitdown the URL, or the PDF
+   playwright-firefox downloads (file:///var/lib/mcp-playwright-firefox/output/<file>).
 4. If the page is empty, needs JavaScript or is blocked, use playwright-chromium.
 5. If it's challenged, try playwright-firefox.
 6. If both are challenged, stop, give me the view link for that browser (https://browser.peacocks.me/chromium/ or
